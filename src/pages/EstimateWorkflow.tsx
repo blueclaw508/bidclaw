@@ -28,6 +28,8 @@ import {
   AlertCircle,
   RefreshCw,
   BarChart3,
+  FileText,
+  ExternalLink,
 } from 'lucide-react'
 import {
   LearningPrompt,
@@ -60,6 +62,9 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
   const [loading, setLoading] = useState(true)
   const [aiLoading, setAiLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Job details (editable by user)
+  const [jobDescription, setJobDescription] = useState('')
 
   // Phase 1: Work areas
   const [proposedAreas, setProposedAreas] = useState<
@@ -116,7 +121,11 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         setLoading(false)
         return
       }
-      if (estResult.data) setEstimate(estResult.data)
+      if (estResult.data) {
+        setEstimate(estResult.data)
+        // Populate editable job description from stored conversation
+        setJobDescription(estResult.data.ai_conversation?.[0]?.content ?? '')
+      }
       setCompanyData({
         rates: ratesResult.data ?? [],
         materials: matsResult.data ?? [],
@@ -188,18 +197,31 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
     try {
       // Build user message content — include plan image and/or job description
-      const jobText = estimate.ai_conversation?.[0]?.content
+      const jobText = jobDescription
       const planUrl = estimate.plan_url
 
       const contentParts: Array<Record<string, unknown>> = []
 
-      // If there's a plan file, send it as an image/document for the AI to analyze
+      // If there's a plan file, get a signed URL and send for AI to analyze
       if (planUrl) {
-        const ext = planUrl.split('.').pop()?.toLowerCase()
-        contentParts.push({
-          type: ext === 'pdf' ? 'document' : 'image',
-          source: { type: 'url', url: planUrl },
-        })
+        // Extract the storage path from the public URL
+        const pathMatch = planUrl.match(/\/object\/public\/plans\/(.+)$/)
+        const storagePath = pathMatch?.[1]
+
+        if (storagePath) {
+          // Generate a signed URL that the Netlify function can download
+          const { data: signedData } = await supabase.storage
+            .from('plans')
+            .createSignedUrl(storagePath, 300) // 5 min expiry
+
+          if (signedData?.signedUrl) {
+            const ext = storagePath.split('.').pop()?.toLowerCase()
+            contentParts.push({
+              type: ext === 'pdf' ? 'document' : 'image',
+              source: { type: 'url', url: signedData.signedUrl },
+            })
+          }
+        }
       }
 
       // Add text description
@@ -235,14 +257,20 @@ Respond in JSON only with this format: { "work_areas": [{ "name": "", "category"
     } finally {
       setAiLoading(false)
     }
-  }, [user, estimate, companyProfile, companyData.workTypes])
+  }, [user, estimate, jobDescription, companyProfile, companyData.workTypes])
 
-  // Auto-analyze on mount if no areas exist
-  useEffect(() => {
-    if (!loading && estimate && proposedAreas.length === 0 && workAreas.length === 0) {
-      analyzeJob()
-    }
-  }, [loading, estimate, proposedAreas.length, workAreas.length, analyzeJob])
+  // Save updated job description to the estimate
+  const saveJobDescription = useCallback(async () => {
+    if (!estimate) return
+    await supabase
+      .from('bidclaw_estimates')
+      .update({
+        ai_conversation: jobDescription
+          ? [{ role: 'user', content: jobDescription }]
+          : null,
+      })
+      .eq('id', estimate.id)
+  }, [estimate, jobDescription])
 
   // ── Phase 1: Approve work areas ──
   const approveWorkAreas = async () => {
@@ -664,6 +692,56 @@ Respond in JSON only: { "work_areas": [{ "name": "", "notes": ["bullet 1"], "mat
       {/* ═══════ PHASE 1: Work Areas ═══════ */}
       {phase === 1 && (
         <div className="space-y-4">
+          {/* Job Details — plan file + description */}
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+              Job Details
+            </h3>
+
+            {/* Uploaded plan file */}
+            {estimate?.plan_url && (
+              <div className="mb-4">
+                <label className="mb-1 block text-xs font-medium text-slate-500">Uploaded Plan</label>
+                <a
+                  href={estimate.plan_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                >
+                  <FileText size={16} />
+                  {estimate.plan_url.split('/').pop()?.split('?')[0] ?? 'Plan file'}
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+            )}
+
+            {/* Editable job description */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">
+                Job Description &amp; Notes for AI
+              </label>
+              <textarea
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+                onBlur={saveJobDescription}
+                rows={4}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none"
+                placeholder="Describe the work: areas involved, materials specified, special conditions..."
+              />
+            </div>
+
+            {/* Analyze button */}
+            <button
+              onClick={analyzeJob}
+              disabled={aiLoading}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg, #1e3a5f, #2d5aa0)' }}
+            >
+              <Sparkles size={16} />
+              {proposedAreas.length > 0 ? 'Re-Analyze with AI' : 'Analyze with AI'}
+            </button>
+          </div>
+
           {aiLoading ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-white py-16">
               <Loader2 className="mb-4 animate-spin text-blue-500" size={32} />
