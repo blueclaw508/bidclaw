@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { supabase, invokeEdgeFunction } from '@/lib/supabase'
+import { supabase, callAI, invokeEdgeFunction } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 import type {
@@ -177,18 +177,14 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
       const jobText =
         estimate.ai_conversation?.[0]?.content ?? 'Plan uploaded — analyze the plan.'
 
-      const { data, error: aiError } = await invokeEdgeFunction<AiPlanAnalysis>(
-        'ai-chat',
-        {
-          action: 'analyze_plan',
-          payload: {
-            company_name: companyProfile?.companyName ?? '',
-            work_types: companyData.workTypes,
-            job_text: jobText,
-            plan_url: estimate.plan_url,
-          },
-        }
-      )
+      const systemPrompt = `You are BidClaw, an AI estimating assistant for ${companyProfile?.companyName ?? 'a contractor'}.
+You are analyzing a job to propose work areas. Known work types: ${companyData.workTypes.map(w => w.name).join(', ') || 'general construction'}.
+Respond in JSON only with this format: { "work_areas": [{ "name": "", "category": "", "rationale": "" }], "assumptions": [], "questions": [] }`
+
+      const { data, error: aiError } = await callAI<AiPlanAnalysis>({
+        system: systemPrompt,
+        messages: [{ role: 'user', content: jobText }],
+      })
 
       if (aiError) throw new Error(aiError)
       if (!data) throw new Error('No response from AI')
@@ -264,20 +260,16 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
       const jobText =
         estimate.ai_conversation?.[0]?.content ?? 'Plan uploaded.'
 
-      const { data, error: aiError } = await invokeEdgeFunction<AiTakeoffResponse>(
-        'ai-chat',
-        {
-          action: 'generate_takeoffs',
-          payload: {
-            company_name: companyProfile?.companyName ?? '',
-            materials_catalog: companyData.materials,
-            equipment_catalog: companyData.equipment,
-            work_areas: areas.map((wa) => wa.name),
-            job_text: jobText,
-            plan_url: estimate.plan_url,
-          },
-        }
-      )
+      const materialNames = companyData.materials.map(m => m.item_name || m.name).filter(Boolean).join(', ')
+      const equipmentNames = companyData.equipment.map(e => e.item_name || e.name).filter(Boolean).join(', ')
+      const systemPrompt = `You are BidClaw, an AI estimating assistant for ${companyProfile?.companyName ?? 'a contractor'}.
+Generate material takeoffs for approved work areas. Known materials: ${materialNames || 'general'}. Known equipment: ${equipmentNames || 'general'}.
+Respond in JSON only: { "work_areas": [{ "name": "", "materials": [{ "name": "", "quantity": 0, "unit": "", "rationale": "" }], "equipment": [{ "name": "", "hours": 0 }], "assumptions": [] }] }`
+
+      const { data, error: aiError } = await callAI<AiTakeoffResponse>({
+        system: systemPrompt,
+        messages: [{ role: 'user', content: `Work areas: ${areas.map(wa => wa.name).join(', ')}.\nJob details: ${jobText}` }],
+      })
 
       if (aiError) throw new Error(aiError)
       if (!data) throw new Error('No response from AI')
@@ -390,22 +382,19 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
           })),
       }))
 
-      const { data, error: aiError } = await invokeEdgeFunction<AiFullEstimateResponse>(
-        'ai-chat',
-        {
-          action: 'complete_estimate',
-          payload: {
-            company_name: companyProfile?.companyName ?? '',
-            production_rates: companyData.rates,
-            work_areas_with_crew: workAreas.map((wa) => ({
-              name: wa.name,
-              crew_size: wa.crew_size,
-              crew_hours_per_day: wa.crew_hours_per_day,
-            })),
-            takeoffs: takeoffData,
-          },
-        }
-      )
+      const ratesText = companyData.rates.map(r => `${r.work_type}: ${r.man_hours_per_unit} MH/${r.unit}`).join(', ')
+      const systemPrompt = `You are BidClaw, an AI estimating assistant for ${companyProfile?.companyName ?? 'a contractor'}.
+Complete the full estimate — calculate labor hours, write work area notes in bullet format, and add general conditions.
+Production rates: ${ratesText || 'use industry standard rates'}.
+For each work area, use the crew size and hours/day provided to round labor to crew-day increments.
+Notes format: bullet points. First: what is being installed. Second: overall size/qty. Third: material specified. Remaining: work sequence. Last: Disposal Fees Included (if applicable).
+Respond in JSON only: { "work_areas": [{ "name": "", "notes": ["bullet 1"], "materials": [{ "name": "", "quantity": 0, "unit": "" }], "equipment": [{ "name": "", "hours": 0 }], "labor": { "man_hours": 0, "increment": "full", "days": 1 }, "general_conditions": { "amount": 0 } }], "man_hour_summary": { "total_man_hours": 0, "total_days": 0, "breakdown": [] } }`
+
+      const crewInfo = workAreas.map(wa => `${wa.name}: crew ${wa.crew_size} × ${wa.crew_hours_per_day} hr/day`).join('; ')
+      const { data, error: aiError } = await callAI<AiFullEstimateResponse>({
+        system: systemPrompt,
+        messages: [{ role: 'user', content: `Crew info: ${crewInfo}\nTakeoffs: ${JSON.stringify(takeoffData)}` }],
+      })
 
       if (aiError) throw new Error(aiError)
       if (!data) throw new Error('No response from AI')

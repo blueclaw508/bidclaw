@@ -9,6 +9,46 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
+// Call Netlify serverless function for AI
+export async function callAI<T = unknown>(payload: {
+  messages: Array<{ role: string; content: string | Array<Record<string, unknown>> }>
+  system?: string
+  max_tokens?: number
+}): Promise<{ data: T | null; error: string | null }> {
+  try {
+    const response = await fetch('/.netlify/functions/ai-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      return { data: null, error: errorText || `HTTP ${response.status}` }
+    }
+
+    const raw = await response.json()
+    // Anthropic returns { content: [{ type: 'text', text: '...' }] }
+    const text = raw?.content?.[0]?.text
+    if (!text) return { data: null, error: 'No response from AI' }
+
+    // Try to parse JSON from the response
+    try {
+      const parsed = JSON.parse(text) as T
+      return { data: parsed, error: null }
+    } catch {
+      // If it's not JSON, return the text wrapped
+      return { data: text as unknown as T, error: null }
+    }
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+// Legacy edge function caller (for send-to-quickcalc etc.)
 export async function invokeEdgeFunction<T = unknown>(
   functionName: string,
   payload: Record<string, unknown>
