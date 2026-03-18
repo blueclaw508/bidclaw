@@ -193,15 +193,12 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
       const contentParts: Array<Record<string, unknown>> = []
 
-      // If there's a plan file, send it as an image for the AI to analyze
+      // If there's a plan file, send it as an image/document for the AI to analyze
       if (planUrl) {
         const ext = planUrl.split('.').pop()?.toLowerCase()
-        const mediaType = ext === 'pdf' ? 'application/pdf'
-          : ext === 'png' ? 'image/png'
-          : 'image/jpeg'
         contentParts.push({
           type: ext === 'pdf' ? 'document' : 'image',
-          source: { type: 'url', url: planUrl, media_type: mediaType },
+          source: { type: 'url', url: planUrl },
         })
       }
 
