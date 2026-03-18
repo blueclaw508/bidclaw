@@ -32,13 +32,14 @@ export async function callAI<T = unknown>(payload: {
     const text = raw?.content?.[0]?.text
     if (!text) return { data: null, error: 'No response from AI' }
 
-    // Try to parse JSON from the response
+    // Try to parse JSON from the response (strip markdown code fences if present)
     try {
-      const parsed = JSON.parse(text) as T
+      const jsonStr = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+      const parsed = JSON.parse(jsonStr) as T
       return { data: parsed, error: null }
     } catch {
-      // If it's not JSON, return the text wrapped
-      return { data: text as unknown as T, error: null }
+      // If it's not JSON, return as error so callers don't get a string where they expect an object
+      return { data: null, error: `AI returned unparseable response: ${text.slice(0, 200)}` }
     }
   } catch (err) {
     return {
