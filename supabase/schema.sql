@@ -1,9 +1,10 @@
 -- ============================================================
--- BidClaw v1 — Supabase Database Schema
--- Run this in the Supabase SQL Editor for your project
+-- BidClaw v1.1 — Corrected Schema (Quantities Only)
+-- BidClaw collects quantities and raw costs only.
+-- All pricing, markups, and KYN calculations happen in QuickCalc.
+-- Run this in the Supabase SQL Editor for your project.
 -- ============================================================
 
--- Enable UUID generation
 create extension if not exists "uuid-ossp";
 
 -- ──────────────────────────────────────────────────────────────
@@ -16,50 +17,14 @@ create table companies (
   user_id uuid references auth.users(id) on delete cascade not null,
   name text not null,
   logo_url text,
-  address text,
-  crew_full_day_men int default 3,
+  street text,
+  city text,
+  state text,
+  zip text,
+  typical_crew_size int default 3,
   crew_full_day_hours numeric default 9,
   crew_half_day_hours numeric default 4.5,
   estimating_methodology text,
-
-  -- KYN: Labor Burden
-  base_hourly_wage numeric,
-  payroll_tax_rate numeric default 12,
-  workers_comp_rate numeric default 12,
-  pto_days_per_year numeric default 10,
-  unbillable_percent numeric default 15,
-  burdened_labor_cost numeric,         -- calculated
-  true_cost_per_billable_hour numeric, -- calculated (after efficiency)
-
-  -- KYN: Overhead
-  monthly_overhead jsonb,              -- { "owner_salary": 5000, ... }
-  annual_overhead numeric,             -- calculated
-  annual_billable_hours numeric,
-  overhead_per_hour numeric,           -- calculated
-
-  -- KYN: Profit & Retail Rate
-  target_profit_percent numeric default 15,
-  retail_labor_rate numeric,           -- calculated (the big number)
-
-  -- KYN: Markups
-  material_markup_percent numeric default 25,
-  sub_markup_percent numeric default 15,
-  disposal_markup_percent numeric default 20,
-  delivery_markup_percent numeric default 20,
-
-  -- KYN: Efficiency
-  prior_year_sales numeric,
-  prior_year_materials numeric,
-  prior_year_subs numeric,
-  prior_year_avg_hourly_rate numeric,
-  prior_year_paid_hours numeric,
-  prior_year_material_markup numeric,
-  prior_year_sub_markup numeric,
-  efficiency_rating numeric,           -- calculated
-
-  -- KYN: Setup complete flag
-  kyn_setup_complete boolean default false,
-
   created_at timestamptz default now(),
   unique(user_id)
 );
@@ -74,34 +39,47 @@ create table production_rates (
   notes text
 );
 
--- Material cost catalog
+-- Item Catalog — Materials
 create table materials_catalog (
   id uuid primary key default uuid_generate_v4(),
   company_id uuid references companies(id) on delete cascade not null,
   name text not null,
+  um text,          -- Unit of Measure (SF, CY, LF, EA, ton, bag, roll)
   unit text not null,
   unit_cost numeric not null,
   supplier text,
   notes text
 );
 
--- Sub cost catalog
+-- Item Catalog — Subcontractors
 create table subs_catalog (
   id uuid primary key default uuid_generate_v4(),
   company_id uuid references companies(id) on delete cascade not null,
   name text not null,
+  um text,          -- Unit of Measure
   unit text not null,
   unit_cost numeric not null,
   trade text,
   notes text
 );
 
--- Equipment catalog
+-- Item Catalog — Equipment (names only, no rates)
 create table equipment_catalog (
   id uuid primary key default uuid_generate_v4(),
   company_id uuid references companies(id) on delete cascade not null,
   name text not null,
   billable boolean default true
+);
+
+-- Item Catalog — Disposal Fees/Other
+create table disposal_catalog (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references companies(id) on delete cascade not null,
+  name text not null,
+  um text,          -- Unit of Measure
+  unit text not null,
+  unit_cost numeric not null,
+  notes text
 );
 
 -- Work types library
@@ -148,7 +126,7 @@ create table work_areas (
 create table line_items (
   id uuid primary key default uuid_generate_v4(),
   work_area_id uuid references work_areas(id) on delete cascade not null,
-  type text not null,
+  type text not null,  -- 'material', 'equipment', 'labor', 'sub', 'disposal', 'general_conditions'
   name text not null,
   quantity numeric default 0,
   unit text,
@@ -158,31 +136,16 @@ create table line_items (
   sort_order int default 0
 );
 
--- Job efficiency tracking (post-completion)
+-- Job efficiency tracking
 create table job_efficiency (
   id uuid primary key default uuid_generate_v4(),
   estimate_id uuid references estimates(id) on delete cascade not null unique,
   budgeted_man_hours numeric not null,
   actual_man_hours numeric,
-  efficiency_percent numeric,  -- calculated: budgeted / actual * 100
+  efficiency_percent numeric,
   notes text,
   tracked_at timestamptz default now()
 );
-
-alter table job_efficiency enable row level security;
-
-create policy "Users manage own job efficiency"
-  on job_efficiency for all
-  using (
-    estimate_id in (
-      select id from estimates where company_id = get_user_company_id()
-    )
-  )
-  with check (
-    estimate_id in (
-      select id from estimates where company_id = get_user_company_id()
-    )
-  );
 
 -- ──────────────────────────────────────────────────────────────
 -- AUTO-UPDATE updated_at
@@ -209,24 +172,26 @@ alter table production_rates enable row level security;
 alter table materials_catalog enable row level security;
 alter table subs_catalog enable row level security;
 alter table equipment_catalog enable row level security;
+alter table disposal_catalog enable row level security;
 alter table work_types enable row level security;
 alter table estimates enable row level security;
 alter table work_areas enable row level security;
 alter table line_items enable row level security;
+alter table job_efficiency enable row level security;
 
--- Companies: user owns their company row
+-- Companies
 create policy "Users manage own company"
   on companies for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- Helper function: get company_id for current user
+-- Helper function
 create or replace function get_user_company_id()
 returns uuid as $$
   select id from companies where user_id = auth.uid() limit 1;
 $$ language sql security definer stable;
 
--- Production rates: via company ownership
+-- Production rates
 create policy "Users manage own production rates"
   on production_rates for all
   using (company_id = get_user_company_id())
@@ -250,6 +215,12 @@ create policy "Users manage own equipment"
   using (company_id = get_user_company_id())
   with check (company_id = get_user_company_id());
 
+-- Disposal catalog
+create policy "Users manage own disposal"
+  on disposal_catalog for all
+  using (company_id = get_user_company_id())
+  with check (company_id = get_user_company_id());
+
 -- Work types
 create policy "Users manage own work types"
   on work_types for all
@@ -262,7 +233,7 @@ create policy "Users manage own estimates"
   using (company_id = get_user_company_id())
   with check (company_id = get_user_company_id());
 
--- Work areas: via estimate → company chain
+-- Work areas
 create policy "Users manage own work areas"
   on work_areas for all
   using (
@@ -276,7 +247,7 @@ create policy "Users manage own work areas"
     )
   );
 
--- Line items: via work_area → estimate → company chain
+-- Line items
 create policy "Users manage own line items"
   on line_items for all
   using (
@@ -294,12 +265,30 @@ create policy "Users manage own line items"
     )
   );
 
+-- Job efficiency
+create policy "Users manage own job efficiency"
+  on job_efficiency for all
+  using (
+    estimate_id in (
+      select id from estimates where company_id = get_user_company_id()
+    )
+  )
+  with check (
+    estimate_id in (
+      select id from estimates where company_id = get_user_company_id()
+    )
+  );
+
 -- ──────────────────────────────────────────────────────────────
--- STORAGE BUCKET for plan uploads
+-- STORAGE BUCKETS
 -- ──────────────────────────────────────────────────────────────
 
 insert into storage.buckets (id, name, public)
 values ('plans', 'plans', false)
+on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('logos', 'logos', true)
 on conflict (id) do nothing;
 
 create policy "Users upload own plans"
@@ -310,11 +299,6 @@ create policy "Users read own plans"
   on storage.objects for select
   using (bucket_id = 'plans' and auth.uid()::text = (storage.foldername(name))[1]);
 
--- Logo uploads bucket
-insert into storage.buckets (id, name, public)
-values ('logos', 'logos', true)
-on conflict (id) do nothing;
-
 create policy "Users upload own logos"
   on storage.objects for insert
   with check (bucket_id = 'logos' and auth.uid()::text = (storage.foldername(name))[1]);
@@ -322,3 +306,6 @@ create policy "Users upload own logos"
 create policy "Anyone can read logos"
   on storage.objects for select
   using (bucket_id = 'logos');
+
+-- Notify PostgREST to reload schema cache
+NOTIFY pgrst, 'reload schema';

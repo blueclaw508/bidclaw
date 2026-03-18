@@ -407,7 +407,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             company_name: company.name,
             methodology: company.estimating_methodology,
             production_rates: companyData.rates,
-            crew_full_day_men: company.crew_full_day_men,
+            crew_full_day_men: company.typical_crew_size,
             crew_full_day_hours: company.crew_full_day_hours,
             crew_half_day_hours: company.crew_half_day_hours,
             takeoffs: takeoffData,

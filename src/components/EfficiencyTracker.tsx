@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 import type { JobEfficiency } from '@/lib/types'
 import { BarChart3, Check, X, TrendingUp, TrendingDown } from 'lucide-react'
@@ -18,12 +17,10 @@ export function EfficiencyTracker({
   jobName,
   onClose,
 }: EfficiencyTrackerProps) {
-  const { company } = useAuth()
   const [actualHours, setActualHours] = useState<number | ''>('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [existing, setExisting] = useState<JobEfficiency | null>(null)
-  const [updateCompanyRate, setUpdateCompanyRate] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -83,22 +80,6 @@ export function EfficiencyTracker({
           .eq('id', existing.id)
       } else {
         await supabase.from('job_efficiency').insert(record)
-      }
-
-      // Optionally update company efficiency rating
-      if (updateCompanyRate && company && efficiencyPercent) {
-        const currentRate = company.efficiency_rating
-        // Rolling average if they have an existing rate
-        const newRate = currentRate
-          ? (currentRate + efficiencyPercent) / 2
-          : efficiencyPercent
-
-        await supabase
-          .from('companies')
-          .update({ efficiency_rating: Math.round(newRate * 10) / 10 })
-          .eq('id', company.id)
-
-        toast.success(`Company efficiency updated to ${newRate.toFixed(1)}%`)
       }
 
       toast.success('Efficiency tracked')
@@ -183,20 +164,6 @@ export function EfficiencyTracker({
           placeholder="Weather delay, scope change, etc."
         />
       </div>
-
-      {efficiencyPercent !== null && (
-        <label className="mb-4 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={updateCompanyRate}
-            onChange={(e) => setUpdateCompanyRate(e.target.checked)}
-            className="rounded"
-          />
-          <span className="text-muted-foreground">
-            Update my company efficiency rate (rolling average)
-          </span>
-        </label>
-      )}
 
       <div className="flex gap-2">
         <button
