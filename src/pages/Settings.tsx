@@ -23,11 +23,12 @@ import {
   Upload,
 } from 'lucide-react'
 
-type Tab = 'company' | 'crew' | 'rates' | 'materials' | 'subs' | 'equipment' | 'work-types'
+type Tab = 'company' | 'crew' | 'kyn' | 'rates' | 'materials' | 'subs' | 'equipment' | 'work-types'
 
 const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'company', label: 'Company', icon: <Building2 size={16} /> },
   { id: 'crew', label: 'Crew', icon: <Users size={16} /> },
+  { id: 'kyn', label: 'My Numbers', icon: <Gauge size={16} /> },
   { id: 'rates', label: 'Rates', icon: <Gauge size={16} /> },
   { id: 'materials', label: 'Materials', icon: <Package size={16} /> },
   { id: 'subs', label: 'Subs', icon: <Wrench size={16} /> },
@@ -51,6 +52,15 @@ export function Settings() {
   const [crewFullHours, setCrewFullHours] = useState(9)
   const [crewHalfHours, setCrewHalfHours] = useState(4.5)
 
+  // KYN Numbers
+  const [baseWage, setBaseWage] = useState(0)
+  const [payrollTaxRate, setPayrollTaxRate] = useState(12)
+  const [workersCompRate, setWorkersCompRate] = useState(12)
+  const [targetProfit, setTargetProfit] = useState(15)
+  const [materialMarkup, setMaterialMarkup] = useState(25)
+  const [subMarkup, setSubMarkup] = useState(15)
+  const [retailRate, setRetailRate] = useState(0)
+
   // Catalogs
   const [rates, setRates] = useState<ProductionRate[]>([])
   const [materials, setMaterials] = useState<MaterialCatalogItem[]>([])
@@ -63,6 +73,13 @@ export function Settings() {
     setCompanyName(company.name)
     setCompanyAddress(company.address ?? '')
     setLogoUrl(company.logo_url)
+    setBaseWage(company.base_hourly_wage ?? 0)
+    setPayrollTaxRate(company.payroll_tax_rate)
+    setWorkersCompRate(company.workers_comp_rate)
+    setTargetProfit(company.target_profit_percent)
+    setMaterialMarkup(company.material_markup_percent)
+    setSubMarkup(company.sub_markup_percent)
+    setRetailRate(company.retail_labor_rate ?? 0)
     setCrewMen(company.crew_full_day_men)
     setCrewFullHours(company.crew_full_day_hours)
     setCrewHalfHours(company.crew_half_day_hours)
@@ -348,6 +365,98 @@ export function Settings() {
             <Save size={16} />
             {saved ? 'Saved!' : saving ? 'Saving...' : 'Save'}
           </button>
+        </div>
+      )}
+
+      {/* KYN My Numbers tab */}
+      {activeTab === 'kyn' && (
+        <div className="rounded-xl border border-border bg-white p-6 space-y-5">
+          <div className="rounded-lg bg-navy/5 p-4">
+            <div className="grid grid-cols-2 gap-4 text-center sm:grid-cols-4">
+              <div>
+                <p className="text-xl font-bold text-navy">${retailRate.toFixed(2)}/hr</p>
+                <p className="text-xs text-muted-foreground">Retail Labor Rate</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-navy">{materialMarkup}%</p>
+                <p className="text-xs text-muted-foreground">Material Markup</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-navy">{subMarkup}%</p>
+                <p className="text-xs text-muted-foreground">Sub Markup</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-navy">{targetProfit}%</p>
+                <p className="text-xs text-muted-foreground">Target Profit</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Base Hourly Wage ($)</label>
+              <input type="number" step={0.5} value={baseWage}
+                onChange={(e) => setBaseWage(Number(e.target.value))}
+                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Payroll Tax Rate (%)</label>
+              <input type="number" step={0.5} value={payrollTaxRate}
+                onChange={(e) => setPayrollTaxRate(Number(e.target.value))}
+                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Workers Comp Rate (%)</label>
+              <input type="number" step={0.5} value={workersCompRate}
+                onChange={(e) => setWorkersCompRate(Number(e.target.value))}
+                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Target Net Profit (%)</label>
+              <input type="number" step={1} min={5} max={30} value={targetProfit}
+                onChange={(e) => setTargetProfit(Number(e.target.value))}
+                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Material Markup (%)</label>
+              <input type="number" step={1} value={materialMarkup}
+                onChange={(e) => setMaterialMarkup(Number(e.target.value))}
+                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Sub Markup (%)</label>
+              <input type="number" step={1} value={subMarkup}
+                onChange={(e) => setSubMarkup(Number(e.target.value))}
+                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+            </div>
+          </div>
+
+          <button
+            onClick={async () => {
+              if (!company) return
+              setSaving(true)
+              await supabase.from('companies').update({
+                base_hourly_wage: baseWage,
+                payroll_tax_rate: payrollTaxRate,
+                workers_comp_rate: workersCompRate,
+                target_profit_percent: targetProfit,
+                material_markup_percent: materialMarkup,
+                sub_markup_percent: subMarkup,
+              }).eq('id', company.id)
+              await refreshCompany()
+              setSaving(false)
+              toast.success('My Numbers updated')
+            }}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-navy-light disabled:opacity-50"
+          >
+            <Save size={16} />
+            {saving ? 'Saving...' : 'Save My Numbers'}
+          </button>
+
+          <p className="text-xs text-muted-foreground">
+            To recalculate your retail labor rate from scratch, re-run the KYN Setup Wizard from the overhead and profit steps.
+          </p>
         </div>
       )}
 

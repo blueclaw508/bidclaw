@@ -28,12 +28,14 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  BarChart3,
 } from 'lucide-react'
 import {
   LearningPrompt,
   detectLineItemEdits,
   type EditDiff,
 } from '@/components/LearningPrompt'
+import { EfficiencyTracker } from '@/components/EfficiencyTracker'
 
 interface EstimateWorkflowProps {
   estimateId: string
@@ -486,6 +488,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
   // ── Phase 4: Send to QuickCalc ──
   const [sendConfirm, setSendConfirm] = useState(false)
   const [sending, setSending] = useState(false)
+  const [showEfficiency, setShowEfficiency] = useState(false)
 
   const sendToQuickCalc = async () => {
     if (!estimate || !company) return
@@ -1123,6 +1126,26 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
               )}
             </div>
           </div>
+
+          {/* Efficiency tracker for sent estimates */}
+          {estimate.status === 'sent_to_quickcalc' && !showEfficiency && (
+            <button
+              onClick={() => setShowEfficiency(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gold/40 py-4 text-sm font-medium text-gold-dark hover:border-gold hover:bg-gold/5 transition-colors"
+            >
+              <BarChart3 size={18} />
+              Track Job Efficiency — How did the crew do?
+            </button>
+          )}
+
+          {showEfficiency && manHourSummary && (
+            <EfficiencyTracker
+              estimateId={estimateId}
+              budgetedManHours={manHourSummary.total_man_hours}
+              jobName={estimate.client_name}
+              onClose={() => setShowEfficiency(false)}
+            />
+          )}
 
           {estimate.status !== 'sent_to_quickcalc' && (
             <>

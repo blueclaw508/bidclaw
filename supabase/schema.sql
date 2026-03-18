@@ -158,6 +158,32 @@ create table line_items (
   sort_order int default 0
 );
 
+-- Job efficiency tracking (post-completion)
+create table job_efficiency (
+  id uuid primary key default uuid_generate_v4(),
+  estimate_id uuid references estimates(id) on delete cascade not null unique,
+  budgeted_man_hours numeric not null,
+  actual_man_hours numeric,
+  efficiency_percent numeric,  -- calculated: budgeted / actual * 100
+  notes text,
+  tracked_at timestamptz default now()
+);
+
+alter table job_efficiency enable row level security;
+
+create policy "Users manage own job efficiency"
+  on job_efficiency for all
+  using (
+    estimate_id in (
+      select id from estimates where company_id = get_user_company_id()
+    )
+  )
+  with check (
+    estimate_id in (
+      select id from estimates where company_id = get_user_company_id()
+    )
+  );
+
 -- ──────────────────────────────────────────────────────────────
 -- AUTO-UPDATE updated_at
 -- ──────────────────────────────────────────────────────────────

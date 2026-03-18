@@ -189,6 +189,17 @@ export interface LineItem {
   sort_order: number
 }
 
+// ── Job Efficiency ──
+export interface JobEfficiency {
+  id: string
+  estimate_id: string
+  budgeted_man_hours: number
+  actual_man_hours: number | null
+  efficiency_percent: number | null
+  notes: string | null
+  tracked_at: string
+}
+
 // ── AI Response Types ──
 export interface AiMessage {
   role: 'user' | 'assistant'
