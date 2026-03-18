@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { invokeEdgeFunction } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -116,6 +116,65 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
   // Step 9: Work Types
   const [workTypes, setWorkTypes] = useState<Partial<WorkType>[]>([])
+
+  // ── Persist wizard progress to localStorage ──
+  const STORAGE_KEY = 'bidclaw_setup_wizard'
+
+  // Save on every state change
+  useEffect(() => {
+    const data = {
+      step, companyName, companyAddress, crewMen, crewFullHours, crewHalfHours,
+      baseWage, payrollTaxRate, workersCompRate, ptoDays, unbillablePercent,
+      overhead, annualBillableHours, targetProfit,
+      materialMarkup, subMarkup, disposalMarkup, deliveryMarkup,
+      rates, materials, subs, equipment, workTypes,
+    }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch { /* ignore */ }
+  }, [
+    step, companyName, companyAddress, crewMen, crewFullHours, crewHalfHours,
+    baseWage, payrollTaxRate, workersCompRate, ptoDays, unbillablePercent,
+    overhead, annualBillableHours, targetProfit,
+    materialMarkup, subMarkup, disposalMarkup, deliveryMarkup,
+    rates, materials, subs, equipment, workTypes,
+  ])
+
+  // Load on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (!saved) return
+      const data = JSON.parse(saved)
+      if (data.step != null) setStep(data.step)
+      if (data.companyName) setCompanyName(data.companyName)
+      if (data.companyAddress) setCompanyAddress(data.companyAddress)
+      if (data.crewMen) setCrewMen(data.crewMen)
+      if (data.crewFullHours) setCrewFullHours(data.crewFullHours)
+      if (data.crewHalfHours) setCrewHalfHours(data.crewHalfHours)
+      if (data.baseWage) setBaseWage(data.baseWage)
+      if (data.payrollTaxRate != null) setPayrollTaxRate(data.payrollTaxRate)
+      if (data.workersCompRate != null) setWorkersCompRate(data.workersCompRate)
+      if (data.ptoDays != null) setPtoDays(data.ptoDays)
+      if (data.unbillablePercent != null) setUnbillablePercent(data.unbillablePercent)
+      if (data.overhead) setOverhead(data.overhead)
+      if (data.annualBillableHours) setAnnualBillableHours(data.annualBillableHours)
+      if (data.targetProfit) setTargetProfit(data.targetProfit)
+      if (data.materialMarkup != null) setMaterialMarkup(data.materialMarkup)
+      if (data.subMarkup != null) setSubMarkup(data.subMarkup)
+      if (data.disposalMarkup != null) setDisposalMarkup(data.disposalMarkup)
+      if (data.deliveryMarkup != null) setDeliveryMarkup(data.deliveryMarkup)
+      if (data.rates?.length) setRates(data.rates)
+      if (data.materials?.length) setMaterials(data.materials)
+      if (data.subs?.length) setSubs(data.subs)
+      if (data.equipment?.length) setEquipment(data.equipment)
+      if (data.workTypes?.length) setWorkTypes(data.workTypes)
+    } catch { /* ignore corrupt data */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Clear on finish
+  const clearSavedProgress = () => {
+    try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+  }
 
   // AI Methodology (embedded in company info or Phase F)
   const [methodology, setMethodology] = useState('')
@@ -275,6 +334,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       }
 
       await refreshCompany()
+      clearSavedProgress()
       toast.success('Setup complete — your numbers are loaded!')
       onComplete()
     } catch (err) {

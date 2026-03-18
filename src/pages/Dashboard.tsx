@@ -33,6 +33,18 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
     toast.success('Estimate deleted')
   }
 
+  // Escape key closes menus
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuOpen(null)
+        setConfirmDelete(null)
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [])
+
   const duplicateEstimate = async (est: Estimate) => {
     if (!company) return
     const { data, error } = await supabase
@@ -198,7 +210,7 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
                     }}
                     className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-navy"
                   >
-                    <MoreVertical size={16} />
+                    <MoreVertical size={16} aria-hidden="true" />
                   </button>
 
                   {menuOpen === est.id && (

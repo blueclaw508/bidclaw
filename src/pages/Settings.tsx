@@ -19,9 +19,9 @@ import {
   Layers,
   Save,
   Plus,
-  Trash2,
   Upload,
 } from 'lucide-react'
+import { ConfirmDelete } from '@/components/ConfirmDelete'
 
 type Tab = 'company' | 'crew' | 'kyn' | 'rates' | 'materials' | 'subs' | 'equipment' | 'work-types'
 
@@ -519,9 +519,7 @@ export function Settings() {
                   />
                   Billable
                 </label>
-                <button onClick={() => removeEquipment(item.id)} className="text-muted-foreground hover:text-destructive">
-                  <Trash2 size={16} />
-                </button>
+                <ConfirmDelete onConfirm={() => removeEquipment(item.id)} />
               </div>
             ))}
           </div>
@@ -556,9 +554,7 @@ export function Settings() {
                   <option value="demolition">Demolition</option>
                   <option value="other">Other</option>
                 </select>
-                <button onClick={() => removeWorkType(wt.id)} className="text-muted-foreground hover:text-destructive">
-                  <Trash2 size={16} />
-                </button>
+                <ConfirmDelete onConfirm={() => removeWorkType(wt.id)} />
               </div>
             ))}
           </div>
@@ -616,12 +612,7 @@ function CatalogEditor<T extends { id: string }>({
                 className="rounded-lg border border-input px-3 py-2 text-sm outline-none focus:border-gold"
               />
             ))}
-            <button
-              onClick={() => onRemove(item.id)}
-              className="flex items-center justify-center text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 size={16} />
-            </button>
+            <ConfirmDelete onConfirm={() => onRemove(item.id)} />
           </div>
         ))}
       </div>

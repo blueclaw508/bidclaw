@@ -369,6 +369,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
     }
 
     setPhase(3)
+    setHasUnsavedEdits(false)
     toast.success('Takeoffs approved')
     await generateFullEstimate()
   }
@@ -489,6 +490,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
   const [sendConfirm, setSendConfirm] = useState(false)
   const [sending, setSending] = useState(false)
   const [showEfficiency, setShowEfficiency] = useState(false)
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false)
 
   const sendToQuickCalc = async () => {
     if (!estimate || !company) return
@@ -578,7 +580,10 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
       {/* Header */}
       <div className="mb-6">
         <button
-          onClick={onBack}
+          onClick={() => {
+            if (hasUnsavedEdits && !window.confirm('You have unsaved edits. Leave anyway?')) return
+            onBack()
+          }}
           className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-navy"
         >
           <ArrowLeft size={14} />
@@ -751,7 +756,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
       {/* ═══════ PHASE 2: Takeoffs ═══════ */}
       {phase === 2 && (
-        <div className="space-y-6">
+        <div className="space-y-6" onInput={() => setHasUnsavedEdits(true)}>
           {aiLoading ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-white py-16">
               <Loader2 className="mb-4 animate-spin text-gold" size={32} />
