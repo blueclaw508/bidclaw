@@ -1,82 +1,87 @@
-// ── Company ──
-// BidClaw collects quantities only. No pricing, markups, or KYN fields.
-export interface Company {
-  id: string
-  user_id: string
-  name: string
-  contact_name: string | null
-  logo_url: string | null
-  street: string | null
-  city: string | null
-  state: string | null
-  zip: string | null
-  email: string | null
-  phone: string | null
-  website: string | null
-  estimating_methodology: string | null
-  quickcalc_linked: boolean
-  created_at: string
+// ============================================================
+// BidClaw Types — Reads from QuickCalc's Supabase
+// QuickCalc owns: auth, company profile, catalogs, settings
+// BidClaw owns: estimates, work areas, line items, production rates
+// ============================================================
+
+// ── QuickCalc Types (read from kyn_user_settings + kyn_catalog_items) ──
+
+export interface QCCompanyProfile {
+  companyName: string
+  userName: string
+  companyAddress: string
+  companyEmail: string
+  companyWebsite: string
+  companyPhone: string
+  companyLogoBase64: string
 }
 
-// ── Production Rates ──
+export interface QCSettings {
+  laborTypes: { id: string; name: string; targetBillableRate: number }[]
+  materialsMarkupPercent: number
+  subcontractorsMarkupPercent: number
+  equipmentRates: { id: string; name: string; hourlyRate: number }[]
+  companyProfile: QCCompanyProfile
+  pdfBranding: { primaryColor: string; footerMessage: string }
+  defaultTermsAndConditions: string
+}
+
+export interface QCUserSettings {
+  id: string
+  user_id: string
+  settings_data: QCSettings
+  created_at: string
+  updated_at: string
+}
+
+export type QCCatalogItemType = 'labor' | 'material' | 'subcontractor' | 'equipment' | 'other'
+
+export interface QCCatalogItem {
+  id: string
+  user_id: string
+  type: QCCatalogItemType
+  name: string
+  labor_type_id: string | null
+  unit_cost: number | null
+  equipment_rate_id: string | null
+  sub_cost: number | null
+  default_amount: number | null
+  created_at: string
+  updated_at: string
+}
+
+// ── BidClaw Types (own tables, prefixed with bidclaw_) ──
+
 export interface ProductionRate {
   id: string
-  company_id: string
+  user_id: string
   work_type: string
   unit: string
   man_hours_per_unit: number
   notes: string | null
 }
 
-// ── Item Catalog — Materials (no pricing) ──
-export interface MaterialCatalogItem {
-  id: string
-  company_id: string
-  name: string
-  um: string | null
-  supplier: string | null
-}
-
-// ── Item Catalog — Subcontractors (no pricing) ──
-export interface SubCatalogItem {
-  id: string
-  company_id: string
-  name: string
-  trade: string | null
-}
-
-// ── Item Catalog — Equipment (name + U/M only) ──
-export interface EquipmentItem {
-  id: string
-  company_id: string
-  name: string
-  um: string
-}
-
-// ── Item Catalog — Disposal Fees/Other (no pricing) ──
 export interface DisposalCatalogItem {
   id: string
-  company_id: string
+  user_id: string
   name: string
   um: string | null
 }
 
-// ── Work Types ──
 export interface WorkType {
   id: string
-  company_id: string
+  user_id: string
   name: string
   category: string
   default_notes_template: string | null
 }
 
-// ── Estimates ──
 export type EstimateStatus = 'draft' | 'approved' | 'sent_to_quickcalc'
 export type SpecSource = 'plan' | 'site_visit'
 
 export interface Estimate {
   id: string
-  company_id: string
+  user_id: string
   client_name: string
   client_email: string | null
   job_address: string | null
@@ -91,7 +96,6 @@ export interface Estimate {
   updated_at: string
 }
 
-// ── Work Areas (crew size + hours live here, per work area) ──
 export interface WorkArea {
   id: string
   estimate_id: string
@@ -103,10 +107,9 @@ export interface WorkArea {
   total_man_hours: number | null
   crew_size: number
   crew_hours_per_day: number
-  day_increment: 'full' | 'half' | null
+  day_increment: string | null
 }
 
-// ── Line Items (quantities only — no costs) ──
 export type LineItemType = 'material' | 'equipment' | 'labor' | 'sub' | 'disposal' | 'general_conditions'
 
 export interface LineItem {
@@ -120,7 +123,6 @@ export interface LineItem {
   sort_order: number
 }
 
-// ── Job Efficiency ──
 export interface JobEfficiency {
   id: string
   estimate_id: string
@@ -198,18 +200,6 @@ export interface AiFullEstimateResponse {
 // ── QuickCalc Payload ──
 export interface QuickCalcPayload {
   source: 'bidclaw'
-  company_info: {
-    name: string
-    contact_name: string | null
-    street: string | null
-    city: string | null
-    state: string | null
-    zip: string | null
-    email: string | null
-    phone: string | null
-    website: string | null
-    logo_url: string | null
-  }
   estimate: {
     client_name: string
     client_email: string | null

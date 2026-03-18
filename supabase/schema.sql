@@ -1,302 +1,162 @@
 -- ============================================================
--- BidClaw v1.2 — Corrected Schema (Quantities Only)
--- BidClaw collects quantities only. No pricing/markups/KYN.
--- All pricing happens in QuickCalc.
+-- BidClaw Tables — Added to QuickCalc's Supabase Project
+-- These tables are BidClaw-specific. QuickCalc owns auth,
+-- company profiles (kyn_user_settings), and catalogs (kyn_catalog_items).
+-- BidClaw reads from those and writes to these.
 -- ============================================================
 
-create extension if not exists "uuid-ossp";
-
--- ──────────────────────────────────────────────────────────────
--- TABLES
--- ──────────────────────────────────────────────────────────────
-
--- Company profile (one per account)
-create table companies (
-  id uuid primary key default uuid_generate_v4(),
-  user_id uuid references auth.users(id) on delete cascade not null,
-  name text not null,
-  contact_name text,
-  logo_url text,
-  street text,
-  city text,
-  state text,
-  zip text,
-  email text,
-  phone text,
-  website text,
-  estimating_methodology text,
-  quickcalc_linked boolean default false,
-  created_at timestamptz default now(),
-  unique(user_id)
+-- BidClaw production rates (per user)
+CREATE TABLE IF NOT EXISTS bidclaw_production_rates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  work_type TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  man_hours_per_unit NUMERIC NOT NULL,
+  notes TEXT
 );
 
--- Production rates
-create table production_rates (
-  id uuid primary key default uuid_generate_v4(),
-  company_id uuid references companies(id) on delete cascade not null,
-  work_type text not null,
-  unit text not null,
-  man_hours_per_unit numeric not null,
-  notes text
+-- BidClaw disposal fees catalog (per user)
+CREATE TABLE IF NOT EXISTS bidclaw_disposal_catalog (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  um TEXT
 );
 
--- Item Catalog — Materials (no pricing in BidClaw)
-create table materials_catalog (
-  id uuid primary key default uuid_generate_v4(),
-  company_id uuid references companies(id) on delete cascade not null,
-  name text not null,
-  um text,          -- Unit of Measure (SF, CY, LF, EA, ton, bag, roll)
-  supplier text
+-- BidClaw work types library (per user)
+CREATE TABLE IF NOT EXISTS bidclaw_work_types (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  default_notes_template TEXT
 );
 
--- Item Catalog — Subcontractors (no pricing in BidClaw)
-create table subs_catalog (
-  id uuid primary key default uuid_generate_v4(),
-  company_id uuid references companies(id) on delete cascade not null,
-  name text not null,
-  trade text
+-- BidClaw estimates
+CREATE TABLE IF NOT EXISTS bidclaw_estimates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  client_name TEXT NOT NULL,
+  client_email TEXT,
+  job_address TEXT,
+  job_city TEXT,
+  job_state TEXT,
+  job_zip TEXT,
+  spec_source TEXT NOT NULL DEFAULT 'site_visit',
+  plan_url TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  ai_conversation JSONB,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Item Catalog — Equipment (names + U/M only, no rates)
-create table equipment_catalog (
-  id uuid primary key default uuid_generate_v4(),
-  company_id uuid references companies(id) on delete cascade not null,
-  name text not null,
-  um text default 'HR'
+-- BidClaw work areas (crew size + hours per area)
+CREATE TABLE IF NOT EXISTS bidclaw_work_areas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  estimate_id UUID REFERENCES bidclaw_estimates(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  sort_order INT DEFAULT 0,
+  ai_generated BOOLEAN DEFAULT true,
+  approved BOOLEAN DEFAULT false,
+  notes TEXT[] DEFAULT '{}',
+  total_man_hours NUMERIC,
+  crew_size INT DEFAULT 3,
+  crew_hours_per_day NUMERIC DEFAULT 9,
+  day_increment TEXT
 );
 
--- Item Catalog — Disposal Fees/Other (no pricing in BidClaw)
-create table disposal_catalog (
-  id uuid primary key default uuid_generate_v4(),
-  company_id uuid references companies(id) on delete cascade not null,
-  name text not null,
-  um text
+-- BidClaw line items (quantities only — no costs)
+CREATE TABLE IF NOT EXISTS bidclaw_line_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  work_area_id UUID REFERENCES bidclaw_work_areas(id) ON DELETE CASCADE NOT NULL,
+  type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  quantity NUMERIC DEFAULT 0,
+  unit TEXT,
+  ai_generated BOOLEAN DEFAULT true,
+  sort_order INT DEFAULT 0
 );
 
--- Work types library
-create table work_types (
-  id uuid primary key default uuid_generate_v4(),
-  company_id uuid references companies(id) on delete cascade not null,
-  name text not null,
-  category text not null,
-  default_notes_template text
+-- BidClaw job efficiency tracking
+CREATE TABLE IF NOT EXISTS bidclaw_job_efficiency (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  estimate_id UUID REFERENCES bidclaw_estimates(id) ON DELETE CASCADE NOT NULL UNIQUE,
+  budgeted_man_hours NUMERIC NOT NULL,
+  actual_man_hours NUMERIC,
+  efficiency_percent NUMERIC,
+  notes TEXT,
+  tracked_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Estimates
-create table estimates (
-  id uuid primary key default uuid_generate_v4(),
-  company_id uuid references companies(id) on delete cascade not null,
-  client_name text not null,
-  client_email text,
-  job_address text,
-  job_city text,
-  job_state text,
-  job_zip text,
-  spec_source text not null default 'site_visit',
-  plan_url text,
-  status text not null default 'draft',
-  ai_conversation jsonb,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
+-- Auto-update updated_at on estimates
+CREATE OR REPLACE FUNCTION bidclaw_update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- Work areas (crew size + hours live here, not at company level)
-create table work_areas (
-  id uuid primary key default uuid_generate_v4(),
-  estimate_id uuid references estimates(id) on delete cascade not null,
-  name text not null,
-  sort_order int default 0,
-  ai_generated boolean default true,
-  approved boolean default false,
-  notes text[] default '{}',
-  total_man_hours numeric,
-  crew_size int default 3,
-  crew_hours_per_day numeric default 9,
-  day_increment text
-);
-
--- Line items (quantities only — no unit_cost or total_cost)
-create table line_items (
-  id uuid primary key default uuid_generate_v4(),
-  work_area_id uuid references work_areas(id) on delete cascade not null,
-  type text not null,  -- 'material', 'equipment', 'labor', 'sub', 'disposal', 'general_conditions'
-  name text not null,
-  quantity numeric default 0,
-  unit text,
-  ai_generated boolean default true,
-  sort_order int default 0
-);
-
--- Job efficiency tracking
-create table job_efficiency (
-  id uuid primary key default uuid_generate_v4(),
-  estimate_id uuid references estimates(id) on delete cascade not null unique,
-  budgeted_man_hours numeric not null,
-  actual_man_hours numeric,
-  efficiency_percent numeric,
-  notes text,
-  tracked_at timestamptz default now()
-);
-
--- ──────────────────────────────────────────────────────────────
--- AUTO-UPDATE updated_at
--- ──────────────────────────────────────────────────────────────
-
-create or replace function update_updated_at()
-returns trigger as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$ language plpgsql;
-
-create trigger estimates_updated_at
-  before update on estimates
-  for each row execute function update_updated_at();
+DROP TRIGGER IF EXISTS bidclaw_estimates_updated_at ON bidclaw_estimates;
+CREATE TRIGGER bidclaw_estimates_updated_at
+  BEFORE UPDATE ON bidclaw_estimates
+  FOR EACH ROW EXECUTE FUNCTION bidclaw_update_updated_at();
 
 -- ──────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY
 -- ──────────────────────────────────────────────────────────────
 
-alter table companies enable row level security;
-alter table production_rates enable row level security;
-alter table materials_catalog enable row level security;
-alter table subs_catalog enable row level security;
-alter table equipment_catalog enable row level security;
-alter table disposal_catalog enable row level security;
-alter table work_types enable row level security;
-alter table estimates enable row level security;
-alter table work_areas enable row level security;
-alter table line_items enable row level security;
-alter table job_efficiency enable row level security;
-
--- Companies
-create policy "Users manage own company"
-  on companies for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
--- Helper function
-create or replace function get_user_company_id()
-returns uuid as $$
-  select id from companies where user_id = auth.uid() limit 1;
-$$ language sql security definer stable;
+ALTER TABLE bidclaw_production_rates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bidclaw_disposal_catalog ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bidclaw_work_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bidclaw_estimates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bidclaw_work_areas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bidclaw_line_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bidclaw_job_efficiency ENABLE ROW LEVEL SECURITY;
 
 -- Production rates
-create policy "Users manage own production rates"
-  on production_rates for all
-  using (company_id = get_user_company_id())
-  with check (company_id = get_user_company_id());
-
--- Materials catalog
-create policy "Users manage own materials"
-  on materials_catalog for all
-  using (company_id = get_user_company_id())
-  with check (company_id = get_user_company_id());
-
--- Subs catalog
-create policy "Users manage own subs"
-  on subs_catalog for all
-  using (company_id = get_user_company_id())
-  with check (company_id = get_user_company_id());
-
--- Equipment catalog
-create policy "Users manage own equipment"
-  on equipment_catalog for all
-  using (company_id = get_user_company_id())
-  with check (company_id = get_user_company_id());
+CREATE POLICY "bidclaw_rates_policy" ON bidclaw_production_rates FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Disposal catalog
-create policy "Users manage own disposal"
-  on disposal_catalog for all
-  using (company_id = get_user_company_id())
-  with check (company_id = get_user_company_id());
+CREATE POLICY "bidclaw_disposal_policy" ON bidclaw_disposal_catalog FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Work types
-create policy "Users manage own work types"
-  on work_types for all
-  using (company_id = get_user_company_id())
-  with check (company_id = get_user_company_id());
+CREATE POLICY "bidclaw_work_types_policy" ON bidclaw_work_types FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Estimates
-create policy "Users manage own estimates"
-  on estimates for all
-  using (company_id = get_user_company_id())
-  with check (company_id = get_user_company_id());
+CREATE POLICY "bidclaw_estimates_policy" ON bidclaw_estimates FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- Work areas
-create policy "Users manage own work areas"
-  on work_areas for all
-  using (
-    estimate_id in (
-      select id from estimates where company_id = get_user_company_id()
-    )
-  )
-  with check (
-    estimate_id in (
-      select id from estimates where company_id = get_user_company_id()
-    )
-  );
+-- Work areas (via estimate ownership)
+CREATE POLICY "bidclaw_work_areas_policy" ON bidclaw_work_areas FOR ALL
+  USING (estimate_id IN (SELECT id FROM bidclaw_estimates WHERE user_id = auth.uid()))
+  WITH CHECK (estimate_id IN (SELECT id FROM bidclaw_estimates WHERE user_id = auth.uid()));
 
--- Line items
-create policy "Users manage own line items"
-  on line_items for all
-  using (
-    work_area_id in (
-      select wa.id from work_areas wa
-      join estimates e on wa.estimate_id = e.id
-      where e.company_id = get_user_company_id()
-    )
-  )
-  with check (
-    work_area_id in (
-      select wa.id from work_areas wa
-      join estimates e on wa.estimate_id = e.id
-      where e.company_id = get_user_company_id()
-    )
-  );
+-- Line items (via work area → estimate ownership)
+CREATE POLICY "bidclaw_line_items_policy" ON bidclaw_line_items FOR ALL
+  USING (work_area_id IN (
+    SELECT wa.id FROM bidclaw_work_areas wa
+    JOIN bidclaw_estimates e ON wa.estimate_id = e.id
+    WHERE e.user_id = auth.uid()
+  ))
+  WITH CHECK (work_area_id IN (
+    SELECT wa.id FROM bidclaw_work_areas wa
+    JOIN bidclaw_estimates e ON wa.estimate_id = e.id
+    WHERE e.user_id = auth.uid()
+  ));
 
 -- Job efficiency
-create policy "Users manage own job efficiency"
-  on job_efficiency for all
-  using (
-    estimate_id in (
-      select id from estimates where company_id = get_user_company_id()
-    )
-  )
-  with check (
-    estimate_id in (
-      select id from estimates where company_id = get_user_company_id()
-    )
-  );
+CREATE POLICY "bidclaw_efficiency_policy" ON bidclaw_job_efficiency FOR ALL
+  USING (estimate_id IN (SELECT id FROM bidclaw_estimates WHERE user_id = auth.uid()))
+  WITH CHECK (estimate_id IN (SELECT id FROM bidclaw_estimates WHERE user_id = auth.uid()));
 
--- ──────────────────────────────────────────────────────────────
--- STORAGE BUCKETS
--- ──────────────────────────────────────────────────────────────
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_bidclaw_estimates_user ON bidclaw_estimates(user_id);
+CREATE INDEX IF NOT EXISTS idx_bidclaw_estimates_status ON bidclaw_estimates(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_bidclaw_work_areas_estimate ON bidclaw_work_areas(estimate_id);
+CREATE INDEX IF NOT EXISTS idx_bidclaw_line_items_area ON bidclaw_line_items(work_area_id);
 
-insert into storage.buckets (id, name, public)
-values ('plans', 'plans', false)
-on conflict (id) do nothing;
-
-insert into storage.buckets (id, name, public)
-values ('logos', 'logos', true)
-on conflict (id) do nothing;
-
-create policy "Users upload own plans"
-  on storage.objects for insert
-  with check (bucket_id = 'plans' and auth.uid()::text = (storage.foldername(name))[1]);
-
-create policy "Users read own plans"
-  on storage.objects for select
-  using (bucket_id = 'plans' and auth.uid()::text = (storage.foldername(name))[1]);
-
-create policy "Users upload own logos"
-  on storage.objects for insert
-  with check (bucket_id = 'logos' and auth.uid()::text = (storage.foldername(name))[1]);
-
-create policy "Anyone can read logos"
-  on storage.objects for select
-  using (bucket_id = 'logos');
-
--- Notify PostgREST to reload schema cache
 NOTIFY pgrst, 'reload schema';

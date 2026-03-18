@@ -17,7 +17,7 @@ const statusConfig: Record<EstimateStatus, { label: string; color: string; icon:
 }
 
 export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
-  const { company } = useAuth()
+  const { user } = useAuth()
   const [estimates, setEstimates] = useState<Estimate[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -26,7 +26,7 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const deleteEstimate = async (id: string) => {
-    await supabase.from('estimates').delete().eq('id', id)
+    await supabase.from('bidclaw_estimates').delete().eq('id', id)
     setEstimates((prev) => prev.filter((e) => e.id !== id))
     setConfirmDelete(null)
     setMenuOpen(null)
@@ -46,11 +46,11 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
   }, [])
 
   const duplicateEstimate = async (est: Estimate) => {
-    if (!company) return
+    if (!user) return
     const { data, error } = await supabase
-      .from('estimates')
+      .from('bidclaw_estimates')
       .insert({
-        company_id: company.id,
+        user_id: user.id,
         client_name: `${est.client_name} (Copy)`,
         client_email: est.client_email,
         job_address: est.job_address,
@@ -77,18 +77,18 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
   }
 
   useEffect(() => {
-    if (!company) return
+    if (!user) return
     const load = async () => {
       const { data } = await supabase
-        .from('estimates')
+        .from('bidclaw_estimates')
         .select('*')
-        .eq('company_id', company.id)
+        .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
       setEstimates(data ?? [])
       setLoading(false)
     }
     load()
-  }, [company])
+  }, [user])
 
   const filtered = estimates.filter((e) => {
     if (statusFilter !== 'all' && e.status !== statusFilter) return false

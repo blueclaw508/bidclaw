@@ -25,7 +25,7 @@ export function EfficiencyTracker({
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase
-        .from('job_efficiency')
+        .from('bidclaw_job_efficiency')
         .select('*')
         .eq('estimate_id', estimateId)
         .maybeSingle()
@@ -75,11 +75,11 @@ export function EfficiencyTracker({
 
       if (existing) {
         await supabase
-          .from('job_efficiency')
+          .from('bidclaw_job_efficiency')
           .update(record)
           .eq('id', existing.id)
       } else {
-        await supabase.from('job_efficiency').insert(record)
+        await supabase.from('bidclaw_job_efficiency').insert(record)
       }
 
       toast.success('Efficiency tracked')

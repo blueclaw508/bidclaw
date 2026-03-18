@@ -1,14 +1,11 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { toast } from 'sonner'
 import type {
   ProductionRate,
-  MaterialCatalogItem,
-  SubCatalogItem,
-  EquipmentItem,
   DisposalCatalogItem,
   WorkType,
+  QCCatalogItem,
 } from '@/lib/types'
 import {
   Building2,
@@ -17,10 +14,9 @@ import {
   Wrench,
   Truck,
   Layers,
-  Save,
   Plus,
-  Upload,
   Receipt,
+  ExternalLink,
 } from 'lucide-react'
 import { ConfirmDelete } from '@/components/ConfirmDelete'
 
@@ -29,116 +25,50 @@ type Tab = 'company' | 'rates' | 'materials' | 'subs' | 'equipment' | 'disposal'
 const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'company', label: 'Company', icon: <Building2 size={16} /> },
   { id: 'rates', label: 'Production Rates', icon: <Gauge size={16} /> },
-  { id: 'materials', label: 'Item Catalog — Materials', icon: <Package size={16} /> },
-  { id: 'subs', label: 'Item Catalog — Subs', icon: <Wrench size={16} /> },
-  { id: 'equipment', label: 'Item Catalog — Equipment', icon: <Truck size={16} /> },
-  { id: 'disposal', label: 'Item Catalog — Disposal', icon: <Receipt size={16} /> },
+  { id: 'materials', label: 'Materials', icon: <Package size={16} /> },
+  { id: 'subs', label: 'Subs', icon: <Wrench size={16} /> },
+  { id: 'equipment', label: 'Equipment', icon: <Truck size={16} /> },
+  { id: 'disposal', label: 'Disposal', icon: <Receipt size={16} /> },
   { id: 'work-types', label: 'Work Types', icon: <Layers size={16} /> },
 ]
 
 export function Settings() {
-  const { company, refreshCompany } = useAuth()
+  const { user, companyProfile } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>('company')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
 
-  // Company
-  const [companyName, setCompanyName] = useState('')
-  const [contactName, setContactName] = useState('')
-  const [companyStreet, setCompanyStreet] = useState('')
-  const [companyCity, setCompanyCity] = useState('')
-  const [companyState, setCompanyState] = useState('')
-  const [companyZip, setCompanyZip] = useState('')
-  const [companyEmail, setCompanyEmail] = useState('')
-  const [companyPhone, setCompanyPhone] = useState('')
-  const [companyWebsite, setCompanyWebsite] = useState('')
-  const [logoUrl, setLogoUrl] = useState<string | null>(null)
-  const [logoUploading, setLogoUploading] = useState(false)
-  const logoInputRef = useRef<HTMLInputElement>(null)
-
-  // Catalogs
+  // BidClaw-owned catalogs
   const [rates, setRates] = useState<ProductionRate[]>([])
-  const [materials, setMaterials] = useState<MaterialCatalogItem[]>([])
-  const [subs, setSubs] = useState<SubCatalogItem[]>([])
-  const [equipment, setEquipment] = useState<EquipmentItem[]>([])
   const [disposal, setDisposal] = useState<DisposalCatalogItem[]>([])
   const [workTypes, setWorkTypes] = useState<WorkType[]>([])
 
+  // QC catalog items (read-only)
+  const [qcMaterials, setQcMaterials] = useState<QCCatalogItem[]>([])
+  const [qcSubs, setQcSubs] = useState<QCCatalogItem[]>([])
+  const [qcEquipment, setQcEquipment] = useState<QCCatalogItem[]>([])
+
   useEffect(() => {
-    if (!company) return
-    setCompanyName(company.name)
-    setContactName(company.contact_name ?? '')
-    setCompanyStreet(company.street ?? '')
-    setCompanyCity(company.city ?? '')
-    setCompanyState(company.state ?? '')
-    setCompanyZip(company.zip ?? '')
-    setCompanyEmail(company.email ?? '')
-    setCompanyPhone(company.phone ?? '')
-    setCompanyWebsite(company.website ?? '')
-    setLogoUrl(company.logo_url)
+    if (!user) return
 
     const load = async () => {
-      const [r, m, s, e, d, w] = await Promise.all([
-        supabase.from('production_rates').select('*').eq('company_id', company.id),
-        supabase.from('materials_catalog').select('*').eq('company_id', company.id),
-        supabase.from('subs_catalog').select('*').eq('company_id', company.id),
-        supabase.from('equipment_catalog').select('*').eq('company_id', company.id),
-        supabase.from('disposal_catalog').select('*').eq('company_id', company.id),
-        supabase.from('work_types').select('*').eq('company_id', company.id),
+      const [r, d, w, mats, subs, equip] = await Promise.all([
+        supabase.from('bidclaw_production_rates').select('*').eq('user_id', user.id),
+        supabase.from('bidclaw_disposal_catalog').select('*').eq('user_id', user.id),
+        supabase.from('bidclaw_work_types').select('*').eq('user_id', user.id),
+        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id).eq('type', 'material'),
+        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id).eq('type', 'subcontractor'),
+        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id).eq('type', 'equipment'),
       ])
       setRates(r.data ?? [])
-      setMaterials(m.data ?? [])
-      setSubs(s.data ?? [])
-      setEquipment(e.data ?? [])
       setDisposal(d.data ?? [])
       setWorkTypes(w.data ?? [])
+      setQcMaterials(mats.data ?? [])
+      setQcSubs(subs.data ?? [])
+      setQcEquipment(equip.data ?? [])
     }
     load()
-  }, [company])
+  }, [user])
 
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !company) return
-    setLogoUploading(true)
-    try {
-      const ext = file.name.split('.').pop()
-      const path = `${company.user_id}/${crypto.randomUUID()}.${ext}`
-      const { error: uploadErr } = await supabase.storage.from('logos').upload(path, file)
-      if (uploadErr) throw new Error(uploadErr.message)
-      const { data: urlData } = supabase.storage.from('logos').getPublicUrl(path)
-      await supabase.from('companies').update({ logo_url: urlData.publicUrl }).eq('id', company.id)
-      setLogoUrl(urlData.publicUrl)
-      await refreshCompany()
-      toast.success('Logo uploaded')
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Logo upload failed')
-    } finally {
-      setLogoUploading(false)
-    }
-  }
-
-  const saveCompany = async () => {
-    if (!company) return
-    setSaving(true)
-    await supabase.from('companies').update({
-      name: companyName,
-      contact_name: contactName || null,
-      street: companyStreet || null,
-      city: companyCity || null,
-      state: companyState || null,
-      zip: companyZip || null,
-      email: companyEmail || null,
-      phone: companyPhone || null,
-      website: companyWebsite || null,
-    }).eq('id', company.id)
-    await refreshCompany()
-    setSaving(false)
-    setSaved(true)
-    toast.success('Settings saved')
-    setTimeout(() => setSaved(false), 2000)
-  }
-
-  // ── CRUD helpers ──
+  // ── CRUD helpers for BidClaw-owned tables ──
   const crudFor = <T extends { id: string }>(
     table: string,
     items: T[],
@@ -146,8 +76,8 @@ export function Settings() {
     defaults: Record<string, unknown>
   ) => ({
     add: async () => {
-      if (!company) return
-      const { data } = await supabase.from(table).insert({ ...defaults, company_id: company.id }).select('*').single()
+      if (!user) return
+      const { data } = await supabase.from(table).insert({ ...defaults, user_id: user.id }).select('*').single()
       if (data) setItems([...items, data as T])
     },
     remove: async (id: string) => {
@@ -160,12 +90,20 @@ export function Settings() {
     },
   })
 
-  const ratesCrud = crudFor('production_rates', rates, setRates, { work_type: '', unit: '', man_hours_per_unit: 0 })
-  const matsCrud = crudFor('materials_catalog', materials, setMaterials, { name: '', um: '' })
-  const subsCrud = crudFor('subs_catalog', subs, setSubs, { name: '', trade: '' })
-  const equipCrud = crudFor('equipment_catalog', equipment, setEquipment, { name: '', um: 'HR' })
-  const disposalCrud = crudFor('disposal_catalog', disposal, setDisposal, { name: '', um: '' })
-  const wtCrud = crudFor('work_types', workTypes, setWorkTypes, { name: '', category: 'other' })
+  const ratesCrud = crudFor('bidclaw_production_rates', rates, setRates, { work_type: '', unit: '', man_hours_per_unit: 0 })
+  const disposalCrud = crudFor('bidclaw_disposal_catalog', disposal, setDisposal, { name: '', um: '' })
+  const wtCrud = crudFor('bidclaw_work_types', workTypes, setWorkTypes, { name: '', category: 'other' })
+
+  const qcLink = (
+    <a
+      href="https://bluequickcalc.app"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800"
+    >
+      Manage in QuickCalc <ExternalLink size={14} />
+    </a>
+  )
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -184,121 +122,114 @@ export function Settings() {
         ))}
       </div>
 
-      {/* Company tab */}
+      {/* Company tab — READ-ONLY from QC */}
       {activeTab === 'company' && (
         <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Company Logo</label>
-            <div className="flex items-center gap-4">
-              {logoUrl ? (
-                <img src={logoUrl} alt="Company logo" className="h-16 w-16 rounded-lg border border-slate-200 object-contain bg-slate-50" />
-              ) : (
-                <div className="flex h-16 w-16 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 text-slate-400"><Upload size={20} /></div>
-              )}
-              <div>
-                <button onClick={() => logoInputRef.current?.click()} disabled={logoUploading}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-                  <Upload size={14} /> {logoUploading ? 'Uploading...' : logoUrl ? 'Change Logo' : 'Upload Logo'}
-                </button>
-                <input ref={logoInputRef} type="file" accept=".png,.jpg,.jpeg,.svg,.webp" onChange={handleLogoUpload} className="hidden" />
-              </div>
-            </div>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold" style={{ color: '#1e3a5f' }}>Company Profile</h3>
+            <a
+              href="https://bluequickcalc.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800"
+            >
+              Edit in QuickCalc <ExternalLink size={14} />
+            </a>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Company Name</label>
-              <input value={companyName} onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+          <p className="text-xs text-slate-500">Company information is managed in QuickCalc.</p>
+          {companyProfile ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ReadOnlyField label="Company Name" value={companyProfile.companyName} />
+              <ReadOnlyField label="Contact Name" value={companyProfile.userName} />
+              <ReadOnlyField label="Address" value={companyProfile.companyAddress} span2 />
+              <ReadOnlyField label="Email" value={companyProfile.companyEmail} />
+              <ReadOnlyField label="Phone" value={companyProfile.companyPhone} />
+              <ReadOnlyField label="Website" value={companyProfile.companyWebsite} span2 />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Contact Name</label>
-              <input value={contactName} onChange={(e) => setContactName(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Street Address</label>
-            <input value={companyStreet} onChange={(e) => setCompanyStreet(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">City</label>
-              <input value={companyCity} onChange={(e) => setCompanyCity(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">State</label>
-              <input value={companyState} onChange={(e) => setCompanyState(e.target.value)} maxLength={2}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Zip</label>
-              <input value={companyZip} onChange={(e) => setCompanyZip(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
-              <input type="email" value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Phone</label>
-              <input type="tel" value={companyPhone} onChange={(e) => setCompanyPhone(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Website</label>
-            <input value={companyWebsite} onChange={(e) => setCompanyWebsite(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-          </div>
-          <button onClick={saveCompany} disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg, #1e3a5f, #2d5aa0)' }}>
-            <Save size={16} /> {saved ? 'Saved!' : saving ? 'Saving...' : 'Save'}
-          </button>
+          ) : (
+            <p className="text-sm text-slate-500">No company profile found. Set up your profile in QuickCalc.</p>
+          )}
         </div>
       )}
 
-      {/* Production Rates */}
+      {/* Production Rates — BidClaw owned */}
       {activeTab === 'rates' && (
         <SettingsCatalog items={rates} columns={['Work Type', 'Unit', 'MH/Unit', 'Notes']}
           fields={['work_type', 'unit', 'man_hours_per_unit', 'notes']} fieldTypes={['text', 'text', 'number', 'text']}
           onAdd={ratesCrud.add} onRemove={ratesCrud.remove} onUpdate={ratesCrud.update} />
       )}
 
-      {/* Materials — NAME | U/M | SUPPLIER */}
+      {/* Materials — READ-ONLY from QC */}
       {activeTab === 'materials' && (
-        <SettingsCatalog items={materials} columns={['Name', 'U/M', 'Supplier']}
-          fields={['name', 'um', 'supplier']} fieldTypes={['text', 'text', 'text']}
-          onAdd={matsCrud.add} onRemove={matsCrud.remove} onUpdate={matsCrud.update} />
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-xs text-slate-500">Materials are managed in QuickCalc.</p>
+            {qcLink}
+          </div>
+          {qcMaterials.length > 0 ? (
+            <div className="space-y-2">
+              {qcMaterials.map((m) => (
+                <div key={m.id} className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700">
+                  {m.name}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No materials found. Add them in QuickCalc.</p>
+          )}
+        </div>
       )}
 
-      {/* Subs — NAME | TRADE */}
+      {/* Subs — READ-ONLY from QC */}
       {activeTab === 'subs' && (
-        <SettingsCatalog items={subs} columns={['Name', 'Trade']}
-          fields={['name', 'trade']} fieldTypes={['text', 'text']}
-          onAdd={subsCrud.add} onRemove={subsCrud.remove} onUpdate={subsCrud.update} />
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-xs text-slate-500">Subcontractors are managed in QuickCalc.</p>
+            {qcLink}
+          </div>
+          {qcSubs.length > 0 ? (
+            <div className="space-y-2">
+              {qcSubs.map((s) => (
+                <div key={s.id} className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700">
+                  {s.name}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No subcontractors found. Add them in QuickCalc.</p>
+          )}
+        </div>
       )}
 
-      {/* Equipment — EQUIPMENT | U/M */}
+      {/* Equipment — READ-ONLY from QC */}
       {activeTab === 'equipment' && (
-        <SettingsCatalog items={equipment} columns={['Equipment', 'U/M']}
-          fields={['name', 'um']} fieldTypes={['text', 'text']}
-          onAdd={equipCrud.add} onRemove={equipCrud.remove} onUpdate={equipCrud.update} />
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-xs text-slate-500">Equipment is managed in QuickCalc.</p>
+            {qcLink}
+          </div>
+          {qcEquipment.length > 0 ? (
+            <div className="space-y-2">
+              {qcEquipment.map((e) => (
+                <div key={e.id} className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700">
+                  {e.name}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No equipment found. Add it in QuickCalc.</p>
+          )}
+        </div>
       )}
 
-      {/* Disposal — NAME | U/M */}
+      {/* Disposal — BidClaw owned */}
       {activeTab === 'disposal' && (
         <SettingsCatalog items={disposal} columns={['Name', 'U/M']}
           fields={['name', 'um']} fieldTypes={['text', 'text']}
           onAdd={disposalCrud.add} onRemove={disposalCrud.remove} onUpdate={disposalCrud.update} />
       )}
 
-      {/* Work Types */}
+      {/* Work Types — BidClaw owned */}
       {activeTab === 'work-types' && (
         <div className="rounded-xl border border-slate-200 bg-white p-6">
           <div className="space-y-3">
@@ -322,6 +253,18 @@ export function Settings() {
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Read-only field display ──
+function ReadOnlyField({ label, value, span2 }: { label: string; value?: string; span2?: boolean }) {
+  return (
+    <div className={span2 ? 'sm:col-span-2' : ''}>
+      <label className="mb-1 block text-xs font-medium text-slate-500">{label}</label>
+      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+        {value || '—'}
+      </p>
     </div>
   )
 }

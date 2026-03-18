@@ -22,7 +22,7 @@ interface LearningPromptProps {
 }
 
 export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
-  const { company } = useAuth()
+  const { user } = useAuth()
   const [processing, setProcessing] = useState<Record<number, boolean>>({})
   const [handled, setHandled] = useState<Record<number, 'saved' | 'skipped'>>({})
 
@@ -31,26 +31,26 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
   const allHandled = diffs.every((_, i) => handled[i])
 
   const saveToProfile = async (diff: EditDiff, index: number) => {
-    if (!company) return
+    if (!user) return
     setProcessing((prev) => ({ ...prev, [index]: true }))
 
     try {
       // Check if rate exists
       const { data: existing } = await supabase
-        .from('production_rates')
+        .from('bidclaw_production_rates')
         .select('id')
-        .eq('company_id', company.id)
+        .eq('user_id', user.id)
         .ilike('work_type', diff.updateKey)
         .maybeSingle()
 
       if (existing) {
         await supabase
-          .from('production_rates')
+          .from('bidclaw_production_rates')
           .update({ [diff.updateField]: diff.newValue })
           .eq('id', existing.id)
       } else {
-        await supabase.from('production_rates').insert({
-          company_id: company.id,
+        await supabase.from('bidclaw_production_rates').insert({
+          user_id: user.id,
           work_type: diff.updateKey,
           unit: diff.unit,
           man_hours_per_unit: diff.newValue,

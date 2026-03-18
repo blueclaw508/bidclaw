@@ -11,8 +11,7 @@ import type {
   AiFullEstimateResponse,
   AiFullEstimateWorkArea,
   ProductionRate,
-  MaterialCatalogItem,
-  EquipmentItem,
+  QCCatalogItem,
   WorkType,
   QuickCalcPayload,
 } from '@/lib/types'
@@ -55,7 +54,7 @@ function AiBadge() {
 }
 
 export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) {
-  const { company } = useAuth()
+  const { user, companyProfile } = useAuth()
   const [estimate, setEstimate] = useState<Estimate | null>(null)
   const [phase, setPhase] = useState<Phase>(1)
   const [loading, setLoading] = useState(true)
@@ -91,23 +90,23 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
   // Company data for AI context
   const [companyData, setCompanyData] = useState<{
     rates: ProductionRate[]
-    materials: MaterialCatalogItem[]
-    equipment: EquipmentItem[]
+    materials: QCCatalogItem[]
+    equipment: QCCatalogItem[]
     workTypes: WorkType[]
   }>({ rates: [], materials: [], equipment: [], workTypes: [] })
 
   // Load estimate and company data
   useEffect(() => {
-    if (!company) return
+    if (!user) return
     const load = async () => {
       const [estResult, ratesResult, matsResult, equipResult, typesResult, areasResult] =
         await Promise.all([
-          supabase.from('estimates').select('*').eq('id', estimateId).single(),
-          supabase.from('production_rates').select('*').eq('company_id', company.id),
-          supabase.from('materials_catalog').select('*').eq('company_id', company.id),
-          supabase.from('equipment_catalog').select('*').eq('company_id', company.id),
-          supabase.from('work_types').select('*').eq('company_id', company.id),
-          supabase.from('work_areas').select('*').eq('estimate_id', estimateId).order('sort_order'),
+          supabase.from('bidclaw_estimates').select('*').eq('id', estimateId).single(),
+          supabase.from('bidclaw_production_rates').select('*').eq('user_id', user.id),
+          supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id).eq('type', 'material'),
+          supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id).eq('type', 'equipment'),
+          supabase.from('bidclaw_work_types').select('*').eq('user_id', user.id),
+          supabase.from('bidclaw_work_areas').select('*').eq('estimate_id', estimateId).order('sort_order'),
         ])
 
       if (estResult.data) setEstimate(estResult.data)
@@ -126,7 +125,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         // Load line items for existing work areas
         const waIds = areasResult.data.map((wa: WorkArea) => wa.id)
         const { data: items } = await supabase
-          .from('line_items')
+          .from('bidclaw_line_items')
           .select('*')
           .in('work_area_id', waIds)
           .order('sort_order')
@@ -165,11 +164,11 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
       setLoading(false)
     }
     load()
-  }, [company, estimateId])
+  }, [user, estimateId])
 
   // ── Phase 1: Analyze with AI ──
   const analyzeJob = useCallback(async () => {
-    if (!company || !estimate) return
+    if (!user || !estimate) return
     setAiLoading(true)
     setError(null)
 
@@ -183,8 +182,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         {
           action: 'analyze_plan',
           payload: {
-            company_name: company.name,
-            methodology: company.estimating_methodology,
+            company_name: companyProfile?.companyName ?? '',
             work_types: companyData.workTypes,
             job_text: jobText,
             plan_url: estimate.plan_url,
@@ -207,7 +205,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
     } finally {
       setAiLoading(false)
     }
-  }, [company, estimate, companyData.workTypes])
+  }, [user, estimate, companyProfile, companyData.workTypes])
 
   // Auto-analyze on mount if no areas exist
   useEffect(() => {
@@ -223,12 +221,12 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
     try {
       // Delete existing work areas if re-doing
       if (workAreas.length > 0) {
-        await supabase.from('work_areas').delete().eq('estimate_id', estimateId)
+        await supabase.from('bidclaw_work_areas').delete().eq('estimate_id', estimateId)
       }
 
       // Insert approved work areas
       const { data: insertedAreas, error: insertErr } = await supabase
-        .from('work_areas')
+        .from('bidclaw_work_areas')
         .insert(
           proposedAreas.map((wa, i) => ({
             estimate_id: estimateId,
@@ -258,7 +256,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
   // ── Phase 2: Generate takeoffs ──
   const generateTakeoffs = async (areas: WorkArea[]) => {
-    if (!company || !estimate) return
+    if (!user || !estimate) return
     setAiLoading(true)
     setError(null)
 
@@ -271,8 +269,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         {
           action: 'generate_takeoffs',
           payload: {
-            company_name: company.name,
-            methodology: company.estimating_methodology,
+            company_name: companyProfile?.companyName ?? '',
             materials_catalog: companyData.materials,
             equipment_catalog: companyData.equipment,
             work_areas: areas.map((wa) => wa.name),
@@ -316,7 +313,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
         if (items.length > 0) {
           const { data: inserted } = await supabase
-            .from('line_items')
+            .from('bidclaw_line_items')
             .insert(items)
             .select('*')
           newLineItems[matchingArea.id] = inserted ?? []
@@ -371,7 +368,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
   // ── Phase 3: Generate full estimate ──
   const generateFullEstimate = async () => {
-    if (!company || !estimate) return
+    if (!user || !estimate) return
     setAiLoading(true)
     setError(null)
 
@@ -398,8 +395,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         {
           action: 'complete_estimate',
           payload: {
-            company_name: company.name,
-            methodology: company.estimating_methodology,
+            company_name: companyProfile?.companyName ?? '',
             production_rates: companyData.rates,
             work_areas_with_crew: workAreas.map((wa) => ({
               name: wa.name,
@@ -436,7 +432,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
       if (!matchingArea) continue
 
       await supabase
-        .from('work_areas')
+        .from('bidclaw_work_areas')
         .update({
           notes: feWa.notes,
           total_man_hours: feWa.labor.man_hours,
@@ -447,7 +443,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         .eq('id', matchingArea.id)
 
       // Add labor and general conditions line items
-      await supabase.from('line_items').insert([
+      await supabase.from('bidclaw_line_items').insert([
         {
           work_area_id: matchingArea.id,
           type: 'labor',
@@ -470,7 +466,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
     }
 
     await supabase
-      .from('estimates')
+      .from('bidclaw_estimates')
       .update({ status: 'approved' })
       .eq('id', estimateId)
 
@@ -486,24 +482,12 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false)
 
   const sendToQuickCalc = async () => {
-    if (!estimate || !company) return
+    if (!estimate || !user) return
     setSending(true)
 
     try {
       const payload: QuickCalcPayload = {
         source: 'bidclaw',
-        company_info: {
-          name: company.name,
-          contact_name: company.contact_name,
-          street: company.street,
-          city: company.city,
-          state: company.state,
-          zip: company.zip,
-          email: company.email,
-          phone: company.phone,
-          website: company.website,
-          logo_url: company.logo_url,
-        },
         estimate: {
           client_name: estimate.client_name,
           client_email: estimate.client_email,
@@ -541,7 +525,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
       if (sendErr) throw new Error(sendErr)
 
       await supabase
-        .from('estimates')
+        .from('bidclaw_estimates')
         .update({ status: 'sent_to_quickcalc' })
         .eq('id', estimateId)
 
@@ -832,7 +816,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                           <td className="py-2">
                             <button
                               onClick={async () => {
-                                await supabase.from('line_items').delete().eq('id', li.id)
+                                await supabase.from('bidclaw_line_items').delete().eq('id', li.id)
                                 const updated = { ...lineItems }
                                 updated[wa.id] = updated[wa.id].filter((_, idx) => idx !== liIdx)
                                 setLineItems(updated)
@@ -850,7 +834,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                   <button
                     onClick={async () => {
                       const { data: newItem } = await supabase
-                        .from('line_items')
+                        .from('bidclaw_line_items')
                         .insert({
                           work_area_id: wa.id,
                           type: 'material',

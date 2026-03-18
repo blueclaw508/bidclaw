@@ -11,7 +11,7 @@ interface NewEstimateProps {
 }
 
 export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
-  const { company } = useAuth()
+  const { user } = useAuth()
   const [clientName, setClientName] = useState('')
   const [clientEmail, setClientEmail] = useState('')
   const [jobAddress, setJobAddress] = useState('')
@@ -33,7 +33,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!company) return
+    if (!user) return
     setError(null)
     setSaving(true)
 
@@ -44,7 +44,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
       if (specSource === 'plan' && planFile) {
         setUploading(true)
         const ext = planFile.name.split('.').pop()
-        const path = `${company.user_id}/${crypto.randomUUID()}.${ext}`
+        const path = `${user.id}/${crypto.randomUUID()}.${ext}`
         const { error: uploadErr } = await supabase.storage
           .from('plans')
           .upload(path, planFile)
@@ -56,9 +56,9 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
 
       // Create estimate
       const { data, error: insertErr } = await supabase
-        .from('estimates')
+        .from('bidclaw_estimates')
         .insert({
-          company_id: company.id,
+          user_id: user.id,
           client_name: clientName,
           client_email: clientEmail || null,
           job_address: jobAddress || null,
