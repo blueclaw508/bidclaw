@@ -1,8 +1,7 @@
 -- ============================================================
--- BidClaw v1.1 — Corrected Schema (Quantities Only)
--- BidClaw collects quantities and raw costs only.
--- All pricing, markups, and KYN calculations happen in QuickCalc.
--- Run this in the Supabase SQL Editor for your project.
+-- BidClaw v1.2 — Corrected Schema (Quantities Only)
+-- BidClaw collects quantities only. No pricing/markups/KYN.
+-- All pricing happens in QuickCalc.
 -- ============================================================
 
 create extension if not exists "uuid-ossp";
@@ -16,15 +15,17 @@ create table companies (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid references auth.users(id) on delete cascade not null,
   name text not null,
+  contact_name text,
   logo_url text,
   street text,
   city text,
   state text,
   zip text,
-  typical_crew_size int default 3,
-  crew_full_day_hours numeric default 9,
-  crew_half_day_hours numeric default 4.5,
+  email text,
+  phone text,
+  website text,
   estimating_methodology text,
+  quickcalc_linked boolean default false,
   created_at timestamptz default now(),
   unique(user_id)
 );
@@ -39,47 +40,37 @@ create table production_rates (
   notes text
 );
 
--- Item Catalog — Materials
+-- Item Catalog — Materials (no pricing in BidClaw)
 create table materials_catalog (
   id uuid primary key default uuid_generate_v4(),
   company_id uuid references companies(id) on delete cascade not null,
   name text not null,
   um text,          -- Unit of Measure (SF, CY, LF, EA, ton, bag, roll)
-  unit text not null,
-  unit_cost numeric not null,
-  supplier text,
-  notes text
+  supplier text
 );
 
--- Item Catalog — Subcontractors
+-- Item Catalog — Subcontractors (no pricing in BidClaw)
 create table subs_catalog (
   id uuid primary key default uuid_generate_v4(),
   company_id uuid references companies(id) on delete cascade not null,
   name text not null,
-  um text,          -- Unit of Measure
-  unit text not null,
-  unit_cost numeric not null,
-  trade text,
-  notes text
+  trade text
 );
 
--- Item Catalog — Equipment (names only, no rates)
+-- Item Catalog — Equipment (names + U/M only, no rates)
 create table equipment_catalog (
   id uuid primary key default uuid_generate_v4(),
   company_id uuid references companies(id) on delete cascade not null,
   name text not null,
-  billable boolean default true
+  um text default 'HR'
 );
 
--- Item Catalog — Disposal Fees/Other
+-- Item Catalog — Disposal Fees/Other (no pricing in BidClaw)
 create table disposal_catalog (
   id uuid primary key default uuid_generate_v4(),
   company_id uuid references companies(id) on delete cascade not null,
   name text not null,
-  um text,          -- Unit of Measure
-  unit text not null,
-  unit_cost numeric not null,
-  notes text
+  um text
 );
 
 -- Work types library
@@ -109,7 +100,7 @@ create table estimates (
   updated_at timestamptz default now()
 );
 
--- Work areas
+-- Work areas (crew size + hours live here, not at company level)
 create table work_areas (
   id uuid primary key default uuid_generate_v4(),
   estimate_id uuid references estimates(id) on delete cascade not null,
@@ -119,10 +110,12 @@ create table work_areas (
   approved boolean default false,
   notes text[] default '{}',
   total_man_hours numeric,
+  crew_size int default 3,
+  crew_hours_per_day numeric default 9,
   day_increment text
 );
 
--- Line items
+-- Line items (quantities only — no unit_cost or total_cost)
 create table line_items (
   id uuid primary key default uuid_generate_v4(),
   work_area_id uuid references work_areas(id) on delete cascade not null,
@@ -130,8 +123,6 @@ create table line_items (
   name text not null,
   quantity numeric default 0,
   unit text,
-  unit_cost numeric,
-  total_cost numeric,
   ai_generated boolean default true,
   sort_order int default 0
 );

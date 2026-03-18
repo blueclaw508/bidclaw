@@ -30,7 +30,7 @@ function AppContent() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="animate-spin text-gold" size={32} />
+        <Loader2 className="animate-spin text-blue-600" size={32} />
       </div>
     )
   }

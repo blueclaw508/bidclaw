@@ -92,27 +92,27 @@ export function EfficiencyTracker({
   }
 
   return (
-    <div className="rounded-xl border-2 border-gold/40 bg-white p-6">
+    <div className="rounded-xl border-2 border-blue-200 bg-white p-6">
       <div className="mb-4 flex items-start justify-between">
         <div className="flex items-center gap-2">
-          <BarChart3 size={20} className="text-gold-dark" />
-          <h3 className="text-sm font-semibold text-navy">
+          <BarChart3 size={20} className="text-blue-700" />
+          <h3 className="text-sm font-semibold text-blue-900">
             Efficiency Tracker — {jobName}
           </h3>
         </div>
-        <button onClick={onClose} className="text-muted-foreground hover:text-navy">
+        <button onClick={onClose} className="text-slate-500 hover:text-blue-900">
           <X size={16} />
         </button>
       </div>
 
-      <p className="mb-4 text-xs text-muted-foreground">
+      <p className="mb-4 text-xs text-slate-500">
         How did the crew do? Enter actual man hours from payroll to track efficiency.
       </p>
 
       <div className="mb-4 grid grid-cols-2 gap-4">
-        <div className="rounded-lg bg-navy/5 p-3 text-center">
-          <p className="text-2xl font-bold text-navy">{budgetedManHours}</p>
-          <p className="text-xs text-muted-foreground">Budgeted MH</p>
+        <div className="rounded-lg bg-blue-50 p-3 text-center">
+          <p className="text-2xl font-bold text-blue-900">{budgetedManHours}</p>
+          <p className="text-xs text-slate-500">Budgeted MH</p>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium">Actual Man Hours</label>
@@ -122,10 +122,10 @@ export function EfficiencyTracker({
             min={0}
             value={actualHours}
             onChange={(e) => setActualHours(e.target.value ? Number(e.target.value) : '')}
-            className="w-full rounded-lg border border-input px-3 py-2.5 text-center text-lg font-bold outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-center text-lg font-bold outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             placeholder="0"
           />
-          <p className="mt-0.5 text-[10px] text-muted-foreground text-center">From payroll</p>
+          <p className="mt-0.5 text-[10px] text-slate-500 text-center">From payroll</p>
         </div>
       </div>
 
@@ -148,7 +148,7 @@ export function EfficiencyTracker({
             {getEfficiencyLabel(efficiencyPercent)}
           </p>
           {Number(actualHours) > budgetedManHours && (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-slate-500">
               {(Number(actualHours) - budgetedManHours).toFixed(1)} hours over budget
             </p>
           )}
@@ -160,7 +160,7 @@ export function EfficiencyTracker({
         <input
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          className="w-full rounded-lg border border-input px-3 py-2 text-sm outline-none focus:border-gold"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
           placeholder="Weather delay, scope change, etc."
         />
       </div>
@@ -168,14 +168,15 @@ export function EfficiencyTracker({
       <div className="flex gap-2">
         <button
           onClick={onClose}
-          className="flex-1 rounded-lg border border-border py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted"
+          className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
         >
           {existing ? 'Cancel' : 'Skip — This was an outlier'}
         </button>
         <button
           onClick={handleSave}
           disabled={saving || !actualHours}
-          className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-navy py-2.5 text-sm font-semibold text-white hover:bg-navy-light disabled:opacity-50"
+          className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          style={{ background: 'linear-gradient(135deg, #1e3a5f, #2d5aa0)' }}
         >
           <Check size={14} />
           {saving ? 'Saving...' : existing ? 'Update' : 'Track Efficiency'}

@@ -11,9 +11,9 @@ export interface EditDiff {
   newValue: number
   unit: string
   // What to update if accepted
-  updateType: 'production_rate' | 'material_cost'
-  updateKey: string // work_type or material name
-  updateField: string // man_hours_per_unit or unit_cost
+  updateType: 'production_rate'
+  updateKey: string // work_type
+  updateField: string // man_hours_per_unit
 }
 
 interface LearningPromptProps {
@@ -35,54 +35,29 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
     setProcessing((prev) => ({ ...prev, [index]: true }))
 
     try {
-      if (diff.updateType === 'production_rate') {
-        // Check if rate exists
-        const { data: existing } = await supabase
+      // Check if rate exists
+      const { data: existing } = await supabase
+        .from('production_rates')
+        .select('id')
+        .eq('company_id', company.id)
+        .ilike('work_type', diff.updateKey)
+        .maybeSingle()
+
+      if (existing) {
+        await supabase
           .from('production_rates')
-          .select('id')
-          .eq('company_id', company.id)
-          .ilike('work_type', diff.updateKey)
-          .maybeSingle()
-
-        if (existing) {
-          await supabase
-            .from('production_rates')
-            .update({ [diff.updateField]: diff.newValue })
-            .eq('id', existing.id)
-        } else {
-          await supabase.from('production_rates').insert({
-            company_id: company.id,
-            work_type: diff.updateKey,
-            unit: diff.unit,
-            man_hours_per_unit: diff.newValue,
-            notes: `Updated from estimate edit`,
-          })
-        }
-        toast.success(`Production rate updated: ${diff.updateKey}`)
-      } else if (diff.updateType === 'material_cost') {
-        const { data: existing } = await supabase
-          .from('materials_catalog')
-          .select('id')
-          .eq('company_id', company.id)
-          .ilike('name', diff.updateKey)
-          .maybeSingle()
-
-        if (existing) {
-          await supabase
-            .from('materials_catalog')
-            .update({ [diff.updateField]: diff.newValue })
-            .eq('id', existing.id)
-        } else {
-          await supabase.from('materials_catalog').insert({
-            company_id: company.id,
-            name: diff.updateKey,
-            unit: diff.unit,
-            unit_cost: diff.newValue,
-            notes: `Added from estimate edit`,
-          })
-        }
-        toast.success(`Material cost updated: ${diff.updateKey}`)
+          .update({ [diff.updateField]: diff.newValue })
+          .eq('id', existing.id)
+      } else {
+        await supabase.from('production_rates').insert({
+          company_id: company.id,
+          work_type: diff.updateKey,
+          unit: diff.unit,
+          man_hours_per_unit: diff.newValue,
+          notes: `Updated from estimate edit`,
+        })
       }
+      toast.success(`Production rate updated: ${diff.updateKey}`)
 
       setHandled((prev) => ({ ...prev, [index]: 'saved' }))
     } catch (err) {
@@ -97,23 +72,20 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
   }
 
   return (
-    <div className="rounded-xl border-2 border-gold/40 bg-gold/5 p-5">
+    <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-5">
       <div className="mb-4 flex items-start justify-between">
         <div className="flex items-center gap-2">
-          <Sparkles size={18} className="text-gold-dark" />
-          <h4 className="text-sm font-semibold text-navy">
+          <Sparkles size={18} className="text-blue-700" />
+          <h4 className="text-sm font-semibold text-blue-900">
             AI Noticed Your Edits
           </h4>
         </div>
-        <button
-          onClick={onDismiss}
-          className="text-muted-foreground hover:text-navy"
-        >
+        <button onClick={onDismiss} className="text-slate-500 hover:text-blue-900">
           <X size={16} />
         </button>
       </div>
 
-      <p className="mb-4 text-xs text-muted-foreground">
+      <p className="mb-4 text-xs text-slate-500">
         You changed some AI-generated values. Should I update your company
         profile so future estimates use these numbers?
       </p>
@@ -126,14 +98,14 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
               handled[i] === 'saved'
                 ? 'border-green-200 bg-green-50'
                 : handled[i] === 'skipped'
-                ? 'border-border bg-muted/30 opacity-60'
-                : 'border-border bg-white'
+                ? 'border-slate-200 bg-slate-50 opacity-60'
+                : 'border-slate-200 bg-white'
             }`}
           >
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-navy">{diff.field}</p>
-              <p className="text-xs text-muted-foreground">
-                <span className="line-through text-destructive">
+              <p className="font-medium text-blue-900">{diff.field}</p>
+              <p className="text-xs text-slate-500">
+                <span className="line-through text-red-600">
                   {diff.oldValue} {diff.unit}
                 </span>
                 {' → '}
@@ -144,21 +116,22 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
             </div>
 
             {handled[i] ? (
-              <span className="text-xs font-medium text-muted-foreground">
+              <span className="text-xs font-medium text-slate-500">
                 {handled[i] === 'saved' ? '✓ Saved' : 'Skipped'}
               </span>
             ) : (
               <div className="flex gap-2">
                 <button
                   onClick={() => skipDiff(i)}
-                  className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+                  className="rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100"
                 >
                   Job-specific
                 </button>
                 <button
                   onClick={() => saveToProfile(diff, i)}
                   disabled={processing[i]}
-                  className="inline-flex items-center gap-1 rounded-md bg-navy px-2.5 py-1.5 text-xs font-medium text-white hover:bg-navy-light disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #1e3a5f, #2d5aa0)' }}
                 >
                   <Check size={12} />
                   {processing[i] ? 'Saving...' : 'Update Profile'}
@@ -172,7 +145,7 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
       {allHandled && (
         <button
           onClick={onDismiss}
-          className="mt-4 w-full rounded-lg bg-navy/5 py-2 text-xs font-medium text-navy hover:bg-navy/10"
+          className="mt-4 w-full rounded-lg bg-blue-50 py-2 text-xs font-medium text-blue-900 hover:bg-blue-100"
         >
           Done — Continue
         </button>
@@ -183,11 +156,12 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
 
 /**
  * Compare original AI-generated line items with the current (edited) versions.
- * Returns diffs for items where the user changed quantity or unit_cost by >10%.
+ * Returns diffs for items where the user changed quantity by >10%.
+ * BidClaw tracks quantities only — no cost comparisons.
  */
 export function detectLineItemEdits(
-  originalItems: { name: string; quantity: number; unit: string; unit_cost: number | null }[],
-  currentItems: { name: string; quantity: number; unit: string; unit_cost: number | null }[]
+  originalItems: { name: string; quantity: number; unit: string }[],
+  currentItems: { name: string; quantity: number; unit: string }[]
 ): EditDiff[] {
   const diffs: EditDiff[] = []
 
@@ -212,26 +186,6 @@ export function detectLineItemEdits(
         updateType: 'production_rate',
         updateKey: current.name,
         updateField: 'man_hours_per_unit',
-      })
-    }
-
-    // Check unit cost change (>10% difference)
-    if (
-      original.unit_cost != null &&
-      current.unit_cost != null &&
-      original.unit_cost > 0 &&
-      current.unit_cost > 0 &&
-      Math.abs(current.unit_cost - original.unit_cost) / original.unit_cost > 0.1
-    ) {
-      diffs.push({
-        field: `${current.name} — unit cost`,
-        itemName: current.name,
-        oldValue: original.unit_cost,
-        newValue: current.unit_cost,
-        unit: '$',
-        updateType: 'material_cost',
-        updateKey: current.name,
-        updateField: 'unit_cost',
       })
     }
   }

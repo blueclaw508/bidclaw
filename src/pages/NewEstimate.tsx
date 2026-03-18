@@ -88,16 +88,16 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-navy">New Estimate</h2>
-        <button onClick={onCancel} className="text-muted-foreground hover:text-navy">
+        <h2 className="text-2xl font-bold text-blue-900">New Estimate</h2>
+        <button onClick={onCancel} className="text-slate-500 hover:text-blue-900">
           <X size={24} />
         </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Client Info */}
-        <div className="rounded-xl border border-border bg-white p-6">
-          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
+          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Client Information
           </h3>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -107,7 +107,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                 required
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
-                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 placeholder="Client or company name"
               />
             </div>
@@ -117,7 +117,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                 type="email"
                 value={clientEmail}
                 onChange={(e) => setClientEmail(e.target.value)}
-                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 placeholder="client@email.com"
               />
             </div>
@@ -126,7 +126,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
               <input
                 value={jobAddress}
                 onChange={(e) => setJobAddress(e.target.value)}
-                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 placeholder="123 Main St"
               />
             </div>
@@ -135,7 +135,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
               <input
                 value={jobCity}
                 onChange={(e) => setJobCity(e.target.value)}
-                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -144,7 +144,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                 <input
                   value={jobState}
                   onChange={(e) => setJobState(e.target.value)}
-                  className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                   placeholder="MA"
                   maxLength={2}
                 />
@@ -154,7 +154,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                 <input
                   value={jobZip}
                   onChange={(e) => setJobZip(e.target.value)}
-                  className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                   placeholder="02101"
                 />
               </div>
@@ -163,8 +163,8 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
         </div>
 
         {/* Spec Source */}
-        <div className="rounded-xl border border-border bg-white p-6">
-          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
+          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
             Job Specs
           </h3>
 
@@ -174,8 +174,8 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
               onClick={() => setSpecSource('plan')}
               className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-colors ${
                 specSource === 'plan'
-                  ? 'border-gold bg-gold/5 text-navy'
-                  : 'border-border text-muted-foreground hover:border-gold/40'
+                  ? 'border-blue-400 bg-blue-50 text-blue-900'
+                  : 'border-slate-200 text-slate-500 hover:border-blue-200'
               }`}
             >
               <Upload size={24} />
@@ -186,8 +186,8 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
               onClick={() => setSpecSource('site_visit')}
               className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-colors ${
                 specSource === 'site_visit'
-                  ? 'border-gold bg-gold/5 text-navy'
-                  : 'border-border text-muted-foreground hover:border-gold/40'
+                  ? 'border-blue-400 bg-blue-50 text-blue-900'
+                  : 'border-slate-200 text-slate-500 hover:border-blue-200'
               }`}
             >
               <MessageSquare size={24} />
@@ -198,8 +198,8 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
           {specSource === 'plan' ? (
             <div>
               {planFile ? (
-                <div className="flex items-center gap-3 rounded-lg border border-gold/30 bg-gold/5 p-3">
-                  <FileText size={20} className="text-gold" />
+                <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                  <FileText size={20} className="text-blue-600" />
                   <span className="flex-1 truncate text-sm font-medium">{planFile.name}</span>
                   <button
                     type="button"
@@ -207,18 +207,18 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                       setPlanFile(null)
                       if (fileInputRef.current) fileInputRef.current.value = ''
                     }}
-                    className="text-muted-foreground hover:text-destructive"
+                    className="text-slate-500 hover:text-red-600"
                   >
                     <X size={16} />
                   </button>
                 </div>
               ) : (
-                <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border p-8 transition-colors hover:border-gold/40">
-                  <Upload size={32} className="text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">
+                <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-200 p-8 transition-colors hover:border-blue-200">
+                  <Upload size={32} className="text-slate-500" />
+                  <span className="text-sm font-medium text-slate-500">
                     Drop PDF or image here, or click to browse
                   </span>
-                  <span className="text-xs text-muted-foreground/60">
+                  <span className="text-xs text-slate-500/60">
                     Supports PDF, PNG, JPG
                   </span>
                   <input
@@ -240,7 +240,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
                 rows={6}
-                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 resize-none"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none"
                 placeholder="Describe the work to be done, areas involved, materials specified, any special conditions..."
               />
             </div>
@@ -248,7 +248,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
         </div>
 
         {error && (
-          <p className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
             {error}
           </p>
         )}
@@ -256,7 +256,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
         <button
           type="submit"
           disabled={saving || !clientName}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-navy py-3 text-sm font-semibold text-white hover:bg-navy-light disabled:opacity-50 transition-colors"
+          className="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors" style={{ background: 'linear-gradient(135deg, #1e3a5f, #2d5aa0)' }}
         >
           {saving ? (
             <>

@@ -107,14 +107,14 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-navy">Estimates</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-2xl font-bold text-blue-900">Estimates</h2>
+          <p className="text-sm text-slate-500">
             {estimates.length} total estimate{estimates.length !== 1 ? 's' : ''}
           </p>
         </div>
         <button
           onClick={onNewEstimate}
-          className="inline-flex items-center gap-2 rounded-lg bg-gold px-4 py-2.5 text-sm font-semibold text-navy hover:bg-gold-light transition-colors"
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-400 transition-colors"
         >
           <PlusCircle size={18} />
           New Estimate
@@ -124,13 +124,13 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
       {/* Filters */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             type="text"
             placeholder="Search by client or address..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-input bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
         <div className="flex gap-2">
@@ -140,8 +140,8 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
               onClick={() => setStatusFilter(s)}
               className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                 statusFilter === s
-                  ? 'bg-navy text-white'
-                  : 'bg-white text-muted-foreground hover:bg-muted'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-slate-500 hover:bg-slate-100'
               }`}
             >
               {s === 'all' ? 'All' : s === 'sent_to_quickcalc' ? 'Sent' : s.charAt(0).toUpperCase() + s.slice(1)}
@@ -152,19 +152,19 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
 
       {/* Estimate list */}
       {loading ? (
-        <div className="flex items-center justify-center py-20 text-muted-foreground">
+        <div className="flex items-center justify-center py-20 text-slate-500">
           Loading estimates...
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-white py-16">
-          <FileText size={48} className="mb-4 text-muted-foreground/40" />
-          <p className="text-lg font-medium text-muted-foreground">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white py-16">
+          <FileText size={48} className="mb-4 text-slate-500/40" />
+          <p className="text-lg font-medium text-slate-500">
             {estimates.length === 0 ? 'No estimates yet' : 'No matching estimates'}
           </p>
           {estimates.length === 0 && (
             <button
               onClick={onNewEstimate}
-              className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-gold hover:text-gold-dark"
+              className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700"
             >
               <PlusCircle size={16} />
               Create your first estimate
@@ -179,14 +179,14 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
               <div key={est.id} className="relative">
                 <button
                   onClick={() => onOpenEstimate(est.id)}
-                  className="flex w-full items-center gap-4 rounded-xl border border-border bg-white p-4 text-left transition-colors hover:border-gold/40 hover:shadow-sm"
+                  className="flex w-full items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-blue-200 hover:shadow-sm"
                 >
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-navy/5 text-navy">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-900">
                     <FileText size={20} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-navy">{est.client_name}</p>
-                    <p className="truncate text-sm text-muted-foreground">
+                    <p className="truncate font-semibold text-blue-900">{est.client_name}</p>
+                    <p className="truncate text-sm text-slate-500">
                       {[est.job_address, est.job_city, est.job_state].filter(Boolean).join(', ') || 'No address'}
                     </p>
                   </div>
@@ -195,7 +195,7 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
                       {status.icon}
                       {status.label}
                     </span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs text-slate-500">
                       {new Date(est.updated_at).toLocaleDateString()}
                     </span>
                   </div>
@@ -208,7 +208,7 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
                       e.stopPropagation()
                       setMenuOpen(menuOpen === est.id ? null : est.id)
                     }}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-navy"
+                    className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-blue-900"
                   >
                     <MoreVertical size={16} aria-hidden="true" />
                   </button>
@@ -219,13 +219,13 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
                         className="fixed inset-0 z-10"
                         onClick={() => setMenuOpen(null)}
                       />
-                      <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-border bg-white py-1 shadow-lg">
+                      <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
                             duplicateEstimate(est)
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-slate-100"
                         >
                           <Copy size={14} />
                           Duplicate
@@ -236,7 +236,7 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
                             setConfirmDelete(est.id)
                             setMenuOpen(null)
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/5"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                         >
                           <Trash2 size={14} />
                           Delete
@@ -248,21 +248,21 @@ export function Dashboard({ onNewEstimate, onOpenEstimate }: DashboardProps) {
 
                 {/* Delete confirmation */}
                 {confirmDelete === est.id && (
-                  <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-white/95 backdrop-blur-sm border border-destructive/30">
+                  <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-white/95 backdrop-blur-sm border border-red-200">
                     <div className="text-center px-4">
-                      <p className="mb-3 text-sm font-medium text-navy">
+                      <p className="mb-3 text-sm font-medium text-blue-900">
                         Delete this estimate?
                       </p>
                       <div className="flex justify-center gap-2">
                         <button
                           onClick={() => setConfirmDelete(null)}
-                          className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+                          className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={() => deleteEstimate(est.id)}
-                          className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-white hover:bg-destructive/90"
+                          className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
                         >
                           Delete
                         </button>

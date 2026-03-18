@@ -4,15 +4,17 @@ export interface Company {
   id: string
   user_id: string
   name: string
+  contact_name: string | null
   logo_url: string | null
   street: string | null
   city: string | null
   state: string | null
   zip: string | null
-  typical_crew_size: number
-  crew_full_day_hours: number
-  crew_half_day_hours: number
+  email: string | null
+  phone: string | null
+  website: string | null
   estimating_methodology: string | null
+  quickcalc_linked: boolean
   created_at: string
 }
 
@@ -26,47 +28,37 @@ export interface ProductionRate {
   notes: string | null
 }
 
-// ── Item Catalog — Materials ──
+// ── Item Catalog — Materials (no pricing) ──
 export interface MaterialCatalogItem {
   id: string
   company_id: string
   name: string
   um: string | null
-  unit: string
-  unit_cost: number
   supplier: string | null
-  notes: string | null
 }
 
-// ── Item Catalog — Subcontractors ──
+// ── Item Catalog — Subcontractors (no pricing) ──
 export interface SubCatalogItem {
   id: string
   company_id: string
   name: string
-  um: string | null
-  unit: string
-  unit_cost: number
   trade: string | null
-  notes: string | null
 }
 
-// ── Item Catalog — Equipment (names only, no rates) ──
+// ── Item Catalog — Equipment (name + U/M only) ──
 export interface EquipmentItem {
   id: string
   company_id: string
   name: string
-  billable: boolean
+  um: string
 }
 
-// ── Item Catalog — Disposal Fees/Other ──
+// ── Item Catalog — Disposal Fees/Other (no pricing) ──
 export interface DisposalCatalogItem {
   id: string
   company_id: string
   name: string
   um: string | null
-  unit: string
-  unit_cost: number
-  notes: string | null
 }
 
 // ── Work Types ──
@@ -99,7 +91,7 @@ export interface Estimate {
   updated_at: string
 }
 
-// ── Work Areas ──
+// ── Work Areas (crew size + hours live here, per work area) ──
 export interface WorkArea {
   id: string
   estimate_id: string
@@ -109,10 +101,12 @@ export interface WorkArea {
   approved: boolean
   notes: string[]
   total_man_hours: number | null
+  crew_size: number
+  crew_hours_per_day: number
   day_increment: 'full' | 'half' | null
 }
 
-// ── Line Items ──
+// ── Line Items (quantities only — no costs) ──
 export type LineItemType = 'material' | 'equipment' | 'labor' | 'sub' | 'disposal' | 'general_conditions'
 
 export interface LineItem {
@@ -122,8 +116,6 @@ export interface LineItem {
   name: string
   quantity: number
   unit: string | null
-  unit_cost: number | null
-  total_cost: number | null
   ai_generated: boolean
   sort_order: number
 }
@@ -161,7 +153,6 @@ export interface AiTakeoffMaterial {
   name: string
   quantity: number
   unit: string
-  unit_cost: number
   rationale: string
 }
 
@@ -188,7 +179,8 @@ export interface AiFullEstimateWorkArea {
   equipment: AiTakeoffEquipment[]
   labor: {
     man_hours: number
-    increment: 'full' | 'half'
+    crew_size: number
+    crew_hours_per_day: number
     days: number
   }
   general_conditions: { amount: number }
@@ -206,6 +198,18 @@ export interface AiFullEstimateResponse {
 // ── QuickCalc Payload ──
 export interface QuickCalcPayload {
   source: 'bidclaw'
+  company_info: {
+    name: string
+    contact_name: string | null
+    street: string | null
+    city: string | null
+    state: string | null
+    zip: string | null
+    email: string | null
+    phone: string | null
+    website: string | null
+    logo_url: string | null
+  }
   estimate: {
     client_name: string
     client_email: string | null
@@ -215,9 +219,9 @@ export interface QuickCalcPayload {
       name: string
       sort_order: number
       notes: string[]
-      materials: { name: string; quantity: number; unit: string; unit_cost: number }[]
+      materials: { name: string; quantity: number; unit: string }[]
       equipment: { name: string; hours: number }[]
-      labor: { man_hours: number; increment: string; days: number }
+      labor: { man_hours: number; crew_size: number; crew_hours_per_day: number; days: number }
       general_conditions: number
     }[]
     man_hour_summary: {
@@ -242,3 +246,10 @@ export const PRODUCTION_BENCHMARKS = [
   { work_type: 'Mulch Bed Edging', unit: 'LF', bca_rate: null, verified: false },
   { work_type: 'Spring Cleanup', unit: 'HR', bca_rate: 1.0, verified: true },
 ] as const
+
+// ── Round man hours to nearest crew-day ──
+export function roundManHours(manHours: number, crewSize: number, hoursPerDay: number): number {
+  const crewDay = crewSize * hoursPerDay
+  if (crewDay <= 0) return manHours
+  return Math.ceil(manHours / crewDay) * crewDay
+}

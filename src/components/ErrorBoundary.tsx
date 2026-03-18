@@ -20,11 +20,11 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-          <div className="w-full max-w-md rounded-xl border border-border bg-white p-8 text-center shadow-sm">
-            <AlertCircle size={48} className="mx-auto mb-4 text-destructive" />
-            <h2 className="mb-2 text-lg font-semibold text-navy">Something went wrong</h2>
-            <p className="mb-4 text-sm text-muted-foreground">
+        <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <AlertCircle size={48} className="mx-auto mb-4 text-red-600" />
+            <h2 className="mb-2 text-lg font-semibold text-blue-900">Something went wrong</h2>
+            <p className="mb-4 text-sm text-slate-500">
               {this.state.error?.message || 'An unexpected error occurred.'}
             </p>
             <button
@@ -32,7 +32,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 this.setState({ hasError: false, error: null })
                 window.location.reload()
               }}
-              className="inline-flex items-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-navy-light transition-colors"
+              className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors" style={{ background: 'linear-gradient(135deg, #1e3a5f, #2d5aa0)' }}
             >
               <RefreshCw size={16} />
               Reload App

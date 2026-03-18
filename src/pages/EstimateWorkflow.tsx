@@ -47,7 +47,7 @@ type Phase = 1 | 2 | 3 | 4
 // AI badge component
 function AiBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-gold/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gold-dark">
+    <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-700">
       <Sparkles size={10} />
       AI
     </span>
@@ -83,7 +83,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
   // Learning loop: track original AI values for diff detection
   const [originalLineItems, setOriginalLineItems] = useState<
-    Record<string, { name: string; quantity: number; unit: string; unit_cost: number | null }[]>
+    Record<string, { name: string; quantity: number; unit: string }[]>
   >({})
   const [learningDiffs, setLearningDiffs] = useState<EditDiff[]>([])
   const [showLearning, setShowLearning] = useState(false)
@@ -300,8 +300,6 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             name: m.name,
             quantity: m.quantity,
             unit: m.unit,
-            unit_cost: m.unit_cost,
-            total_cost: m.quantity * m.unit_cost,
             ai_generated: true,
             sort_order: i,
           })),
@@ -311,8 +309,6 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             name: e.name,
             quantity: e.hours,
             unit: 'HR',
-            unit_cost: null,
-            total_cost: null,
             ai_generated: true,
             sort_order: aiWa.materials.length + i,
           })),
@@ -330,13 +326,12 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
       setLineItems(newLineItems)
 
       // Save a snapshot of original AI values for learning loop
-      const origSnapshot: Record<string, { name: string; quantity: number; unit: string; unit_cost: number | null }[]> = {}
+      const origSnapshot: Record<string, { name: string; quantity: number; unit: string }[]> = {}
       for (const [waId, items] of Object.entries(newLineItems)) {
         origSnapshot[waId] = items.map((li) => ({
           name: li.name,
           quantity: li.quantity,
           unit: li.unit ?? '',
-          unit_cost: li.unit_cost,
         }))
       }
       setOriginalLineItems(origSnapshot)
@@ -357,10 +352,10 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         name: li.name,
         quantity: li.quantity,
         unit: li.unit ?? '',
-        unit_cost: li.unit_cost,
+        unit_cost: null,
       }))
     )
-    const allOrigItems = Object.values(originalLineItems).flat()
+    const allOrigItems = Object.values(originalLineItems).flat().map((li) => ({ ...li, unit_cost: null }))
     const diffs = detectLineItemEdits(allOrigItems, allCurrentItems)
 
     if (diffs.length > 0) {
@@ -389,7 +384,6 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             name: li.name,
             quantity: li.quantity,
             unit: li.unit,
-            unit_cost: li.unit_cost,
           })),
         equipment: (lineItems[wa.id] ?? [])
           .filter((li) => li.type === 'equipment')
@@ -407,9 +401,11 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             company_name: company.name,
             methodology: company.estimating_methodology,
             production_rates: companyData.rates,
-            crew_full_day_men: company.typical_crew_size,
-            crew_full_day_hours: company.crew_full_day_hours,
-            crew_half_day_hours: company.crew_half_day_hours,
+            work_areas_with_crew: workAreas.map((wa) => ({
+              name: wa.name,
+              crew_size: wa.crew_size,
+              crew_hours_per_day: wa.crew_hours_per_day,
+            })),
             takeoffs: takeoffData,
           },
         }
@@ -444,7 +440,8 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         .update({
           notes: feWa.notes,
           total_man_hours: feWa.labor.man_hours,
-          day_increment: feWa.labor.increment,
+          crew_size: feWa.labor.crew_size,
+          crew_hours_per_day: feWa.labor.crew_hours_per_day,
           approved: true,
         })
         .eq('id', matchingArea.id)
@@ -454,11 +451,9 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         {
           work_area_id: matchingArea.id,
           type: 'labor',
-          name: `Labor — ${feWa.labor.days} ${feWa.labor.increment} day(s)`,
+          name: `Labor — ${feWa.labor.days} day(s), crew of ${feWa.labor.crew_size}`,
           quantity: feWa.labor.man_hours,
           unit: 'MH',
-          unit_cost: null,
-          total_cost: null,
           ai_generated: true,
           sort_order: 100,
         },
@@ -466,10 +461,8 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
           work_area_id: matchingArea.id,
           type: 'general_conditions',
           name: 'General Conditions',
-          quantity: 1,
+          quantity: feWa.general_conditions.amount,
           unit: 'LS',
-          unit_cost: feWa.general_conditions.amount,
-          total_cost: feWa.general_conditions.amount,
           ai_generated: true,
           sort_order: 101,
         },
@@ -499,6 +492,18 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
     try {
       const payload: QuickCalcPayload = {
         source: 'bidclaw',
+        company_info: {
+          name: company.name,
+          contact_name: company.contact_name,
+          street: company.street,
+          city: company.city,
+          state: company.state,
+          zip: company.zip,
+          email: company.email,
+          phone: company.phone,
+          website: company.website,
+          logo_url: company.logo_url,
+        },
         estimate: {
           client_name: estimate.client_name,
           client_email: estimate.client_email,
@@ -512,7 +517,6 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
               name: m.name,
               quantity: m.quantity,
               unit: m.unit,
-              unit_cost: m.unit_cost,
             })),
             equipment: wa.equipment.map((e) => ({
               name: e.name,
@@ -559,7 +563,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="animate-spin text-gold" size={32} />
+        <Loader2 className="animate-spin text-blue-500" size={32} />
       </div>
     )
   }
@@ -568,7 +572,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
     return (
       <div className="text-center py-20 text-muted-foreground">
         Estimate not found.
-        <button onClick={onBack} className="ml-2 text-gold hover:text-gold-dark">
+        <button onClick={onBack} className="ml-2 text-blue-500 hover:text-blue-700">
           Go back
         </button>
       </div>
@@ -584,12 +588,12 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             if (hasUnsavedEdits && !window.confirm('You have unsaved edits. Leave anyway?')) return
             onBack()
           }}
-          className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-navy"
+          className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-blue-900"
         >
           <ArrowLeft size={14} />
           Back to Dashboard
         </button>
-        <h2 className="text-2xl font-bold text-navy">{estimate.client_name}</h2>
+        <h2 className="text-2xl font-bold text-blue-900">{estimate.client_name}</h2>
         <p className="text-sm text-muted-foreground">
           {[estimate.job_address, estimate.job_city, estimate.job_state]
             .filter(Boolean)
@@ -604,9 +608,9 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             <div
               className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
                 p < phase
-                  ? 'bg-gold text-navy'
+                  ? 'bg-blue-500 text-blue-900'
                   : p === phase
-                  ? 'bg-navy text-white'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-muted text-muted-foreground'
               }`}
             >
@@ -614,7 +618,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             </div>
             <span
               className={`hidden text-sm font-medium sm:block ${
-                p === phase ? 'text-navy' : 'text-muted-foreground'
+                p === phase ? 'text-blue-900' : 'text-muted-foreground'
               }`}
             >
               {p === 1
@@ -654,7 +658,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         <div className="space-y-4">
           {aiLoading ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-white py-16">
-              <Loader2 className="mb-4 animate-spin text-gold" size={32} />
+              <Loader2 className="mb-4 animate-spin text-blue-500" size={32} />
               <p className="text-sm font-medium text-muted-foreground">
                 AI is analyzing the job...
               </p>
@@ -662,8 +666,8 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
           ) : (
             <>
               {assumptions.length > 0 && (
-                <div className="rounded-lg border border-gold/30 bg-gold/5 p-4">
-                  <p className="mb-2 text-xs font-semibold uppercase text-gold-dark">
+                <div className="rounded-lg border border-blue-400/30 bg-blue-500/5 p-4">
+                  <p className="mb-2 text-xs font-semibold uppercase text-blue-700">
                     AI Assumptions
                   </p>
                   <ul className="space-y-1 text-sm text-foreground">
@@ -706,7 +710,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                               updated[i] = { ...updated[i], name: e.target.value }
                               setProposedAreas(updated)
                             }}
-                            className="flex-1 font-medium text-navy outline-none border-b border-transparent focus:border-gold"
+                            className="flex-1 font-medium text-blue-900 outline-none border-b border-transparent focus:border-blue-400"
                           />
                           {wa.ai && <AiBadge />}
                         </div>
@@ -734,7 +738,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                       { name: '', category: '', rationale: '', ai: false },
                     ])
                   }
-                  className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-gold hover:text-gold-dark"
+                  className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-blue-500 hover:text-blue-700"
                 >
                   <Plus size={16} />
                   Add Work Area
@@ -744,7 +748,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
               <button
                 onClick={approveWorkAreas}
                 disabled={proposedAreas.length === 0 || proposedAreas.some((wa) => !wa.name.trim())}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-navy py-3 text-sm font-semibold text-white hover:bg-navy-light disabled:opacity-50 transition-colors"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
                 Approve Work Areas
                 <ArrowRight size={16} />
@@ -759,7 +763,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         <div className="space-y-6" onInput={() => setHasUnsavedEdits(true)}>
           {aiLoading ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-white py-16">
-              <Loader2 className="mb-4 animate-spin text-gold" size={32} />
+              <Loader2 className="mb-4 animate-spin text-blue-500" size={32} />
               <p className="text-sm font-medium text-muted-foreground">
                 AI is generating takeoffs...
               </p>
@@ -771,7 +775,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                   key={wa.id}
                   className="rounded-xl border border-border bg-white p-6"
                 >
-                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-navy">
+                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-blue-900">
                     {wa.name}
                     {wa.ai_generated && <AiBadge />}
                   </h3>
@@ -783,8 +787,6 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                         <th className="pb-2">Item</th>
                         <th className="pb-2 text-right">Qty</th>
                         <th className="pb-2 text-right">Unit</th>
-                        <th className="pb-2 text-right">Unit Cost</th>
-                        <th className="pb-2 text-right">Total</th>
                         <th className="pb-2 w-8" />
                       </tr>
                     </thead>
@@ -801,7 +803,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                                   updated[wa.id][liIdx] = { ...li, name: e.target.value }
                                   setLineItems(updated)
                                 }}
-                                className="w-full outline-none border-b border-transparent focus:border-gold"
+                                className="w-full outline-none border-b border-transparent focus:border-blue-400"
                               />
                               {li.ai_generated && <AiBadge />}
                             </div>
@@ -818,39 +820,14 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                                 updated[wa.id][liIdx] = {
                                   ...li,
                                   quantity: qty,
-                                  total_cost: li.unit_cost ? qty * li.unit_cost : null,
                                 }
                                 setLineItems(updated)
                               }}
-                              className="w-20 text-right outline-none border-b border-transparent focus:border-gold"
+                              className="w-20 text-right outline-none border-b border-transparent focus:border-blue-400"
                             />
                           </td>
                           <td className="py-2 text-right text-muted-foreground">
                             {li.unit}
-                          </td>
-                          <td className="py-2 text-right">
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={li.unit_cost ?? ''}
-                              onChange={(e) => {
-                                const cost = Number(e.target.value)
-                                const updated = { ...lineItems }
-                                updated[wa.id] = [...(updated[wa.id] ?? [])]
-                                updated[wa.id][liIdx] = {
-                                  ...li,
-                                  unit_cost: cost,
-                                  total_cost: li.quantity * cost,
-                                }
-                                setLineItems(updated)
-                              }}
-                              className="w-20 text-right outline-none border-b border-transparent focus:border-gold"
-                            />
-                          </td>
-                          <td className="py-2 text-right font-medium">
-                            {li.total_cost != null
-                              ? `$${li.total_cost.toFixed(2)}`
-                              : '—'}
                           </td>
                           <td className="py-2">
                             <button
@@ -880,8 +857,6 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                           name: '',
                           quantity: 0,
                           unit: 'EA',
-                          unit_cost: 0,
-                          total_cost: 0,
                           ai_generated: false,
                           sort_order: (lineItems[wa.id]?.length ?? 0),
                         })
@@ -894,7 +869,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                         setLineItems(updated)
                       }
                     }}
-                    className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-gold hover:text-gold-dark"
+                    className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-blue-500 hover:text-blue-700"
                   >
                     <Plus size={14} />
                     Add Line Item
@@ -904,7 +879,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
               <button
                 onClick={approveTakeoffs}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-navy py-3 text-sm font-semibold text-white hover:bg-navy-light transition-colors"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
               >
                 Approve Takeoffs
                 <ArrowRight size={16} />
@@ -919,7 +894,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
         <div className="space-y-6">
           {aiLoading ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-white py-16">
-              <Loader2 className="mb-4 animate-spin text-gold" size={32} />
+              <Loader2 className="mb-4 animate-spin text-blue-500" size={32} />
               <p className="text-sm font-medium text-muted-foreground">
                 AI is completing the estimate...
               </p>
@@ -941,7 +916,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                   key={waIdx}
                   className="rounded-xl border border-border bg-white p-6"
                 >
-                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-navy">
+                  <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-blue-900">
                     {wa.name}
                     <AiBadge />
                   </h3>
@@ -954,7 +929,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                     <div className="space-y-1">
                       {wa.notes.map((note, ni) => (
                         <div key={ni} className="flex items-start gap-2">
-                          <span className="mt-0.5 text-gold">•</span>
+                          <span className="mt-0.5 text-blue-500">•</span>
                           <input
                             value={note}
                             onChange={(e) => {
@@ -966,7 +941,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                               updated[waIdx].notes[ni] = e.target.value
                               setFullEstimate(updated)
                             }}
-                            className="flex-1 text-sm outline-none border-b border-transparent focus:border-gold"
+                            className="flex-1 text-sm outline-none border-b border-transparent focus:border-blue-400"
                           />
                         </div>
                       ))}
@@ -983,9 +958,6 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                         <div key={i} className="flex justify-between">
                           <span>
                             {m.name} — {m.quantity} {m.unit}
-                          </span>
-                          <span className="font-medium">
-                            ${(m.quantity * m.unit_cost).toFixed(2)}
                           </span>
                         </div>
                       ))}
@@ -1015,7 +987,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                     </p>
                     <p className="text-sm">
                       {wa.labor.man_hours} man-hours = {wa.labor.days}{' '}
-                      {wa.labor.increment} day{wa.labor.days !== 1 ? 's' : ''}
+                      day{wa.labor.days !== 1 ? 's' : ''} (crew of {wa.labor.crew_size}, {wa.labor.crew_hours_per_day} hrs/day)
                     </p>
                   </div>
 
@@ -1033,19 +1005,19 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
               {/* Man Hour Summary */}
               {manHourSummary && (
-                <div className="rounded-xl border-2 border-navy bg-navy/5 p-6">
-                  <h3 className="mb-4 text-lg font-semibold text-navy">
+                <div className="rounded-xl border-2 border-blue-600 bg-blue-600/5 p-6">
+                  <h3 className="mb-4 text-lg font-semibold text-blue-900">
                     Man Hour Budget Summary
                   </h3>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <p className="text-3xl font-bold text-navy">
+                      <p className="text-3xl font-bold text-blue-900">
                         {manHourSummary.total_man_hours}
                       </p>
                       <p className="text-sm text-muted-foreground">Total Man Hours</p>
                     </div>
                     <div>
-                      <p className="text-3xl font-bold text-navy">
+                      <p className="text-3xl font-bold text-blue-900">
                         {manHourSummary.total_days}
                       </p>
                       <p className="text-sm text-muted-foreground">Total Days</p>
@@ -1071,7 +1043,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
 
               <button
                 onClick={approveEstimate}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-navy py-3 text-sm font-semibold text-white hover:bg-navy-light transition-colors"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
               >
                 Approve Estimate
                 <ArrowRight size={16} />
@@ -1088,7 +1060,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
             <div className="mb-6 flex items-center gap-3">
               <CheckCircle2 size={32} className="text-success" />
               <div>
-                <h3 className="text-lg font-semibold text-navy">
+                <h3 className="text-lg font-semibold text-blue-900">
                   Estimate {estimate.status === 'sent_to_quickcalc' ? 'Sent' : 'Approved'}
                 </h3>
                 <p className="text-sm text-muted-foreground">
@@ -1136,7 +1108,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
           {estimate.status === 'sent_to_quickcalc' && !showEfficiency && (
             <button
               onClick={() => setShowEfficiency(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gold/40 py-4 text-sm font-medium text-gold-dark hover:border-gold hover:bg-gold/5 transition-colors"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-400/40 py-4 text-sm font-medium text-blue-700 hover:border-blue-400 hover:bg-blue-500/5 transition-colors"
             >
               <BarChart3 size={18} />
               Track Job Efficiency — How did the crew do?
@@ -1157,14 +1129,14 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
               {!sendConfirm ? (
                 <button
                   onClick={() => setSendConfirm(true)}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold py-4 text-lg font-bold text-navy hover:bg-gold-light transition-colors"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 py-4 text-lg font-bold text-blue-900 hover:bg-blue-400 transition-colors"
                 >
                   <Send size={20} />
                   SEND TO QUICKCALC
                 </button>
               ) : (
-                <div className="rounded-xl border-2 border-gold bg-gold/5 p-6 text-center">
-                  <p className="mb-4 font-semibold text-navy">
+                <div className="rounded-xl border-2 border-blue-400 bg-blue-500/5 p-6 text-center">
+                  <p className="mb-4 font-semibold text-blue-900">
                     Are you sure you want to send this estimate to QuickCalc?
                   </p>
                   <div className="flex justify-center gap-3">
@@ -1177,7 +1149,7 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
                     <button
                       onClick={sendToQuickCalc}
                       disabled={sending}
-                      className="rounded-lg bg-gold px-6 py-2.5 text-sm font-bold text-navy hover:bg-gold-light disabled:opacity-50"
+                      className="rounded-lg bg-blue-500 px-6 py-2.5 text-sm font-bold text-blue-900 hover:bg-blue-400 disabled:opacity-50"
                     >
                       {sending ? 'Sending...' : 'Yes, Send It'}
                     </button>

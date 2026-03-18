@@ -12,7 +12,6 @@ import type {
 } from '@/lib/types'
 import {
   Building2,
-  Users,
   Gauge,
   Package,
   Wrench,
@@ -25,11 +24,10 @@ import {
 } from 'lucide-react'
 import { ConfirmDelete } from '@/components/ConfirmDelete'
 
-type Tab = 'company' | 'crew' | 'rates' | 'materials' | 'subs' | 'equipment' | 'disposal' | 'work-types'
+type Tab = 'company' | 'rates' | 'materials' | 'subs' | 'equipment' | 'disposal' | 'work-types'
 
 const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'company', label: 'Company', icon: <Building2 size={16} /> },
-  { id: 'crew', label: 'Crew', icon: <Users size={16} /> },
   { id: 'rates', label: 'Production Rates', icon: <Gauge size={16} /> },
   { id: 'materials', label: 'Item Catalog — Materials', icon: <Package size={16} /> },
   { id: 'subs', label: 'Item Catalog — Subs', icon: <Wrench size={16} /> },
@@ -46,18 +44,17 @@ export function Settings() {
 
   // Company
   const [companyName, setCompanyName] = useState('')
+  const [contactName, setContactName] = useState('')
   const [companyStreet, setCompanyStreet] = useState('')
   const [companyCity, setCompanyCity] = useState('')
   const [companyState, setCompanyState] = useState('')
   const [companyZip, setCompanyZip] = useState('')
+  const [companyEmail, setCompanyEmail] = useState('')
+  const [companyPhone, setCompanyPhone] = useState('')
+  const [companyWebsite, setCompanyWebsite] = useState('')
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [logoUploading, setLogoUploading] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
-
-  // Crew
-  const [crewSize, setCrewSize] = useState(3)
-  const [crewFullHours, setCrewFullHours] = useState(9)
-  const [crewHalfHours, setCrewHalfHours] = useState(4.5)
 
   // Catalogs
   const [rates, setRates] = useState<ProductionRate[]>([])
@@ -70,14 +67,15 @@ export function Settings() {
   useEffect(() => {
     if (!company) return
     setCompanyName(company.name)
+    setContactName(company.contact_name ?? '')
     setCompanyStreet(company.street ?? '')
     setCompanyCity(company.city ?? '')
     setCompanyState(company.state ?? '')
     setCompanyZip(company.zip ?? '')
+    setCompanyEmail(company.email ?? '')
+    setCompanyPhone(company.phone ?? '')
+    setCompanyWebsite(company.website ?? '')
     setLogoUrl(company.logo_url)
-    setCrewSize(company.typical_crew_size)
-    setCrewFullHours(company.crew_full_day_hours)
-    setCrewHalfHours(company.crew_half_day_hours)
 
     const load = async () => {
       const [r, m, s, e, d, w] = await Promise.all([
@@ -124,13 +122,14 @@ export function Settings() {
     setSaving(true)
     await supabase.from('companies').update({
       name: companyName,
+      contact_name: contactName || null,
       street: companyStreet || null,
       city: companyCity || null,
       state: companyState || null,
       zip: companyZip || null,
-      typical_crew_size: crewSize,
-      crew_full_day_hours: crewFullHours,
-      crew_half_day_hours: crewHalfHours,
+      email: companyEmail || null,
+      phone: companyPhone || null,
+      website: companyWebsite || null,
     }).eq('id', company.id)
     await refreshCompany()
     setSaving(false)
@@ -162,23 +161,24 @@ export function Settings() {
   })
 
   const ratesCrud = crudFor('production_rates', rates, setRates, { work_type: '', unit: '', man_hours_per_unit: 0 })
-  const matsCrud = crudFor('materials_catalog', materials, setMaterials, { name: '', um: '', unit: '', unit_cost: 0 })
-  const subsCrud = crudFor('subs_catalog', subs, setSubs, { name: '', um: '', unit: '', unit_cost: 0 })
-  const equipCrud = crudFor('equipment_catalog', equipment, setEquipment, { name: '', billable: true })
-  const disposalCrud = crudFor('disposal_catalog', disposal, setDisposal, { name: '', um: '', unit: '', unit_cost: 0 })
+  const matsCrud = crudFor('materials_catalog', materials, setMaterials, { name: '', um: '' })
+  const subsCrud = crudFor('subs_catalog', subs, setSubs, { name: '', trade: '' })
+  const equipCrud = crudFor('equipment_catalog', equipment, setEquipment, { name: '', um: 'HR' })
+  const disposalCrud = crudFor('disposal_catalog', disposal, setDisposal, { name: '', um: '' })
   const wtCrud = crudFor('work_types', workTypes, setWorkTypes, { name: '', category: 'other' })
 
   return (
     <div className="mx-auto max-w-4xl">
-      <h2 className="mb-6 text-2xl font-bold text-navy">Settings</h2>
+      <h2 className="mb-6 text-2xl font-bold" style={{ color: '#1e3a5f' }}>Settings</h2>
 
       {/* Tab bar */}
       <div className="mb-6 flex flex-wrap gap-2">
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              activeTab === t.id ? 'bg-navy text-white' : 'bg-white text-muted-foreground hover:bg-muted'
-            }`}>
+              activeTab === t.id ? 'text-white' : 'bg-white text-slate-500 hover:bg-slate-100'
+            }`}
+            style={activeTab === t.id ? { background: 'linear-gradient(135deg, #1e3a5f, #2d5aa0)' } : {}}>
             {t.icon} {t.label}
           </button>
         ))}
@@ -186,82 +186,78 @@ export function Settings() {
 
       {/* Company tab */}
       {activeTab === 'company' && (
-        <div className="rounded-xl border border-border bg-white p-6 space-y-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium">Company Logo</label>
+            <label className="mb-2 block text-sm font-medium text-slate-700">Company Logo</label>
             <div className="flex items-center gap-4">
               {logoUrl ? (
-                <img src={logoUrl} alt="Company logo" className="h-16 w-16 rounded-lg border border-border object-contain bg-muted/30" />
+                <img src={logoUrl} alt="Company logo" className="h-16 w-16 rounded-lg border border-slate-200 object-contain bg-slate-50" />
               ) : (
-                <div className="flex h-16 w-16 items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30 text-muted-foreground"><Upload size={20} /></div>
+                <div className="flex h-16 w-16 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 text-slate-400"><Upload size={20} /></div>
               )}
               <div>
                 <button onClick={() => logoInputRef.current?.click()} disabled={logoUploading}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-50">
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                   <Upload size={14} /> {logoUploading ? 'Uploading...' : logoUrl ? 'Change Logo' : 'Upload Logo'}
                 </button>
                 <input ref={logoInputRef} type="file" accept=".png,.jpg,.jpeg,.svg,.webp" onChange={handleLogoUpload} className="hidden" />
               </div>
             </div>
           </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Company Name</label>
-            <input value={companyName} onChange={(e) => setCompanyName(e.target.value)}
-              className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Company Name</label>
+              <input value={companyName} onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Contact Name</label>
+              <input value={contactName} onChange={(e) => setContactName(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+            </div>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Street Address</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Street Address</label>
             <input value={companyStreet} onChange={(e) => setCompanyStreet(e.target.value)}
-              className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">City</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">City</label>
               <input value={companyCity} onChange={(e) => setCompanyCity(e.target.value)}
-                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">State</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">State</label>
               <input value={companyState} onChange={(e) => setCompanyState(e.target.value)} maxLength={2}
-                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Zip</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Zip</label>
               <input value={companyZip} onChange={(e) => setCompanyZip(e.target.value)}
-                className="w-full rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
             </div>
           </div>
-          <button onClick={saveCompany} disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-navy-light disabled:opacity-50">
-            <Save size={16} /> {saved ? 'Saved!' : saving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-      )}
-
-      {/* Crew tab */}
-      {activeTab === 'crew' && (
-        <div className="rounded-xl border border-border bg-white p-6 space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium">Typical Crew Size</label>
-            <input type="number" min={1} value={crewSize} onChange={(e) => setCrewSize(Number(e.target.value))}
-              className="w-32 rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
+              <input type="email" value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Phone</label>
+              <input type="tel" value={companyPhone} onChange={(e) => setCompanyPhone(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+            </div>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Full Day Hours</label>
-            <input type="number" step={0.5} value={crewFullHours} onChange={(e) => setCrewFullHours(Number(e.target.value))}
-              className="w-32 rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Half Day Hours</label>
-            <input type="number" step={0.5} value={crewHalfHours} onChange={(e) => setCrewHalfHours(Number(e.target.value))}
-              className="w-32 rounded-lg border border-input px-3 py-2.5 text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
-          </div>
-          <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
-            <p><strong>Full day:</strong> {crewSize} × {crewFullHours} = {crewSize * crewFullHours} MH</p>
-            <p><strong>Half day:</strong> {crewSize} × {crewHalfHours} = {crewSize * crewHalfHours} MH</p>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Website</label>
+            <input value={companyWebsite} onChange={(e) => setCompanyWebsite(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
           </div>
           <button onClick={saveCompany} disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-navy-light disabled:opacity-50">
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg, #1e3a5f, #2d5aa0)' }}>
             <Save size={16} /> {saved ? 'Saved!' : saving ? 'Saving...' : 'Save'}
           </button>
         </div>
@@ -274,55 +270,44 @@ export function Settings() {
           onAdd={ratesCrud.add} onRemove={ratesCrud.remove} onUpdate={ratesCrud.update} />
       )}
 
-      {/* Materials */}
+      {/* Materials — NAME | U/M | SUPPLIER */}
       {activeTab === 'materials' && (
-        <SettingsCatalog items={materials} columns={['Name', 'U/M', 'Unit', 'Unit Cost', 'Supplier']}
-          fields={['name', 'um', 'unit', 'unit_cost', 'supplier']} fieldTypes={['text', 'text', 'text', 'number', 'text']}
+        <SettingsCatalog items={materials} columns={['Name', 'U/M', 'Supplier']}
+          fields={['name', 'um', 'supplier']} fieldTypes={['text', 'text', 'text']}
           onAdd={matsCrud.add} onRemove={matsCrud.remove} onUpdate={matsCrud.update} />
       )}
 
-      {/* Subs */}
+      {/* Subs — NAME | TRADE */}
       {activeTab === 'subs' && (
-        <SettingsCatalog items={subs} columns={['Name', 'U/M', 'Unit', 'Unit Cost', 'Trade']}
-          fields={['name', 'um', 'unit', 'unit_cost', 'trade']} fieldTypes={['text', 'text', 'text', 'number', 'text']}
+        <SettingsCatalog items={subs} columns={['Name', 'Trade']}
+          fields={['name', 'trade']} fieldTypes={['text', 'text']}
           onAdd={subsCrud.add} onRemove={subsCrud.remove} onUpdate={subsCrud.update} />
       )}
 
-      {/* Equipment */}
+      {/* Equipment — EQUIPMENT | U/M */}
       {activeTab === 'equipment' && (
-        <div className="rounded-xl border border-border bg-white p-6">
-          <div className="space-y-3">
-            {equipment.map((item) => (
-              <div key={item.id} className="flex items-center gap-3">
-                <input value={item.name} onChange={(e) => equipCrud.update(item.id, 'name', e.target.value)}
-                  className="flex-1 rounded-lg border border-input px-3 py-2 text-sm outline-none focus:border-gold" placeholder="Equipment name" />
-                <ConfirmDelete onConfirm={() => equipCrud.remove(item.id)} />
-              </div>
-            ))}
-          </div>
-          <button onClick={equipCrud.add} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-gold hover:text-gold-dark">
-            <Plus size={16} /> Add Equipment
-          </button>
-        </div>
+        <SettingsCatalog items={equipment} columns={['Equipment', 'U/M']}
+          fields={['name', 'um']} fieldTypes={['text', 'text']}
+          onAdd={equipCrud.add} onRemove={equipCrud.remove} onUpdate={equipCrud.update} />
       )}
 
-      {/* Disposal */}
+      {/* Disposal — NAME | U/M */}
       {activeTab === 'disposal' && (
-        <SettingsCatalog items={disposal} columns={['Name', 'U/M', 'Unit', 'Unit Cost']}
-          fields={['name', 'um', 'unit', 'unit_cost']} fieldTypes={['text', 'text', 'text', 'number']}
+        <SettingsCatalog items={disposal} columns={['Name', 'U/M']}
+          fields={['name', 'um']} fieldTypes={['text', 'text']}
           onAdd={disposalCrud.add} onRemove={disposalCrud.remove} onUpdate={disposalCrud.update} />
       )}
 
       {/* Work Types */}
       {activeTab === 'work-types' && (
-        <div className="rounded-xl border border-border bg-white p-6">
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
           <div className="space-y-3">
             {workTypes.map((wt) => (
               <div key={wt.id} className="flex items-center gap-3">
                 <input value={wt.name} onChange={(e) => wtCrud.update(wt.id, 'name', e.target.value)}
-                  className="flex-1 rounded-lg border border-input px-3 py-2 text-sm outline-none focus:border-gold" placeholder="Work type" />
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder="Work type" />
                 <select value={wt.category} onChange={(e) => wtCrud.update(wt.id, 'category', e.target.value)}
-                  className="rounded-lg border border-input px-3 py-2 text-sm outline-none focus:border-gold">
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
                   <option value="hardscape">Hardscape</option><option value="planting">Planting</option>
                   <option value="maintenance">Maintenance</option><option value="irrigation">Irrigation</option>
                   <option value="grading">Grading</option><option value="demolition">Demolition</option>
@@ -332,7 +317,7 @@ export function Settings() {
               </div>
             ))}
           </div>
-          <button onClick={wtCrud.add} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-gold hover:text-gold-dark">
+          <button onClick={wtCrud.add} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800">
             <Plus size={16} /> Add Work Type
           </button>
         </div>
@@ -349,9 +334,9 @@ function SettingsCatalog<T extends { id: string }>({ items, columns, fields, fie
 }) {
   const colTemplate = fields.map(() => '1fr').join(' ') + ' auto'
   return (
-    <div className="rounded-xl border border-border bg-white p-6">
+    <div className="rounded-xl border border-slate-200 bg-white p-6">
       {items.length > 0 && (
-        <div className="mb-3 hidden gap-2 text-xs font-medium uppercase text-muted-foreground sm:grid"
+        <div className="mb-3 hidden gap-2 text-xs font-medium uppercase text-slate-500 sm:grid"
           style={{ gridTemplateColumns: colTemplate }}>
           {columns.map((col) => <div key={col}>{col}</div>)}
           <div className="w-8" />
@@ -364,13 +349,13 @@ function SettingsCatalog<T extends { id: string }>({ items, columns, fields, fie
               <input key={field} type={fieldTypes[fi]} step={fieldTypes[fi] === 'number' ? '0.01' : undefined}
                 value={(item as Record<string, unknown>)[field] as string | number ?? ''}
                 onChange={(e) => onUpdate(item.id, field, fieldTypes[fi] === 'number' ? Number(e.target.value) : e.target.value)}
-                className="rounded-lg border border-input px-3 py-2 text-sm outline-none focus:border-gold" />
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
             ))}
             <ConfirmDelete onConfirm={() => onRemove(item.id)} />
           </div>
         ))}
       </div>
-      <button onClick={onAdd} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-gold hover:text-gold-dark">
+      <button onClick={onAdd} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800">
         <Plus size={16} /> Add Row
       </button>
     </div>

@@ -39,13 +39,14 @@ export function AppLayout({ currentPage, onNavigate, children }: AppLayoutProps)
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-navy text-white transition-transform duration-200 lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col text-white transition-transform duration-200 lg:static lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        style={{ background: 'linear-gradient(180deg, #1e3a5f 0%, #2d5aa0 100%)' }}
       >
         {/* Logo */}
         <div className="flex h-16 items-center gap-2 border-b border-white/10 px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gold text-navy font-bold text-sm">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 text-white font-bold text-sm">
             BC
           </div>
           <span className="text-lg font-semibold tracking-tight">BidClaw</span>
@@ -68,7 +69,7 @@ export function AppLayout({ currentPage, onNavigate, children }: AppLayoutProps)
               }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                 currentPage === item.id
-                  ? 'bg-white/10 text-white'
+                  ? 'bg-white/15 text-white'
                   : 'text-white/60 hover:bg-white/5 hover:text-white'
               }`}
             >
@@ -96,20 +97,21 @@ export function AppLayout({ currentPage, onNavigate, children }: AppLayoutProps)
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="flex h-16 items-center gap-4 border-b border-border bg-white px-6">
+        <header className="flex h-16 items-center gap-4 border-b border-slate-200 bg-white px-6">
           <button
-            className="lg:hidden text-navy"
+            className="lg:hidden"
+            style={{ color: '#1e3a5f' }}
             onClick={() => setSidebarOpen(true)}
           >
             <Menu size={24} />
           </button>
-          <h1 className="text-lg font-semibold text-navy">
+          <h1 className="text-lg font-semibold" style={{ color: '#1e3a5f' }}>
             {navItems.find((n) => n.id === currentPage)?.label ?? 'BidClaw'}
           </h1>
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto bg-muted/30 p-6">
+        <main className="flex-1 overflow-y-auto bg-slate-50 p-6">
           {children}
         </main>
       </div>
