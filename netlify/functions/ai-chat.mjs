@@ -1,5 +1,6 @@
 // Netlify serverless function for BidClaw AI calls
 // Calls Anthropic Claude API on behalf of the frontend
+// Handles downloading plan files and converting to base64 for the API
 
 export default async (req) => {
   // Only allow POST
@@ -22,6 +23,64 @@ export default async (req) => {
     const body = await req.json()
     const { messages, system, max_tokens = 4096 } = body
 
+    // Pre-process messages: download any URL-sourced files and convert to base64
+    const processedMessages = await Promise.all(
+      messages.map(async (msg) => {
+        if (!Array.isArray(msg.content)) return msg
+
+        const processedContent = await Promise.all(
+          msg.content.map(async (part) => {
+            // Handle document or image with URL source — download and convert to base64
+            if (
+              (part.type === 'document' || part.type === 'image') &&
+              part.source?.type === 'url' &&
+              part.source?.url
+            ) {
+              try {
+                const fileResponse = await fetch(part.source.url)
+                if (!fileResponse.ok) {
+                  // Fall back to text description if download fails
+                  return {
+                    type: 'text',
+                    text: `[Plan file could not be downloaded from: ${part.source.url}]`,
+                  }
+                }
+
+                const buffer = await fileResponse.arrayBuffer()
+                const base64 = Buffer.from(buffer).toString('base64')
+
+                // Determine media type from URL or response headers
+                const contentType = fileResponse.headers.get('content-type')
+                const ext = part.source.url.split('.').pop()?.toLowerCase()
+                const mediaType = contentType ||
+                  (ext === 'pdf' ? 'application/pdf' :
+                   ext === 'png' ? 'image/png' :
+                   ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+                   'application/pdf')
+
+                return {
+                  type: part.type,
+                  source: {
+                    type: 'base64',
+                    media_type: mediaType,
+                    data: base64,
+                  },
+                }
+              } catch (err) {
+                return {
+                  type: 'text',
+                  text: `[Plan file download failed: ${err.message}]`,
+                }
+              }
+            }
+            return part
+          })
+        )
+
+        return { ...msg, content: processedContent }
+      })
+    )
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -33,7 +92,7 @@ export default async (req) => {
         model: 'claude-sonnet-4-20250514',
         max_tokens,
         system: system || '',
-        messages,
+        messages: processedMessages,
       }),
     })
 
