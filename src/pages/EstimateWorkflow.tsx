@@ -202,12 +202,13 @@ Respond in JSON only with this format: { "work_areas": [{ "name": "", "category"
 
       if (aiError) throw new Error(aiError)
       if (!data) throw new Error('No response from AI')
+      if (!data.work_areas?.length) throw new Error('AI did not return any work areas')
 
       setProposedAreas(
         data.work_areas.map((wa) => ({ ...wa, ai: true }))
       )
-      setAssumptions(data.assumptions)
-      setQuestions(data.questions)
+      setAssumptions(data.assumptions ?? [])
+      setQuestions(data.questions ?? [])
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'AI analysis failed'
       setError(msg)
