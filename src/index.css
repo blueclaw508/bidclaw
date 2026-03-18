@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy: #0c1428;
+  --color-navy-light: #1a2744;
+  --color-navy-dark: #080e1c;
+  --color-gold: #d4a843;
+  --color-gold-light: #e4c06a;
+  --color-gold-dark: #b08a2e;
+
+  --color-background: #ffffff;
+  --color-foreground: #0c1428;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #d4a843;
+  --color-primary: #0c1428;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #0c1428;
+  --color-accent: #d4a843;
+  --color-accent-foreground: #0c1428;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-success: #22c55e;
+  --color-success-foreground: #ffffff;
+  --color-card: #ffffff;
+  --color-card-foreground: #0c1428;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0c1428;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-border);
+  }
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  #root {
+    min-height: 100svh;
+  }
+}
