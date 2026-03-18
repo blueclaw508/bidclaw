@@ -9,8 +9,86 @@ export interface Company {
   crew_full_day_hours: number
   crew_half_day_hours: number
   estimating_methodology: string | null
+
+  // KYN: Labor Burden
+  base_hourly_wage: number | null
+  payroll_tax_rate: number
+  workers_comp_rate: number
+  pto_days_per_year: number
+  unbillable_percent: number
+  burdened_labor_cost: number | null
+  true_cost_per_billable_hour: number | null
+
+  // KYN: Overhead
+  monthly_overhead: Record<string, number> | null
+  annual_overhead: number | null
+  annual_billable_hours: number | null
+  overhead_per_hour: number | null
+
+  // KYN: Profit & Retail Rate
+  target_profit_percent: number
+  retail_labor_rate: number | null
+
+  // KYN: Markups
+  material_markup_percent: number
+  sub_markup_percent: number
+  disposal_markup_percent: number
+  delivery_markup_percent: number
+
+  // KYN: Efficiency
+  prior_year_sales: number | null
+  prior_year_materials: number | null
+  prior_year_subs: number | null
+  prior_year_avg_hourly_rate: number | null
+  prior_year_paid_hours: number | null
+  prior_year_material_markup: number | null
+  prior_year_sub_markup: number | null
+  efficiency_rating: number | null
+
+  kyn_setup_complete: boolean
   created_at: string
 }
+
+// ── KYN Overhead Categories ──
+export const OVERHEAD_CATEGORIES = [
+  { key: 'owner_salary', label: 'Owner/Manager Salary' },
+  { key: 'office_staff', label: 'Office Staff' },
+  { key: 'office_rent', label: 'Office Rent/Utilities' },
+  { key: 'vehicle_payments', label: 'Vehicle Payments/Leases' },
+  { key: 'fuel', label: 'Fuel (non-job)' },
+  { key: 'equipment_payments', label: 'Equipment Payments' },
+  { key: 'general_liability', label: 'General Liability Insurance' },
+  { key: 'business_insurance', label: 'Business Insurance' },
+  { key: 'advertising', label: 'Advertising/Marketing' },
+  { key: 'accounting_legal', label: 'Accounting/Legal Fees' },
+  { key: 'software', label: 'Software Subscriptions' },
+  { key: 'phone', label: 'Phone/Communications' },
+  { key: 'tools_supplies', label: 'Tools & Supplies (non-job)' },
+  { key: 'workers_comp_overhead', label: 'Workers Comp (overhead portion)' },
+  { key: 'health_insurance', label: 'Group Health Insurance' },
+  { key: 'retirement', label: 'Retirement Matching' },
+  { key: 'recruiting', label: 'Recruiting' },
+  { key: 'training', label: 'Training & Education' },
+  { key: 'bad_debt', label: 'Bad Debt' },
+  { key: 'bank_fees', label: 'Bank & Merchant Fees' },
+  { key: 'other', label: 'Other Expenses' },
+] as const
+
+// ── KYN Production Rate Benchmarks ──
+export const PRODUCTION_BENCHMARKS = [
+  { work_type: 'Mulch Install', unit: 'CY', bca_rate: 1.5, verified: true },
+  { work_type: 'Loam Spread & Grade', unit: 'CY', bca_rate: null, verified: false },
+  { work_type: 'Sod Installation', unit: 'SF', bca_rate: null, verified: false },
+  { work_type: 'Hydroseeding', unit: 'SF', bca_rate: null, verified: false },
+  { work_type: 'Paver Patio (full)', unit: 'SF', bca_rate: null, verified: false },
+  { work_type: 'Natural Stone Patio', unit: 'SF', bca_rate: null, verified: false },
+  { work_type: 'Retaining Wall (block)', unit: 'SF', bca_rate: null, verified: false },
+  { work_type: 'Fieldstone/Veneer Wall', unit: 'SF', bca_rate: null, verified: false },
+  { work_type: 'Plant Install (5 gal)', unit: 'EA', bca_rate: null, verified: false },
+  { work_type: 'Plant Install (B&B)', unit: 'EA', bca_rate: null, verified: false },
+  { work_type: 'Mulch Bed Edging', unit: 'LF', bca_rate: null, verified: false },
+  { work_type: 'Spring Cleanup', unit: 'HR', bca_rate: 1.0, verified: true },
+] as const
 
 // ── Production Rates ──
 export interface ProductionRate {

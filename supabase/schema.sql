@@ -21,6 +21,45 @@ create table companies (
   crew_full_day_hours numeric default 9,
   crew_half_day_hours numeric default 4.5,
   estimating_methodology text,
+
+  -- KYN: Labor Burden
+  base_hourly_wage numeric,
+  payroll_tax_rate numeric default 12,
+  workers_comp_rate numeric default 12,
+  pto_days_per_year numeric default 10,
+  unbillable_percent numeric default 15,
+  burdened_labor_cost numeric,         -- calculated
+  true_cost_per_billable_hour numeric, -- calculated (after efficiency)
+
+  -- KYN: Overhead
+  monthly_overhead jsonb,              -- { "owner_salary": 5000, ... }
+  annual_overhead numeric,             -- calculated
+  annual_billable_hours numeric,
+  overhead_per_hour numeric,           -- calculated
+
+  -- KYN: Profit & Retail Rate
+  target_profit_percent numeric default 15,
+  retail_labor_rate numeric,           -- calculated (the big number)
+
+  -- KYN: Markups
+  material_markup_percent numeric default 25,
+  sub_markup_percent numeric default 15,
+  disposal_markup_percent numeric default 20,
+  delivery_markup_percent numeric default 20,
+
+  -- KYN: Efficiency
+  prior_year_sales numeric,
+  prior_year_materials numeric,
+  prior_year_subs numeric,
+  prior_year_avg_hourly_rate numeric,
+  prior_year_paid_hours numeric,
+  prior_year_material_markup numeric,
+  prior_year_sub_markup numeric,
+  efficiency_rating numeric,           -- calculated
+
+  -- KYN: Setup complete flag
+  kyn_setup_complete boolean default false,
+
   created_at timestamptz default now(),
   unique(user_id)
 );
