@@ -187,9 +187,31 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
     setError(null)
 
     try {
-      // Get job description from ai_conversation or plan
-      const jobText =
-        estimate.ai_conversation?.[0]?.content ?? 'Plan uploaded — analyze the plan.'
+      // Build user message content — include plan image and/or job description
+      const jobText = estimate.ai_conversation?.[0]?.content
+      const planUrl = estimate.plan_url
+
+      const contentParts: Array<Record<string, unknown>> = []
+
+      // If there's a plan file, send it as an image for the AI to analyze
+      if (planUrl) {
+        const ext = planUrl.split('.').pop()?.toLowerCase()
+        const mediaType = ext === 'pdf' ? 'application/pdf'
+          : ext === 'png' ? 'image/png'
+          : 'image/jpeg'
+        contentParts.push({
+          type: ext === 'pdf' ? 'document' : 'image',
+          source: { type: 'url', url: planUrl, media_type: mediaType },
+        })
+      }
+
+      // Add text description
+      contentParts.push({
+        type: 'text',
+        text: jobText || (planUrl
+          ? 'Analyze this plan and propose work areas for the job.'
+          : 'No plan or description provided. Propose typical landscaping work areas.'),
+      })
 
       const systemPrompt = `You are BidClaw, an AI estimating assistant for ${companyProfile?.companyName ?? 'a contractor'}.
 You are analyzing a job to propose work areas. Known work types: ${companyData.workTypes.map(w => w.name).join(', ') || 'general construction'}.
@@ -197,7 +219,7 @@ Respond in JSON only with this format: { "work_areas": [{ "name": "", "category"
 
       const { data, error: aiError } = await callAI<AiPlanAnalysis>({
         system: systemPrompt,
-        messages: [{ role: 'user', content: jobText }],
+        messages: [{ role: 'user', content: contentParts }],
       })
 
       if (aiError) throw new Error(aiError)
