@@ -96,9 +96,11 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
   }>({ rates: [], materials: [], equipment: [], workTypes: [] })
 
   // Load estimate and company data
-  useEffect(() => {
+  const loadEstimate = useCallback(async () => {
     if (!user) return
-    const load = async () => {
+    setLoading(true)
+    setError(null)
+    try {
       const [estResult, ratesResult, matsResult, equipResult, typesResult, areasResult] =
         await Promise.all([
           supabase.from('bidclaw_estimates').select('*').eq('id', estimateId).single(),
@@ -109,6 +111,11 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
           supabase.from('bidclaw_work_areas').select('*').eq('estimate_id', estimateId).order('sort_order'),
         ])
 
+      if (estResult.error) {
+        setError(estResult.error.message)
+        setLoading(false)
+        return
+      }
       if (estResult.data) setEstimate(estResult.data)
       setCompanyData({
         rates: ratesResult.data ?? [],
@@ -162,9 +169,16 @@ export function EstimateWorkflow({ estimateId, onBack }: EstimateWorkflowProps) 
       }
 
       setLoading(false)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load estimate data'
+      setError(msg)
+      setLoading(false)
     }
-    load()
   }, [user, estimateId])
+
+  useEffect(() => {
+    loadEstimate()
+  }, [loadEstimate])
 
   // ── Phase 1: Analyze with AI ──
   const analyzeJob = useCallback(async () => {
@@ -260,8 +274,8 @@ Respond in JSON only with this format: { "work_areas": [{ "name": "", "category"
       const jobText =
         estimate.ai_conversation?.[0]?.content ?? 'Plan uploaded.'
 
-      const materialNames = companyData.materials.map(m => m.item_name || m.name).filter(Boolean).join(', ')
-      const equipmentNames = companyData.equipment.map(e => e.item_name || e.name).filter(Boolean).join(', ')
+      const materialNames = companyData.materials.map(m => m.name).filter(Boolean).join(', ')
+      const equipmentNames = companyData.equipment.map(e => e.name).filter(Boolean).join(', ')
       const systemPrompt = `You are BidClaw, an AI estimating assistant for ${companyProfile?.companyName ?? 'a contractor'}.
 Generate material takeoffs for approved work areas. Known materials: ${materialNames || 'general'}. Known equipment: ${equipmentNames || 'general'}.
 Respond in JSON only: { "work_areas": [{ "name": "", "materials": [{ "name": "", "quantity": 0, "unit": "", "rationale": "" }], "equipment": [{ "name": "", "hours": 0 }], "assumptions": [] }] }`
@@ -614,7 +628,8 @@ Respond in JSON only: { "work_areas": [{ "name": "", "notes": ["bullet 1"], "mat
           <button
             onClick={() => {
               setError(null)
-              if (phase === 1) analyzeJob()
+              if (!estimate) loadEstimate()
+              else if (phase === 1) analyzeJob()
               else if (phase === 2) generateTakeoffs(workAreas)
               else if (phase === 3) generateFullEstimate()
             }}

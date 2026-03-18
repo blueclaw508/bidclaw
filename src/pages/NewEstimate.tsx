@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 import type { SpecSource } from '@/lib/types'
-import { Upload, FileText, MessageSquare, ArrowRight, X, Loader2 } from 'lucide-react'
+import { Upload, FileText, ArrowRight, X, Loader2 } from 'lucide-react'
 
 interface NewEstimateProps {
   onCreated: (estimateId: string) => void
@@ -18,7 +18,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
   const [jobCity, setJobCity] = useState('')
   const [jobState, setJobState] = useState('')
   const [jobZip, setJobZip] = useState('')
-  const [specSource, setSpecSource] = useState<SpecSource>('site_visit')
+  const [_specSource] = useState<SpecSource>('site_visit')
   const [jobDescription, setJobDescription] = useState('')
   const [planFile, setPlanFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
