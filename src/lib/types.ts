@@ -1,6 +1,6 @@
 // ============================================================
-// BidClaw Types — Reads from QuickCalc's Supabase
-// QuickCalc owns: auth, company profile, catalogs, settings
+// BidClaw Types — Spec-aligned
+// QuickCalc owns: auth, company profile, catalogs
 // BidClaw owns: estimates, work areas, line items, production rates
 // ============================================================
 
@@ -26,55 +26,117 @@ export interface QCSettings {
   defaultTermsAndConditions: string
 }
 
-export interface QCUserSettings {
+export type CatalogCategory = 'Materials' | 'Subcontractors' | 'Equipment' | 'Disposal' | 'Labor'
+export type CatalogSource = 'manual' | 'bidclaw_auto'
+
+export interface CatalogItem {
   id: string
   user_id: string
-  settings_data: QCSettings
-  created_at: string
-  updated_at: string
-}
-
-export type QCCatalogItemType = 'labor' | 'material' | 'subcontractor' | 'equipment' | 'other'
-
-export interface QCCatalogItem {
-  id: string
-  user_id: string
-  type: QCCatalogItemType
+  type: string
   name: string
   labor_type_id: string | null
   unit_cost: number | null
   equipment_rate_id: string | null
   sub_cost: number | null
   default_amount: number | null
+  source: CatalogSource
+  needs_pricing: boolean
   created_at: string
   updated_at: string
 }
 
-// ── BidClaw Types (own tables, prefixed with bidclaw_) ──
+// ── BidClaw Production Rates (spec Section 6, Tab 3) ──
 
 export interface ProductionRate {
   id: string
   user_id: string
-  work_type: string
+  task_name: string
   unit: string
-  man_hours_per_unit: number
+  crew_size: number
+  hours_per_unit: number
   notes: string | null
+  created_at: string
+  updated_at: string
 }
 
-export interface DisposalCatalogItem {
+// ── BidClaw Estimates (spec Section 9) ──
+
+export type ApprovalStatus = 'draft' | 'work_areas_approved' | 'line_items_approved' | 'sent'
+
+export interface WorkAreaData {
   id: string
-  user_id: string
   name: string
-  um: string | null
+  description: string
+  complexity: 'Simple' | 'Moderate' | 'Complex'
+  approved: boolean
+  line_items?: LineItemData[]
 }
 
-export interface WorkType {
+export type LineItemCategory = 'Materials' | 'Labor' | 'Equipment' | 'Subcontractor' | 'Disposal'
+export type LineItemUnit = 'SF' | 'LF' | 'CY' | 'SY' | 'EA' | 'LS' | 'HR' | 'Day' | 'Allow'
+
+export interface LineItemData {
+  id: string
+  name: string
+  quantity: number
+  unit: LineItemUnit | string
+  category: LineItemCategory
+  description: string
+  catalog_match_type?: 'matched' | 'fuzzy_matched' | 'new_created'
+  catalog_item_id?: string
+}
+
+export interface EstimateRecord {
   id: string
   user_id: string
-  name: string
-  category: string
-  default_notes_template: string | null
+  client_name: string | null
+  project_name: string | null
+  project_address: string | null
+  project_description: string | null
+  plan_file_urls: string[]
+  workflow_step: number
+  work_areas: WorkAreaData[] | null
+  line_items: Record<string, LineItemData[]> | null
+  new_catalog_items_created: string[] | null
+  approval_status: ApprovalStatus
+  sent_to_quickcalc_at: string | null
+  created_at: string
+  updated_at: string
 }
+
+// ── AI Response Types ──
+
+export interface AiWorkArea {
+  id: string
+  name: string
+  description: string
+  complexity: 'Simple' | 'Moderate' | 'Complex'
+}
+
+export interface AiPass1Response {
+  work_areas: AiWorkArea[]
+}
+
+export interface AiLineItem {
+  id: string
+  name: string
+  quantity: number
+  unit: string
+  category: LineItemCategory
+  description: string
+}
+
+export interface AiPass2WorkArea {
+  id: string
+  name: string
+  line_items: AiLineItem[]
+}
+
+export interface AiPass2Response {
+  work_areas: AiPass2WorkArea[]
+}
+
+// ── Legacy types (kept for backward compat) ──
 
 export type EstimateStatus = 'draft' | 'approved' | 'sent_to_quickcalc'
 export type SpecSource = 'plan' | 'site_visit'
@@ -92,7 +154,7 @@ export interface Estimate {
   spec_source: SpecSource
   plan_url: string | null
   status: EstimateStatus
-  ai_conversation: AiMessage[] | null
+  ai_conversation: { role: string; content: string }[] | null
   created_at: string
   updated_at: string
 }
@@ -134,71 +196,6 @@ export interface JobEfficiency {
   tracked_at: string
 }
 
-// ── AI Response Types ──
-export interface AiMessage {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-export interface AiWorkAreaProposal {
-  name: string
-  category: string
-  rationale: string
-}
-
-export interface AiPlanAnalysis {
-  work_areas: AiWorkAreaProposal[]
-  assumptions: string[]
-  questions: string[]
-}
-
-export interface AiTakeoffMaterial {
-  name: string
-  quantity: number
-  unit: string
-  rationale: string
-}
-
-export interface AiTakeoffEquipment {
-  name: string
-  hours: number
-}
-
-export interface AiTakeoffWorkArea {
-  name: string
-  materials: AiTakeoffMaterial[]
-  equipment: AiTakeoffEquipment[]
-  assumptions: string[]
-}
-
-export interface AiTakeoffResponse {
-  work_areas: AiTakeoffWorkArea[]
-}
-
-export interface AiFullEstimateWorkArea {
-  name: string
-  notes: string[]
-  materials: AiTakeoffMaterial[]
-  equipment: AiTakeoffEquipment[]
-  labor: {
-    man_hours: number
-    crew_size: number
-    crew_hours_per_day: number
-    days: number
-  }
-  general_conditions: { amount: number }
-}
-
-export interface AiFullEstimateResponse {
-  work_areas: AiFullEstimateWorkArea[]
-  man_hour_summary: {
-    total_man_hours: number
-    total_days: number
-    breakdown: { work_area: string; man_hours: number; days: number }[]
-  }
-}
-
-// ── QuickCalc Payload ──
 export interface QuickCalcPayload {
   source: 'bidclaw'
   estimate: {
@@ -223,23 +220,15 @@ export interface QuickCalcPayload {
   }
 }
 
-// ── Production Rate Benchmarks ──
-export const PRODUCTION_BENCHMARKS = [
-  { work_type: 'Mulch Install', unit: 'CY', bca_rate: 1.5, verified: true },
-  { work_type: 'Loam Spread & Grade', unit: 'CY', bca_rate: null, verified: false },
-  { work_type: 'Sod Installation', unit: 'SF', bca_rate: null, verified: false },
-  { work_type: 'Hydroseeding', unit: 'SF', bca_rate: null, verified: false },
-  { work_type: 'Paver Patio (full)', unit: 'SF', bca_rate: null, verified: false },
-  { work_type: 'Natural Stone Patio', unit: 'SF', bca_rate: null, verified: false },
-  { work_type: 'Retaining Wall (block)', unit: 'SF', bca_rate: null, verified: false },
-  { work_type: 'Fieldstone/Veneer Wall', unit: 'SF', bca_rate: null, verified: false },
-  { work_type: 'Plant Install (5 gal)', unit: 'EA', bca_rate: null, verified: false },
-  { work_type: 'Plant Install (B&B)', unit: 'EA', bca_rate: null, verified: false },
-  { work_type: 'Mulch Bed Edging', unit: 'LF', bca_rate: null, verified: false },
-  { work_type: 'Spring Cleanup', unit: 'HR', bca_rate: 1.0, verified: true },
-] as const
+export const PRODUCTION_RATE_DEFAULTS: Omit<ProductionRate, 'id' | 'user_id' | 'created_at' | 'updated_at'>[] = [
+  { task_name: 'Sod Installation', unit: 'SF', crew_size: 2, hours_per_unit: 0.02, notes: null },
+  { task_name: 'Mulch Spreading', unit: 'CY', crew_size: 2, hours_per_unit: 0.5, notes: null },
+  { task_name: 'Paver Installation', unit: 'SF', crew_size: 3, hours_per_unit: 0.1, notes: null },
+  { task_name: 'Retaining Wall Block', unit: 'SF face', crew_size: 3, hours_per_unit: 0.25, notes: null },
+  { task_name: 'Edging (steel)', unit: 'LF', crew_size: 1, hours_per_unit: 0.05, notes: null },
+  { task_name: 'Grading / Finish Grade', unit: 'SY', crew_size: 2, hours_per_unit: 0.15, notes: null },
+]
 
-// ── Round man hours to nearest crew-day ──
 export function roundManHours(manHours: number, crewSize: number, hoursPerDay: number): number {
   const crewDay = crewSize * hoursPerDay
   if (crewDay <= 0) return manHours

@@ -10,15 +10,18 @@ import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { QCCompanyProfile, QCSettings } from '@/lib/types'
 
+const FREE_ACCESS_EMAILS = (import.meta.env.VITE_BIDCLAW_FREE_ACCESS_EMAILS ?? '').split(',').filter(Boolean)
+
+export type SubscriptionTier = 'free' | 'pro' | 'bidclaw'
+
 interface AuthContextValue {
   session: Session | null
   user: User | null
-  /** QuickCalc company profile (from kyn_user_settings.settings_data.companyProfile) */
   companyProfile: QCCompanyProfile | null
-  /** Full QuickCalc settings blob */
   qcSettings: QCSettings | null
-  /** Whether user has QC settings (i.e. existing QuickCalc user) */
   hasQCAccount: boolean
+  subscriptionTier: SubscriptionTier
+  canAccessBidClaw: boolean
   loading: boolean
   signIn: (email: string, password: string) => Promise<string | null>
   signUp: (email: string, password: string) => Promise<string | null>
@@ -33,9 +36,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [companyProfile, setCompanyProfile] = useState<QCCompanyProfile | null>(null)
   const [qcSettings, setQcSettings] = useState<QCSettings | null>(null)
+  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('free')
   const [loading, setLoading] = useState(true)
 
-  const fetchSettings = useCallback(async (userId: string) => {
+  const fetchSettings = useCallback(async (userId: string, email?: string) => {
     const { data } = await supabase
       .from('kyn_user_settings')
       .select('settings_data')
@@ -50,17 +54,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setQcSettings(null)
       setCompanyProfile(null)
     }
+
+    // Check subscription tier from profiles table
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('subscription_tier')
+      .eq('id', userId)
+      .maybeSingle()
+
+    if (profile?.subscription_tier) {
+      setSubscriptionTier(profile.subscription_tier as SubscriptionTier)
+    } else if (email && FREE_ACCESS_EMAILS.includes(email)) {
+      setSubscriptionTier('bidclaw')
+    } else {
+      setSubscriptionTier('free')
+    }
   }, [])
 
   const refreshSettings = useCallback(async () => {
-    if (user) await fetchSettings(user.id)
+    if (user) await fetchSettings(user.id, user.email ?? undefined)
   }, [user, fetchSettings])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s)
       setUser(s?.user ?? null)
-      if (s?.user) fetchSettings(s.user.id)
+      if (s?.user) fetchSettings(s.user.id, s.user.email ?? undefined)
       setLoading(false)
     })
 
@@ -70,10 +89,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(s)
       setUser(s?.user ?? null)
       if (s?.user) {
-        fetchSettings(s.user.id)
+        fetchSettings(s.user.id, s.user.email ?? undefined)
       } else {
         setQcSettings(null)
         setCompanyProfile(null)
+        setSubscriptionTier('free')
       }
     })
 
@@ -94,7 +114,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
     setQcSettings(null)
     setCompanyProfile(null)
+    setSubscriptionTier('free')
   }
+
+  const canAccessBidClaw =
+    subscriptionTier === 'bidclaw' ||
+    (user?.email ? FREE_ACCESS_EMAILS.includes(user.email) : false)
 
   return (
     <AuthContext.Provider
@@ -104,6 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         companyProfile,
         qcSettings,
         hasQCAccount: qcSettings != null,
+        subscriptionTier,
+        canAccessBidClaw,
         loading,
         signIn,
         signUp,

@@ -1,34 +1,33 @@
 @import "tailwindcss";
 
 @theme {
-  --color-navy: #0c1428;
-  --color-navy-light: #1a2744;
-  --color-navy-dark: #080e1c;
-  --color-gold: #d4a843;
-  --color-gold-light: #e4c06a;
-  --color-gold-dark: #b08a2e;
+  /* QuickCalc-matching palette (spec Section 2) */
+  --color-primary: #2563EB;
+  --color-primary-dark: #1D4ED8;
+  --color-primary-light: #DBEAFE;
+  --color-accent: #0EA5E9;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+  --color-destructive: #EF4444;
+  --color-destructive-foreground: #ffffff;
 
   --color-background: #ffffff;
-  --color-foreground: #0c1428;
-  --color-muted: #f1f5f9;
-  --color-muted-foreground: #64748b;
-  --color-border: #e2e8f0;
-  --color-input: #e2e8f0;
-  --color-ring: #d4a843;
-  --color-primary: #0c1428;
+  --color-foreground: #0F172A;
+  --color-muted: #F1F5F9;
+  --color-muted-foreground: #64748B;
+  --color-border: #E2E8F0;
+  --color-input: #E2E8F0;
+  --color-ring: #2563EB;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #f1f5f9;
-  --color-secondary-foreground: #0c1428;
-  --color-accent: #d4a843;
-  --color-accent-foreground: #0c1428;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
-  --color-success: #22c55e;
+  --color-secondary: #F1F5F9;
+  --color-secondary-foreground: #0F172A;
+  --color-accent-foreground: #0F172A;
   --color-success-foreground: #ffffff;
   --color-card: #ffffff;
-  --color-card-foreground: #0c1428;
+  --color-card-foreground: #0F172A;
   --color-popover: #ffffff;
-  --color-popover-foreground: #0c1428;
+  --color-popover-foreground: #0F172A;
 
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
