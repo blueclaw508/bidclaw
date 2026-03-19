@@ -14,6 +14,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
   const { user } = useAuth()
   const [clientName, setClientName] = useState('')
   const [clientEmail, setClientEmail] = useState('')
+  const [clientPhone, setClientPhone] = useState('')
   const [jobAddress, setJobAddress] = useState('')
   const [jobCity, setJobCity] = useState('')
   const [jobState, setJobState] = useState('')
@@ -26,9 +27,20 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [dragging, setDragging] = useState(false)
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) setPlanFile(file)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file && /\.(pdf|png|jpg|jpeg)$/i.test(file.name)) {
+      setPlanFile(file)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,6 +73,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
           user_id: user.id,
           client_name: clientName,
           client_email: clientEmail || null,
+          client_phone: clientPhone || null,
           job_address: jobAddress || null,
           job_city: jobCity || null,
           job_state: jobState || null,
@@ -111,7 +124,7 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                 placeholder="Client or company name"
               />
             </div>
-            <div className="sm:col-span-2">
+            <div>
               <label className="mb-1 block text-sm font-medium">Email</label>
               <input
                 type="email"
@@ -119,6 +132,16 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                 onChange={(e) => setClientEmail(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 placeholder="client@email.com"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Phone</label>
+              <input
+                type="tel"
+                value={clientPhone}
+                onChange={(e) => setClientPhone(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                placeholder="(508) 555-1234"
               />
             </div>
             <div className="sm:col-span-2">
@@ -187,9 +210,16 @@ export function NewEstimate({ onCreated, onCancel }: NewEstimateProps) {
                 </button>
               </div>
             ) : (
-              <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-200 p-6 transition-colors hover:border-blue-200">
-                <Upload size={28} className="text-slate-500" />
-                <span className="text-sm font-medium text-slate-500">
+              <label
+                onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed p-6 transition-colors ${
+                  dragging ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-200'
+                }`}
+              >
+                <Upload size={28} className={dragging ? 'text-blue-500' : 'text-slate-500'} />
+                <span className={`text-sm font-medium ${dragging ? 'text-blue-600' : 'text-slate-500'}`}>
                   Drop PDF or image here, or click to browse
                 </span>
                 <span className="text-xs text-slate-500/60">

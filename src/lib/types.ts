@@ -84,6 +84,7 @@ export interface Estimate {
   user_id: string
   client_name: string
   client_email: string | null
+  client_phone: string | null
   job_address: string | null
   job_city: string | null
   job_state: string | null
@@ -203,6 +204,7 @@ export interface QuickCalcPayload {
   estimate: {
     client_name: string
     client_email: string | null
+    client_phone: string | null
     job_address: string | null
     date: string
     work_areas: {

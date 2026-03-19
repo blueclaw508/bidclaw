@@ -460,9 +460,10 @@ Respond in JSON only: { "work_areas": [{ "name": "", "notes": ["bullet 1"], "mat
 
       if (aiError) throw new Error(aiError)
       if (!data) throw new Error('No response from AI')
+      if (!data.work_areas?.length) throw new Error('AI did not return estimate data — try again')
 
       setFullEstimate(data.work_areas)
-      setManHourSummary(data.man_hour_summary)
+      setManHourSummary(data.man_hour_summary ?? null)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Estimate completion failed'
       setError(msg)
@@ -542,6 +543,7 @@ Respond in JSON only: { "work_areas": [{ "name": "", "notes": ["bullet 1"], "mat
         estimate: {
           client_name: estimate.client_name,
           client_email: estimate.client_email,
+          client_phone: estimate.client_phone,
           job_address: estimate.job_address,
           date: new Date().toISOString().split('T')[0],
           work_areas: fullEstimate.map((wa, i) => ({

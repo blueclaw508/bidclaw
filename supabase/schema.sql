@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS bidclaw_estimates (
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   client_name TEXT NOT NULL,
   client_email TEXT,
+  client_phone TEXT,
   job_address TEXT,
   job_city TEXT,
   job_state TEXT,
