@@ -15,7 +15,9 @@ import {
   Copy,
   Layers,
   PenLine,
+  ClipboardList,
 } from 'lucide-react'
+import { PageLayout } from '@/components/PageLayout'
 
 interface EstimateDashboardProps {
   onNewEstimate: () => void
@@ -151,18 +153,17 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
   })
 
   return (
+    <PageLayout
+      icon={<ClipboardList size={24} />}
+      title="Estimates"
+      subtitle={`${estimates.length} total estimate${estimates.length !== 1 ? 's' : ''} — create, review, and send to QuickCalc`}
+    >
     <div className="mx-auto max-w-5xl">
       {/* Header */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-blue-900">Estimates</h2>
-          <p className="text-sm text-slate-500">
-            {estimates.length} total estimate{estimates.length !== 1 ? 's' : ''}
-          </p>
-        </div>
+      <div className="mb-6 flex items-center justify-end">
         <button
           onClick={onNewEstimate}
-          className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-600 transition-colors"
+          className="inline-flex items-center gap-2 rounded-lg bg-[#1e40af] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1e3a8a] transition-colors"
         >
           <PlusCircle size={18} />
           New Estimate
@@ -331,5 +332,6 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
         </div>
       )}
     </div>
+    </PageLayout>
   )
 }
