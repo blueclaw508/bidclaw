@@ -140,16 +140,36 @@ export function PromoScreen() {
       <section className="relative overflow-hidden bg-gradient-to-br from-[#1D4ED8] via-[#2563EB] to-[#0EA5E9] py-20 text-white">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgMGg2MHY2MEgweiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjMwIiBjeT0iMzAiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IGZpbGw9InVybCgjZykiIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiLz48L3N2Zz4=')] opacity-40" />
         <div className="relative mx-auto max-w-5xl px-6 text-center">
-          {/* Jamie Intro Video */}
-          <div className="mx-auto mb-8 max-w-2xl overflow-hidden rounded-2xl shadow-2xl border-2 border-white/20">
-            <video
-              src="/jamie-intro.mp4"
-              autoPlay
-              muted
-              loop
-              playsInline
-              className="w-full"
-            />
+          {/* Jamie Intro Video + Script Bubble */}
+          <div className="mx-auto mb-8 flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-center sm:gap-8 max-w-4xl">
+            {/* Video — half size */}
+            <div className="w-full max-w-sm overflow-hidden rounded-2xl shadow-2xl border-2 border-white/20 flex-shrink-0">
+              <video
+                src="/jamie-intro.mp4"
+                controls
+                loop
+                playsInline
+                className="w-full"
+              />
+            </div>
+
+            {/* Script bubble */}
+            <div className="relative max-w-sm rounded-2xl bg-white/95 px-5 py-4 text-left shadow-xl backdrop-blur-sm">
+              {/* Speech bubble arrow (points left on desktop) */}
+              <div className="absolute -left-3 top-8 hidden sm:block h-0 w-0 border-y-[10px] border-y-transparent border-r-[12px] border-r-white/95" />
+              <div className="mb-2 flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a8a] to-[#1e40af]">
+                  <span className="text-xs font-bold text-white">J</span>
+                </div>
+                <span className="text-sm font-bold text-[#1e3a8a]">Jamie</span>
+                <span className="text-[10px] text-slate-400">AI Estimating Agent</span>
+              </div>
+              <p className="text-sm leading-relaxed text-slate-700">
+                "Hey, I'm Jamie — your AI estimating agent. Tell me about your project and I'll build
+                a full estimate for you in minutes. I'll walk you through a quick interview, match
+                everything to your catalog, and send it straight to QuickCalc. Let's get started!"
+              </p>
+            </div>
           </div>
 
           {/* Logo */}
