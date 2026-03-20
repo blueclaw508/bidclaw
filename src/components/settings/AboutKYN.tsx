@@ -178,9 +178,7 @@ export default function AboutKYN() {
 
       {/* Footer / Logo placeholder */}
       <div className="border-t border-slate-200 pt-6 text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-[#2563EB]/10">
-          <span className="text-lg font-bold text-[#2563EB]">BC</span>
-        </div>
+        <img src="/bidclaw-logo-sm.png" alt="BidClaw" className="mx-auto mb-3 h-12 w-12 rounded-lg object-contain" />
         <p className="text-xs text-slate-400">
           BidClaw &mdash; AI-Powered Estimating for Contractors Who Know Their Numbers
         </p>

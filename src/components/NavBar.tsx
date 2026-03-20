@@ -47,9 +47,7 @@ export default function NavBar({ currentTab, onTabChange }: NavBarProps) {
       <div className="mx-auto flex h-14 max-w-screen-2xl items-center justify-between px-4">
         {/* Left: Logo */}
         <div className="flex items-center gap-2 shrink-0">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#2563EB] text-white text-xs font-bold">
-            BC
-          </div>
+          <img src="/bidclaw-logo-sm.png" alt="BidClaw" className="h-8 w-8 rounded-lg object-contain" />
           <span className="text-lg font-semibold text-gray-900 hidden sm:inline">
             BidClaw
           </span>

@@ -46,9 +46,7 @@ export function AppLayout({ currentPage, onNavigate, children }: AppLayoutProps)
       >
         {/* Logo */}
         <div className="flex h-16 items-center gap-2 border-b border-white/10 px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 text-white font-bold text-sm">
-            BC
-          </div>
+          <img src="/bidclaw-logo-sm.png" alt="BidClaw" className="h-8 w-8 rounded-lg object-contain" />
           <span className="text-lg font-semibold tracking-tight">BidClaw</span>
           <button
             className="ml-auto lg:hidden text-white/60 hover:text-white"

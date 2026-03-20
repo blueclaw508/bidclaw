@@ -140,10 +140,8 @@ export function PromoScreen() {
       <section className="relative overflow-hidden bg-gradient-to-br from-[#1D4ED8] via-[#2563EB] to-[#0EA5E9] py-20 text-white">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgMGg2MHY2MEgweiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjMwIiBjeT0iMzAiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IGZpbGw9InVybCgjZykiIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiLz48L3N2Zz4=')] opacity-40" />
         <div className="relative mx-auto max-w-5xl px-6 text-center">
-          {/* Logo placeholder */}
-          <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm text-2xl font-bold tracking-tight">
-            [LOGO]
-          </div>
+          {/* Logo */}
+          <img src="/bidclaw-logo.png" alt="BidClaw" className="mx-auto mb-6 h-24 w-24 rounded-2xl object-contain" />
 
           <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
             BidClaw
