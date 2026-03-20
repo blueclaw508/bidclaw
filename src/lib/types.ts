@@ -84,6 +84,7 @@ export interface LineItemData {
   description: string
   catalog_match_type?: 'matched' | 'fuzzy_matched' | 'new_created'
   catalog_item_id?: string
+  unit_cost?: number | null
 }
 
 export interface EstimateRecord {

@@ -33,7 +33,7 @@ import { Loader2, Cloud, Check, Lock, Clock } from 'lucide-react'
 type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'about-kyn' | 'estimates'
 
 function AppContent() {
-  const { user, hasQCAccount, canAccessBidClaw, bidclawAccessLevel, trialDaysLeft, subscriptionTier, qcSettings, loading: authLoading } = useAuth()
+  const { user, hasQCAccount, canAccessBidClaw, bidclawAccessLevel, trialDaysLeft, subscriptionTier, loading: authLoading } = useAuth()
   const [currentTab, setCurrentTab] = useState<Tab>('estimates')
   const [activeEstimateId, setActiveEstimateId] = useState<string | null>(null)
   const [showUpgrade, setShowUpgrade] = useState(false)
@@ -184,29 +184,18 @@ function AppContent() {
     }
   }, [estimate, workAreas, lineItems])
 
-  // Jamie: analyze estimate
-  const handleJamieAnalyze = useCallback(async () => {
-    if (!user) return
+  // Jamie: analyze estimate (local checks only — no pricing, no catalog-wide audit)
+  const handleJamieAnalyze = useCallback(() => {
     setJamieAnalysisLoading(true)
     try {
-      const [{ data: catalogData }, { data: ratesData }] = await Promise.all([
-        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
-        supabase.from('production_rates').select('*').eq('user_id', user.id),
-      ])
-      const userCatalog = (catalogData ?? []) as CatalogItem[]
-      const productionRates = (ratesData ?? []) as ProductionRate[]
-      const laborTypes = qcSettings?.laborTypes ?? []
-
-      const result = await jamieAnalyzeEstimate(
-        workAreas, lineItems, productionRates, userCatalog, laborTypes
-      )
+      const result = jamieAnalyzeEstimate(workAreas, lineItems)
       setJamieAnalysis(result)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Jamie analysis failed')
     } finally {
       setJamieAnalysisLoading(false)
     }
-  }, [user, workAreas, lineItems, qcSettings])
+  }, [workAreas, lineItems])
 
   if (authLoading) {
     return (

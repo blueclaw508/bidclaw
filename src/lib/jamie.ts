@@ -5,20 +5,20 @@ import { callAI } from '@/lib/supabase'
 import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate } from '@/lib/types'
 
 // ── Jamie System Prompt ──
-const JAMIE_SYSTEM = `You are Jamie, the AI estimating agent for BidClaw — a landscape and masonry estimating tool built on the Know Your Numbers (KYN) methodology by Blue Claw Group.
+const JAMIE_SYSTEM = `You are Jamie, the AI estimating agent for BidClaw — a landscape and masonry estimating tool by Blue Claw Group.
 
 You sound like an experienced landscaping estimator, not a generic chatbot. Short, direct questions. Professional and trade-savvy. No jargon overload.
 
-Key KYN principles you follow:
-- Labor burden = true cost of an employee (wages + taxes + insurance + benefits), typically 20-40% above base wage
-- Overhead per hour = annual overhead / annual billable hours
-- Efficiency rating = productive hours / total paid hours (typically 65-80%)
-- Revenue Per Hour (RPR) = the rate you must charge to cover labor + overhead + profit
-- Production rates = how long each task takes per unit (hours/unit)
-- Every price must cover: materials + labor burden + overhead + profit margin
-- BidClaw handles quantities and scope ONLY — pricing lives in QuickCalc
+BidClaw is a quantity and scope tool ONLY. It collects:
+- Quantities (SF, CY, LF, EA, hours)
+- Material costs (what the contractor pays — no markup)
+- Sub costs (what subs charge — no markup)
+- Equipment items and hours (no rates)
+- Labor man hours (no rates, no burden)
 
-You NEVER make up prices. You reference the user's own catalog items and production rates.`
+BidClaw NEVER calculates or discusses: labor burden, overhead, profit margin, markups, retail labor rate, RPR, or any pricing totals. All of that lives in QuickCalc.
+
+You reference the user's own catalog items and production rates for quantities only.`
 
 // ── Conversational Intake ──
 
@@ -182,11 +182,14 @@ Return ONLY valid JSON: { "summary": "..." }`,
   return data.summary
 }
 
-// ── Estimate Analyzer (KYN cost analysis) ──
+// ── Estimate Analyzer (quantity & completeness checks ONLY) ──
+// BidClaw NEVER warns about pricing, markups, rates, RPR, or costs.
+// Those belong in QuickCalc. Jamie only checks estimate completeness.
 
 export interface JamieAnalysisItem {
   line_item_name: string
-  status: 'ok' | 'warning' | 'critical'
+  work_area: string
+  status: 'ok' | 'warning'
   message: string
 }
 
@@ -194,64 +197,67 @@ export interface JamieAnalysisResult {
   overall_status: 'ok' | 'warning'
   summary: string
   items: JamieAnalysisItem[]
-  pricing_coach: string | null
 }
 
-export async function jamieAnalyzeEstimate(
+export function jamieAnalyzeEstimate(
   workAreas: WorkAreaData[],
   lineItems: Record<string, LineItemData[]>,
-  productionRates: ProductionRate[],
-  catalogItems: CatalogItem[],
-  laborTypes: { name: string; targetBillableRate: number }[]
-): Promise<JamieAnalysisResult> {
-  const allItems = Object.entries(lineItems).flatMap(([waId, items]) => {
-    const wa = workAreas.find((w) => w.id === waId)
-    return items.map((li) => {
-      const catalogItem = catalogItems.find((c) => c.id === li.catalog_item_id)
-      const prodRate = productionRates.find((r) =>
-        r.task_name.toLowerCase().includes(li.name.toLowerCase().split(' ')[0])
-      )
-      return {
-        work_area: wa?.name ?? 'Unknown',
-        name: li.name,
-        quantity: li.quantity,
-        unit: li.unit,
-        category: li.category,
-        unit_cost: catalogItem?.unit_cost ?? null,
-        production_rate: prodRate ? `${prodRate.hours_per_unit} hrs/${prodRate.unit}, crew of ${prodRate.crew_size}` : null,
+): JamieAnalysisResult {
+  // Pure local analysis — no AI call needed, no pricing checks
+  const warnings: JamieAnalysisItem[] = []
+
+  for (const wa of workAreas) {
+    const items = lineItems[wa.id] ?? []
+
+    // Warning: work area with no line items
+    if (items.length === 0) {
+      warnings.push({
+        line_item_name: wa.name,
+        work_area: wa.name,
+        status: 'warning',
+        message: 'This work area has no line items.',
+      })
+      continue
+    }
+
+    for (const li of items) {
+      // Warning: missing quantity on any line item
+      if (!li.quantity || li.quantity <= 0) {
+        warnings.push({
+          line_item_name: li.name,
+          work_area: wa.name,
+          status: 'warning',
+          message: `Missing quantity on "${li.name}".`,
+        })
       }
-    })
-  })
 
-  const targetRates = laborTypes.map((lt) => `${lt.name}: $${lt.targetBillableRate}/hr target`).join(', ')
+      // Warning: missing man hours on labor lines
+      if (li.category === 'Labor' && (!li.quantity || li.quantity <= 0)) {
+        warnings.push({
+          line_item_name: li.name,
+          work_area: wa.name,
+          status: 'warning',
+          message: `Missing man hours on labor item "${li.name}".`,
+        })
+      }
 
-  const { data, error } = await callAI<JamieAnalysisResult>({
-    system: `${JAMIE_SYSTEM}
+      // Warning: missing material cost (what you pay) on material line items
+      if (li.category === 'Materials' && (li.unit_cost === null || li.unit_cost === undefined || li.unit_cost <= 0)) {
+        warnings.push({
+          line_item_name: li.name,
+          work_area: wa.name,
+          status: 'warning',
+          message: `Missing material cost (what you pay) on "${li.name}".`,
+        })
+      }
+    }
+  }
 
-Analyze this estimate using KYN methodology. For each line item:
-- Check if the catalog has a unit_cost set (null means unpriced)
-- Check if production rates exist for labor calculations
-- Flag items missing pricing as "warning"
-- If target billable rates are provided, check if labor items would price below the target
-
-Return ONLY valid JSON:
-{
-  "overall_status": "ok" | "warning",
-  "summary": "One sentence overall assessment",
-  "items": [
-    { "line_item_name": "...", "status": "ok"|"warning"|"critical", "message": "..." }
-  ],
-  "pricing_coach": "KYN pricing coach message if any items are below target rate, or null"
-}`,
-    max_tokens: 2000,
-    messages: [
-      {
-        role: 'user',
-        content: `Line Items:\n${JSON.stringify(allItems, null, 2)}\n\nTarget Billable Rates: ${targetRates || 'Not configured'}`,
-      },
-    ],
-  })
-
-  if (error || !data) throw new Error(error ?? 'Jamie could not analyze the estimate')
-  return data
+  return {
+    overall_status: warnings.length > 0 ? 'warning' : 'ok',
+    summary: warnings.length > 0
+      ? `${warnings.length} item${warnings.length === 1 ? '' : 's'} need attention before sending to QuickCalc.`
+      : 'Estimate looks complete — ready to send to QuickCalc.',
+    items: warnings,
+  }
 }

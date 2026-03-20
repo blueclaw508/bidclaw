@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bot, Loader2, CheckCircle2, AlertTriangle, XCircle, FileText, PenLine, BarChart3 } from 'lucide-react'
+import { Bot, Loader2, CheckCircle2, AlertTriangle, FileText, PenLine, BarChart3 } from 'lucide-react'
 import type { JamieAnalysisResult } from '@/lib/jamie'
 
 // ── Jamie AI Suggestion Banner ──
@@ -181,7 +181,7 @@ export function JamieAnalysisPanel({ analysis, loading, onAnalyze }: AnalysisPro
     return (
       <div className="flex items-center gap-2 rounded-lg border border-[#1e40af]/15 bg-blue-50/50 px-4 py-3 text-sm text-[#1e40af]">
         <Loader2 size={14} className="animate-spin" />
-        Jamie is analyzing your estimate with KYN methodology...
+        Jamie is checking your estimate for completeness...
       </div>
     )
   }
@@ -209,11 +209,7 @@ export function JamieAnalysisPanel({ analysis, loading, onAnalyze }: AnalysisPro
                 .filter((i) => i.status !== 'ok')
                 .map((item, idx) => (
                   <div key={idx} className="flex items-start gap-2 rounded-md bg-white border border-slate-100 px-3 py-2">
-                    {item.status === 'critical' ? (
-                      <XCircle size={14} className="mt-0.5 shrink-0 text-red-500" />
-                    ) : (
-                      <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-500" />
-                    )}
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-500" />
                     <div>
                       <span className="text-xs font-semibold text-slate-700">{item.line_item_name}</span>
                       <p className="text-xs text-slate-500">{item.message}</p>
@@ -223,16 +219,7 @@ export function JamieAnalysisPanel({ analysis, loading, onAnalyze }: AnalysisPro
             </div>
           )}
 
-          {/* KYN Pricing Coach */}
-          {analysis.pricing_coach && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-red-700 mb-1">
-                <BarChart3 size={12} />
-                KYN Pricing Coach
-              </div>
-              <p className="text-xs text-red-600 leading-relaxed">{analysis.pricing_coach}</p>
-            </div>
-          )}
+          {/* No pricing warnings — BidClaw checks quantities only, QuickCalc handles pricing */}
         </div>
       </JamieSuggestionBanner>
     )
