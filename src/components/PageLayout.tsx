@@ -27,7 +27,7 @@ export function PageLayout({ icon, title, subtitle, children }: PageLayoutProps)
       </div>
 
       {/* Hero banner */}
-      <div className="relative -mx-6 -mt-6 mb-6 overflow-hidden rounded-b-2xl bg-gradient-to-r from-[#1e3a8a] via-[#1e40af] to-[#2563eb] px-6 py-8 shadow-lg">
+      <div className="relative -mx-6 -mt-6 mb-6 overflow-hidden rounded-b-2xl bg-gradient-to-r from-[#0c1428] via-[#1e3a8a] to-[#2563eb] px-6 py-8 shadow-lg">
         {/* Decorative glow */}
         <div className="absolute -right-20 -top-20 h-60 w-60 rounded-full bg-white/5 blur-3xl" />
         <div className="absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-white/5 blur-2xl" />

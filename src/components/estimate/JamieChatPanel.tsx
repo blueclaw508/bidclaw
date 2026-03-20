@@ -50,7 +50,7 @@ export function JamieChatPanel({
   return (
     <div className="flex flex-col rounded-xl border border-[#1e40af]/20 bg-white shadow-lg overflow-hidden" style={{ height: '520px' }}>
       {/* Header */}
-      <div className="flex items-center justify-between bg-gradient-to-r from-[#1e3a8a] to-[#1e40af] px-4 py-3">
+      <div className="flex items-center justify-between bg-gradient-to-r from-[#0c1428] to-[#1e40af] px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15">
             <Bot size={18} className="text-white" />

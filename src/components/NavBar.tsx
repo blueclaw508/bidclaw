@@ -43,7 +43,7 @@ export default function NavBar({ currentTab, onTabChange }: NavBarProps) {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-[#1e3a8a]/20 bg-gradient-to-r from-[#1e3a8a] via-[#1e40af] to-[#1e3a8a] shadow-md">
+    <header className="sticky top-0 z-50 w-full border-b border-[#0c1428]/20 bg-gradient-to-r from-[#0c1428] via-[#1e3a8a] to-[#0c1428] shadow-md">
       <div className="mx-auto flex h-12 max-w-screen-2xl items-center justify-between px-4">
         {/* Left: Logo */}
         <div className="flex items-center gap-2 shrink-0">
@@ -148,7 +148,7 @@ export default function NavBar({ currentTab, onTabChange }: NavBarProps) {
 
       {/* Mobile menu dropdown */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-white/10 bg-[#1e3a8a] px-4 pb-3 pt-2">
+        <div className="md:hidden border-t border-white/10 bg-[#0c1428] px-4 pb-3 pt-2">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = currentTab === tab.value;

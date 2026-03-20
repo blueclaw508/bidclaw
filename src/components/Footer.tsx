@@ -2,7 +2,7 @@ export function Footer() {
   return (
     <footer>
       {/* Promo Banner — matches QuickCalc */}
-      <div className="bg-[#0f172a] py-10">
+      <div className="bg-[#0c1428] py-10">
         <div className="mx-auto max-w-6xl px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
             {/* Left — Product Family */}
@@ -96,7 +96,7 @@ export function Footer() {
       </div>
 
       {/* Bottom bar */}
-      <div className="bg-[#0b1120] py-3">
+      <div className="bg-[#080e1d] py-3">
         <div className="mx-auto max-w-6xl px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
           <div className="flex items-center gap-4">
             <a href="https://knowyournumbers.com" target="_blank" rel="noopener noreferrer"
