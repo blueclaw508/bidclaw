@@ -5,15 +5,13 @@ export function Footer() {
       <div className="bg-[#0f172a] py-10">
         <div className="mx-auto max-w-6xl px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-            {/* Left — CTA */}
+            {/* Left — Product Family */}
             <div className="max-w-md">
               <h3 className="text-lg font-bold text-white">
-                Want to Run a More Profitable Business?
+                The Blue Claw Family of Products
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                QuickCalc is just the beginning. The Blue Claw Group helps landscaping
-                contractors master their numbers, build better systems, and grow with
-                confidence.
+                Everything you need to run a more profitable contracting business — from mastering your numbers to generating estimates in minutes.
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <a
@@ -22,7 +20,23 @@ export function Footer() {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-lg bg-[#1e40af] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#2563eb] transition-colors"
                 >
-                  Take the Know Your Numbers Course
+                  Know Your Numbers
+                </a>
+                <a
+                  href="https://bluequickcalc.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#0ea5e9] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0284c7] transition-colors"
+                >
+                  QuickCalc
+                </a>
+                <a
+                  href="https://bidclaw.netlify.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#7c3aed] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6d28d9] transition-colors"
+                >
+                  BidClaw
                 </a>
                 <a
                   href="https://blueclawgroup.com"
@@ -85,14 +99,19 @@ export function Footer() {
       <div className="bg-[#0b1120] py-3">
         <div className="mx-auto max-w-6xl px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
           <div className="flex items-center gap-4">
-            <a href="https://bluequickcalc.app" target="_blank" rel="noopener noreferrer"
-              className="hover:text-slate-300 transition-colors">
-              QuickCalc Estimator
-            </a>
-            <span className="text-slate-700">|</span>
             <a href="https://knowyournumbers.com" target="_blank" rel="noopener noreferrer"
               className="hover:text-slate-300 transition-colors">
-              Get Our Online Course
+              Know Your Numbers
+            </a>
+            <span className="text-slate-700">|</span>
+            <a href="https://bluequickcalc.app" target="_blank" rel="noopener noreferrer"
+              className="hover:text-slate-300 transition-colors">
+              QuickCalc
+            </a>
+            <span className="text-slate-700">|</span>
+            <a href="https://bidclaw.netlify.app" target="_blank" rel="noopener noreferrer"
+              className="hover:text-slate-300 transition-colors">
+              BidClaw
             </a>
           </div>
           <p>&copy; {new Date().getFullYear()} Blue Claw Group &middot; Powered by Blue Claw Group</p>
