@@ -392,25 +392,41 @@ function AppContent() {
   return (
     <div className="flex min-h-screen flex-col">
       <NavBar currentTab={currentTab} onTabChange={(tab: string) => setCurrentTab(tab as Tab)} />
-      <main className="flex-1 bg-gray-50">
-        <div className="mx-auto max-w-6xl p-6">
-          {currentTab === 'company-info' && <CompanyInfo />}
-          {currentTab === 'item-catalog' && <ItemCatalog />}
-          {currentTab === 'production-rates' && <ProductionRates />}
-          {currentTab === 'about-kyn' && <AboutKYN />}
-          {currentTab === 'estimates' && (
-            <EstimateDashboard
-              onNewEstimate={async () => {
-                const id = await createEstimate({
-                  client_name: '', project_address: '', project_description: '', plan_file_urls: [],
-                })
-                if (id) setActiveEstimateId(id)
-              }}
-              onOpenEstimate={(id: string) => setActiveEstimateId(id)}
+      <div className="flex flex-1">
+        {/* Left sidebar — Jamie */}
+        <aside className="hidden lg:flex w-64 flex-shrink-0 flex-col items-center bg-gradient-to-b from-slate-50 to-white border-r border-slate-200 px-4 py-8">
+          <div className="sticky top-20">
+            <img
+              src="/jamie-avatar.png"
+              alt="Jamie — AI Estimating Agent"
+              className="w-56 rounded-2xl opacity-85 shadow-lg"
             />
-          )}
-        </div>
-      </main>
+            <p className="mt-3 text-center text-xs font-semibold text-slate-500 tracking-wide uppercase">
+              AI Estimating Agent
+            </p>
+          </div>
+        </aside>
+
+        <main className="flex-1 bg-gray-50">
+          <div className="mx-auto max-w-6xl p-6">
+            {currentTab === 'company-info' && <CompanyInfo />}
+            {currentTab === 'item-catalog' && <ItemCatalog />}
+            {currentTab === 'production-rates' && <ProductionRates />}
+            {currentTab === 'about-kyn' && <AboutKYN />}
+            {currentTab === 'estimates' && (
+              <EstimateDashboard
+                onNewEstimate={async () => {
+                  const id = await createEstimate({
+                    client_name: '', project_address: '', project_description: '', plan_file_urls: [],
+                  })
+                  if (id) setActiveEstimateId(id)
+                }}
+                onOpenEstimate={(id: string) => setActiveEstimateId(id)}
+              />
+            )}
+          </div>
+        </main>
+      </div>
       <Footer />
     </div>
   )
