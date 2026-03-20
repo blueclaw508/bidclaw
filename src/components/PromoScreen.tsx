@@ -153,27 +153,29 @@ export function PromoScreen() {
               />
             </div>
 
-            {/* Script bubble */}
-            <div className="relative max-w-sm rounded-2xl bg-white/95 px-5 py-4 text-left shadow-xl backdrop-blur-sm">
-              {/* Speech bubble arrow (points left on desktop) */}
-              <div className="absolute -left-3 top-8 hidden sm:block h-0 w-0 border-y-[10px] border-y-transparent border-r-[12px] border-r-white/95" />
-              <div className="mb-2 flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a8a] to-[#1e40af]">
-                  <span className="text-xs font-bold text-white">J</span>
+            {/* Script bubble + Logo below */}
+            <div className="flex flex-col items-center sm:items-start gap-4">
+              <div className="relative max-w-sm rounded-2xl bg-white/95 px-5 py-4 text-left shadow-xl backdrop-blur-sm">
+                {/* Speech bubble arrow (points left on desktop) */}
+                <div className="absolute -left-3 top-8 hidden sm:block h-0 w-0 border-y-[10px] border-y-transparent border-r-[12px] border-r-white/95" />
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a8a] to-[#1e40af]">
+                    <span className="text-xs font-bold text-white">J</span>
+                  </div>
+                  <span className="text-sm font-bold text-[#1e3a8a]">Jamie</span>
+                  <span className="text-[10px] text-slate-400">AI Estimating Agent</span>
                 </div>
-                <span className="text-sm font-bold text-[#1e3a8a]">Jamie</span>
-                <span className="text-[10px] text-slate-400">AI Estimating Agent</span>
+                <p className="text-sm leading-relaxed text-slate-700">
+                  "Hey, I'm Jamie — your AI estimating agent. Tell me about your project and I'll build
+                  a full estimate for you in minutes. I'll walk you through a quick interview, match
+                  everything to your catalog, and send it straight to QuickCalc. Let's get started!"
+                </p>
               </div>
-              <p className="text-sm leading-relaxed text-slate-700">
-                "Hey, I'm Jamie — your AI estimating agent. Tell me about your project and I'll build
-                a full estimate for you in minutes. I'll walk you through a quick interview, match
-                everything to your catalog, and send it straight to QuickCalc. Let's get started!"
-              </p>
+
+              {/* Logo — half the bubble width, centered below */}
+              <img src="/bidclaw-logo.png" alt="BidClaw" className="mx-auto h-16 w-16 rounded-xl object-contain" />
             </div>
           </div>
-
-          {/* Logo */}
-          <img src="/bidclaw-logo.png" alt="BidClaw" className="mx-auto mb-4 h-28 w-28 rounded-2xl object-contain" />
 
           <p className="mt-2 text-lg font-medium text-blue-100 sm:text-xl">
             The AI Estimating Engine for BlueQuickCalc
