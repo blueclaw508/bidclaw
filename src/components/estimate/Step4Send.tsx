@@ -15,6 +15,8 @@ import {
   FileText,
   MapPin,
   User,
+  Lock,
+  X,
 } from 'lucide-react'
 
 interface Step4SendProps {
@@ -30,6 +32,9 @@ interface Step4SendProps {
   jamieSummaryLoading?: boolean
   onJamieGenerateSummary?: () => void
   onJamieUpdateSummary?: (summary: string) => void
+  // Trial gate
+  isTrial?: boolean
+  onUpgrade?: () => void
 }
 
 function SummaryWorkArea({
@@ -106,13 +111,21 @@ export function Step4Send({
   jamieSummaryLoading,
   onJamieGenerateSummary,
   onJamieUpdateSummary,
+  isTrial,
+  onUpgrade,
 }: Step4SendProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
+  const [showTrialModal, setShowTrialModal] = useState(false)
 
   const totalLineItems = Object.values(lineItems).reduce((sum, items) => sum + items.length, 0)
 
   const handleSend = async () => {
+    // Trial users get intercepted — show upgrade modal instead
+    if (isTrial) {
+      setShowTrialModal(true)
+      return
+    }
     setSending(true)
     try {
       onSend()
@@ -264,12 +277,21 @@ export function Step4Send({
             <button
               onClick={handleSend}
               disabled={sending}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-8 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-600 disabled:opacity-70"
+              className={`inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white transition-colors disabled:opacity-70 ${
+                isTrial
+                  ? 'bg-amber-500 hover:bg-amber-600'
+                  : 'bg-[#2563EB] hover:bg-blue-600'
+              }`}
             >
               {sending ? (
                 <>
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                   Sending...
+                </>
+              ) : isTrial ? (
+                <>
+                  <Lock size={16} />
+                  SEND TO QUICKCALC
                 </>
               ) : (
                 <>
@@ -281,6 +303,44 @@ export function Step4Send({
           </div>
         </div>
       </div>
+
+      {/* Trial upgrade modal */}
+      {showTrialModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowTrialModal(false)} />
+          <div className="relative z-10 w-full max-w-lg mx-4 rounded-xl bg-white shadow-2xl">
+            <button
+              onClick={() => setShowTrialModal(false)}
+              className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            >
+              <X size={20} />
+            </button>
+            <div className="flex flex-col items-center px-8 py-10 text-center">
+              <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
+                <Lock size={28} className="text-amber-600" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 mb-3">
+                Upgrade to Push Estimates
+              </h2>
+              <p className="text-sm leading-relaxed text-gray-600 mb-8 max-w-sm">
+                You're on a free trial. Pushing estimates to QuickCalc is a paid feature. Upgrade to BidClaw for $599 to unlock full access.
+              </p>
+              <button
+                onClick={() => { setShowTrialModal(false); onUpgrade?.() }}
+                className="inline-flex w-full max-w-xs items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#1d4ed8] transition-colors"
+              >
+                Upgrade to BidClaw — $599
+              </button>
+              <button
+                onClick={() => setShowTrialModal(false)}
+                className="mt-3 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Continue exploring trial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

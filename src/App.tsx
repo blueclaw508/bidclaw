@@ -28,12 +28,12 @@ import {
   jamieAnalyzeEstimate,
 } from '@/lib/jamie'
 import { matchAllLineItems } from '@/lib/catalogMatcher'
-import { Loader2, Cloud, Check } from 'lucide-react'
+import { Loader2, Cloud, Check, Lock, Clock } from 'lucide-react'
 
 type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'about-kyn' | 'estimates'
 
 function AppContent() {
-  const { user, hasQCAccount, canAccessBidClaw, qcSettings, loading: authLoading } = useAuth()
+  const { user, hasQCAccount, canAccessBidClaw, bidclawAccessLevel, trialDaysLeft, subscriptionTier, qcSettings, loading: authLoading } = useAuth()
   const [currentTab, setCurrentTab] = useState<Tab>('estimates')
   const [activeEstimateId, setActiveEstimateId] = useState<string | null>(null)
   const [showUpgrade, setShowUpgrade] = useState(false)
@@ -238,6 +238,48 @@ function AppContent() {
     )
   }
 
+  // Not a Pro subscriber — no trial, must upgrade QC first
+  if (subscriptionTier === 'free' && bidclawAccessLevel === 'none') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="mx-4 max-w-md rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <img src="/bidclaw-logo-sm.png" alt="BidClaw" className="mx-auto mb-4 h-12 w-12 rounded-lg object-contain" />
+          <h2 className="mb-2 text-xl font-bold text-gray-900">Pro Subscription Required</h2>
+          <p className="mb-6 text-sm text-gray-500">
+            BidClaw is available exclusively to QuickCalc Pro subscribers. Upgrade your QuickCalc plan to unlock a free 7-day trial of BidClaw.
+          </p>
+          <a href="https://bluequickcalc.app" target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+            Upgrade QuickCalc to Pro
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  // Trial expired — block access, show upgrade
+  if (bidclawAccessLevel === 'trial_expired') {
+    return (
+      <>
+        <div className="flex min-h-screen items-center justify-center bg-gray-50">
+          <div className="mx-4 max-w-md rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+            <Lock className="mx-auto mb-4 text-gray-400" size={40} />
+            <h2 className="mb-2 text-xl font-bold text-gray-900">Free Trial Expired</h2>
+            <p className="mb-6 text-sm text-gray-500">
+              Your 7-day BidClaw trial has ended. Upgrade to BidClaw for $599 to unlock full access — including pushing estimates directly to QuickCalc.
+            </p>
+            <button onClick={() => setShowUpgrade(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700">
+              Upgrade to BidClaw — $599
+            </button>
+          </div>
+        </div>
+        <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} />
+      </>
+    )
+  }
+
+  // Pro user with no trial yet and no paid access (shouldn't normally happen — auto-start covers it)
   if (!canAccessBidClaw) {
     return (
       <>
@@ -281,7 +323,21 @@ function AppContent() {
 
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
+        {/* Trial banner */}
+        {bidclawAccessLevel === 'trial' && (
+          <div className="sticky top-0 z-40 flex items-center justify-center gap-2 bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm">
+            <Clock size={14} className="text-amber-600" />
+            <span className="text-amber-800">
+              <span className="font-semibold">Free Trial</span> — {trialDaysLeft} day{trialDaysLeft !== 1 ? 's' : ''} remaining.
+              Push to QuickCalc requires a paid subscription.
+            </span>
+            <button onClick={() => setShowUpgrade(true)}
+              className="ml-2 rounded bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700">
+              Upgrade
+            </button>
+          </div>
+        )}
+        <div className={`sticky ${bidclawAccessLevel === 'trial' ? 'top-[41px]' : 'top-0'} z-30 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3`}>
           <div className="flex items-center gap-3">
             <img src="/bidclaw-logo-sm.png" alt="BidClaw" className="h-8 w-8 rounded-lg object-contain" />
             <span className="font-semibold text-gray-900">BidClaw</span>
@@ -381,6 +437,8 @@ function AppContent() {
               jamieSummaryLoading={jamieSummaryLoading}
               onJamieGenerateSummary={handleJamieGenerateSummary}
               onJamieUpdateSummary={setJamieSummary}
+              isTrial={bidclawAccessLevel === 'trial'}
+              onUpgrade={() => setShowUpgrade(true)}
             />
           )}
         </div>
@@ -391,6 +449,18 @@ function AppContent() {
   // Main app with nav
   return (
     <div className="flex min-h-screen flex-col">
+      {bidclawAccessLevel === 'trial' && (
+        <div className="flex items-center justify-center gap-2 bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm">
+          <Clock size={14} className="text-amber-600" />
+          <span className="text-amber-800">
+            <span className="font-semibold">Free Trial</span> — {trialDaysLeft} day{trialDaysLeft !== 1 ? 's' : ''} remaining.
+          </span>
+          <button onClick={() => setShowUpgrade(true)}
+            className="ml-2 rounded bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700">
+            Upgrade
+          </button>
+        </div>
+      )}
       <NavBar currentTab={currentTab} onTabChange={(tab: string) => setCurrentTab(tab as Tab)} />
       <div className="flex flex-1">
         {/* Left sidebar — Jamie */}
