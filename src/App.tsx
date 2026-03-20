@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { PromoScreen } from '@/components/PromoScreen'
@@ -15,13 +15,25 @@ import { Step2WorkAreas } from '@/components/estimate/Step2WorkAreas'
 import { Step3LineItems } from '@/components/estimate/Step3LineItems'
 import { Step4Send } from '@/components/estimate/Step4Send'
 import { useEstimate } from '@/hooks/useEstimate'
-import type { WorkAreaData, LineItemData } from '@/lib/types'
+import { supabase } from '@/lib/supabase'
+import { toast } from 'sonner'
+import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate } from '@/lib/types'
+import type { JamieMessage, JamieAnalysisResult } from '@/lib/jamie'
+import {
+  getNextIntakeQuestion,
+  buildIntakeContext,
+  jamieBuildEstimate,
+  jamieWriteScope,
+  jamieGenerateSummary,
+  jamieAnalyzeEstimate,
+} from '@/lib/jamie'
+import { matchAllLineItems } from '@/lib/catalogMatcher'
 import { Loader2, Cloud, Check } from 'lucide-react'
 
 type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'about-kyn' | 'estimates'
 
 function AppContent() {
-  const { user, hasQCAccount, canAccessBidClaw, loading: authLoading } = useAuth()
+  const { user, hasQCAccount, canAccessBidClaw, qcSettings, loading: authLoading } = useAuth()
   const [currentTab, setCurrentTab] = useState<Tab>('estimates')
   const [activeEstimateId, setActiveEstimateId] = useState<string | null>(null)
   const [showUpgrade, setShowUpgrade] = useState(false)
@@ -35,6 +47,166 @@ function AppContent() {
   const workAreas: WorkAreaData[] = estimate?.work_areas ?? []
   const lineItems: Record<string, LineItemData[]> = estimate?.line_items ?? {}
   const newCatalogItems: string[] = estimate?.new_catalog_items_created ?? []
+
+  // ── Jamie State ──
+  const [jamieMessages, setJamieMessages] = useState<JamieMessage[]>([])
+  const [jamieLoading] = useState(false)
+  const [jamieBuildingEstimate, setJamieBuildingEstimate] = useState(false)
+  const [jamieBuilt, setJamieBuilt] = useState(false)
+  const [jamieScopes, setJamieScopes] = useState<Record<string, string>>({})
+  const [jamieScopeLoading, setJamieScopeLoading] = useState<string | null>(null)
+  const [jamieSummary, setJamieSummary] = useState<string | null>(null)
+  const [jamieSummaryLoading, setJamieSummaryLoading] = useState(false)
+  const [jamieAnalysis, setJamieAnalysis] = useState<JamieAnalysisResult | null>(null)
+  const [jamieAnalysisLoading, setJamieAnalysisLoading] = useState(false)
+
+  // Jamie: start intake
+  const handleJamieStart = useCallback(() => {
+    const firstQ = getNextIntakeQuestion([])
+    if (firstQ) {
+      setJamieMessages([{ role: 'jamie', content: firstQ }])
+    }
+  }, [])
+
+  // Jamie: send user message
+  const handleJamieSendMessage = useCallback((text: string) => {
+    setJamieMessages((prev) => {
+      const updated = [...prev, { role: 'user' as const, content: text }]
+      // Add next question after a short delay
+      const nextQ = getNextIntakeQuestion(updated)
+      if (nextQ) {
+        setTimeout(() => {
+          setJamieMessages((p) => [...p, { role: 'jamie' as const, content: nextQ }])
+        }, 600)
+      } else {
+        setTimeout(() => {
+          setJamieMessages((p) => [
+            ...p,
+            { role: 'jamie' as const, content: "Great — I've got everything I need. Hit the button below and I'll build your estimate." },
+          ])
+        }, 600)
+      }
+      return updated
+    })
+  }, [])
+
+  // Jamie: build estimate from intake
+  const handleJamieBuildEstimate = useCallback(async () => {
+    if (!user || !estimate) return
+    setJamieBuildingEstimate(true)
+    try {
+      // Fetch user's catalog and production rates
+      const [{ data: catalogData }, { data: ratesData }] = await Promise.all([
+        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
+        supabase.from('production_rates').select('*').eq('user_id', user.id),
+      ])
+      const userCatalog = (catalogData ?? []) as CatalogItem[]
+      const productionRates = (ratesData ?? []) as ProductionRate[]
+
+      const intakeContext = buildIntakeContext(jamieMessages)
+      const result = await jamieBuildEstimate(
+        intakeContext,
+        estimate.client_name ?? '',
+        estimate.project_address ?? '',
+        userCatalog,
+        productionRates
+      )
+
+      // Match line items to catalog
+      const allItems = Object.values(result.line_items).flat()
+      const matchResults = await matchAllLineItems(allItems, userCatalog, user.id)
+      const newCatalogIds: string[] = []
+      const matchedLineItems: Record<string, LineItemData[]> = {}
+
+      for (const [waId, items] of Object.entries(result.line_items)) {
+        matchedLineItems[waId] = items.map((li) => {
+          const match = matchResults.get(li.id)
+          if (match?.matchType === 'new_created') newCatalogIds.push(match.catalogItem.id)
+          return { ...li, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
+        })
+      }
+
+      // Update estimate with Jamie's output
+      updateEstimate({
+        work_areas: result.work_areas,
+        line_items: matchedLineItems,
+        new_catalog_items_created: newCatalogIds,
+        workflow_step: 3,
+        approval_status: 'work_areas_approved',
+      })
+
+      setJamieScopes(result.scope_descriptions ?? {})
+      setJamieBuilt(true)
+      toast.success('Jamie built your estimate!')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Jamie could not build the estimate')
+    } finally {
+      setJamieBuildingEstimate(false)
+    }
+  }, [user, estimate, jamieMessages, updateEstimate])
+
+  // Jamie: write scope for a work area
+  const handleJamieWriteScope = useCallback(async (waId: string) => {
+    const wa = workAreas.find((w) => w.id === waId)
+    if (!wa) return
+    setJamieScopeLoading(waId)
+    try {
+      const scope = await jamieWriteScope(wa.name, lineItems[waId] ?? [])
+      setJamieScopes((prev) => ({ ...prev, [waId]: scope }))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Jamie could not write scope')
+    } finally {
+      setJamieScopeLoading(null)
+    }
+  }, [workAreas, lineItems])
+
+  // Jamie: update scope
+  const handleJamieUpdateScope = useCallback((waId: string, scope: string) => {
+    setJamieScopes((prev) => ({ ...prev, [waId]: scope }))
+  }, [])
+
+  // Jamie: generate estimate summary
+  const handleJamieGenerateSummary = useCallback(async () => {
+    if (!estimate) return
+    setJamieSummaryLoading(true)
+    try {
+      const summary = await jamieGenerateSummary(
+        estimate.client_name ?? '',
+        estimate.project_address ?? '',
+        workAreas,
+        lineItems
+      )
+      setJamieSummary(summary)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Jamie could not generate summary')
+    } finally {
+      setJamieSummaryLoading(false)
+    }
+  }, [estimate, workAreas, lineItems])
+
+  // Jamie: analyze estimate
+  const handleJamieAnalyze = useCallback(async () => {
+    if (!user) return
+    setJamieAnalysisLoading(true)
+    try {
+      const [{ data: catalogData }, { data: ratesData }] = await Promise.all([
+        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
+        supabase.from('production_rates').select('*').eq('user_id', user.id),
+      ])
+      const userCatalog = (catalogData ?? []) as CatalogItem[]
+      const productionRates = (ratesData ?? []) as ProductionRate[]
+      const laborTypes = qcSettings?.laborTypes ?? []
+
+      const result = await jamieAnalyzeEstimate(
+        workAreas, lineItems, productionRates, userCatalog, laborTypes
+      )
+      setJamieAnalysis(result)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Jamie analysis failed')
+    } finally {
+      setJamieAnalysisLoading(false)
+    }
+  }, [user, workAreas, lineItems, qcSettings])
 
   if (authLoading) {
     return (
@@ -117,7 +289,8 @@ function AppContent() {
           <div className="flex items-center gap-3">
             {saving && <span className="flex items-center gap-1 text-xs text-gray-400"><Cloud size={14} /> Saving...</span>}
             {!saving && <span className="flex items-center gap-1 text-xs text-green-600"><Check size={14} /> Saved</span>}
-            <button onClick={() => setActiveEstimateId(null)} className="text-sm text-gray-500 hover:text-gray-900">Exit</button>
+            <button onClick={() => { setActiveEstimateId(null); setJamieMessages([]); setJamieBuilt(false); setJamieScopes({}); setJamieSummary(null); setJamieAnalysis(null) }}
+              className="text-sm text-gray-500 hover:text-gray-900">Exit</button>
           </div>
         </div>
 
@@ -131,6 +304,12 @@ function AppContent() {
               estimate={estimate}
               onGenerate={handleGenerate}
               onBack={() => setActiveEstimateId(null)}
+              jamieMessages={jamieMessages}
+              jamieLoading={jamieLoading}
+              jamieBuildingEstimate={jamieBuildingEstimate}
+              onJamieStart={handleJamieStart}
+              onJamieSendMessage={handleJamieSendMessage}
+              onJamieBuildEstimate={handleJamieBuildEstimate}
             />
           ) : step === 2 ? (
             <Step2WorkAreas
@@ -179,6 +358,15 @@ function AppContent() {
               onSend={() => updateEstimate({ workflow_step: 4 })}
               onBack={() => updateEstimate({ workflow_step: 2 })}
               onBackToStep1={() => updateEstimate({ workflow_step: 1 })}
+              // Jamie
+              jamieBuilt={jamieBuilt}
+              jamieScopes={jamieScopes}
+              jamieScopeLoading={jamieScopeLoading}
+              onJamieWriteScope={handleJamieWriteScope}
+              onJamieUpdateScope={handleJamieUpdateScope}
+              jamieAnalysis={jamieAnalysis}
+              jamieAnalysisLoading={jamieAnalysisLoading}
+              onJamieAnalyze={handleJamieAnalyze}
             />
           ) : (
             <Step4Send
@@ -188,7 +376,11 @@ function AppContent() {
               newCatalogItemCount={newCatalogItems.length}
               onEdit={() => updateEstimate({ workflow_step: 3 })}
               onSend={sendToQuickCalc}
-              onNewEstimate={() => { setActiveEstimateId(null); setCurrentTab('estimates') }}
+              onNewEstimate={() => { setActiveEstimateId(null); setCurrentTab('estimates'); setJamieMessages([]); setJamieBuilt(false); setJamieScopes({}); setJamieSummary(null); setJamieAnalysis(null) }}
+              jamieSummary={jamieSummary}
+              jamieSummaryLoading={jamieSummaryLoading}
+              onJamieGenerateSummary={handleJamieGenerateSummary}
+              onJamieUpdateSummary={setJamieSummary}
             />
           )}
         </div>

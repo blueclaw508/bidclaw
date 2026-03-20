@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import type { WorkAreaData, LineItemData, CatalogItem } from '@/lib/types'
+import type { JamieAnalysisResult } from '@/lib/jamie'
 import { ProgressIndicator } from './Step1ProjectInfo'
 import { LineItemRow } from './LineItemRow'
 import { NewItemsAlertBanner } from './NewItemsAlertBanner'
+import { JamieScopeWriter, JamieAnalysisPanel, JamieBuiltBanner } from './JamieInsights'
 import {
   ArrowLeft,
   Plus,
@@ -29,6 +31,15 @@ interface Step3LineItemsProps {
   onSend: () => void
   onBack: () => void
   onBackToStep1: () => void
+  // Jamie
+  jamieBuilt?: boolean
+  jamieScopes?: Record<string, string>
+  jamieScopeLoading?: string | null
+  onJamieWriteScope?: (workAreaId: string) => void
+  onJamieUpdateScope?: (workAreaId: string, scope: string) => void
+  jamieAnalysis?: JamieAnalysisResult | null
+  jamieAnalysisLoading?: boolean
+  onJamieAnalyze?: () => void
 }
 
 interface WorkAreaSectionProps {
@@ -40,6 +51,11 @@ interface WorkAreaSectionProps {
   onAddItem: () => void
   onApprove: () => void
   onUnapprove: () => void
+  // Jamie scope
+  jamieScope?: string | null
+  jamieScopeLoading?: boolean
+  onJamieWriteScope?: () => void
+  onJamieUpdateScope?: (scope: string) => void
 }
 
 function WorkAreaSection({
@@ -51,6 +67,10 @@ function WorkAreaSection({
   onAddItem,
   onApprove,
   onUnapprove,
+  jamieScope,
+  jamieScopeLoading,
+  onJamieWriteScope,
+  onJamieUpdateScope,
 }: WorkAreaSectionProps) {
   const [collapsed, setCollapsed] = useState(workArea.approved)
   const hasItems = items.length > 0
@@ -125,6 +145,18 @@ function WorkAreaSection({
             />
           ))}
 
+          {/* Jamie Scope Writer */}
+          {onJamieWriteScope && (
+            <div className="border-t border-slate-100 px-3 py-3">
+              <JamieScopeWriter
+                scope={jamieScope ?? null}
+                loading={jamieScopeLoading ?? false}
+                onWrite={onJamieWriteScope}
+                onUpdate={onJamieUpdateScope ?? (() => {})}
+              />
+            </div>
+          )}
+
           {/* Add + Approve actions */}
           <div className="flex items-center justify-between border-t border-slate-100 px-3 py-3">
             <button
@@ -166,6 +198,14 @@ export function Step3LineItems({
   onSend,
   onBack,
   onBackToStep1,
+  jamieBuilt,
+  jamieScopes,
+  jamieScopeLoading,
+  onJamieWriteScope,
+  onJamieUpdateScope,
+  jamieAnalysis,
+  jamieAnalysisLoading,
+  onJamieAnalyze,
 }: Step3LineItemsProps) {
   const [showBackConfirm, setShowBackConfirm] = useState(false)
   const [showBackToStep1Confirm, setShowBackToStep1Confirm] = useState(false)
@@ -207,9 +247,21 @@ export function Step3LineItems({
           </div>
         </div>
 
+        {/* Jamie built banner */}
+        {!loading && jamieBuilt && <JamieBuiltBanner />}
+
         {/* New items alert */}
         {!loading && newCatalogItems.length > 0 && (
           <NewItemsAlertBanner count={newCatalogItems.length} items={newItemsList} />
+        )}
+
+        {/* Jamie Analysis */}
+        {!loading && onJamieAnalyze && (
+          <JamieAnalysisPanel
+            analysis={jamieAnalysis ?? null}
+            loading={jamieAnalysisLoading ?? false}
+            onAnalyze={onJamieAnalyze}
+          />
         )}
 
         {/* Loading state */}
@@ -241,6 +293,10 @@ export function Step3LineItems({
               onAddItem={() => onAddLineItem(wa.id)}
               onApprove={() => onApproveWorkArea(wa.id)}
               onUnapprove={() => onUnapproveWorkArea(wa.id)}
+              jamieScope={jamieScopes?.[wa.id]}
+              jamieScopeLoading={jamieScopeLoading === wa.id}
+              onJamieWriteScope={onJamieWriteScope ? () => onJamieWriteScope(wa.id) : undefined}
+              onJamieUpdateScope={onJamieUpdateScope ? (scope: string) => onJamieUpdateScope(wa.id, scope) : undefined}
             />
           ))}
 

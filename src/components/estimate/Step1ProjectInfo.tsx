@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import type { EstimateRecord } from '@/lib/types'
+import type { JamieMessage } from '@/lib/jamie'
+import { JamieChatPanel } from './JamieChatPanel'
 import {
   Upload,
   X,
@@ -10,6 +12,7 @@ import {
   ArrowLeft,
   AlertTriangle,
   RefreshCw,
+  Bot,
 } from 'lucide-react'
 
 interface Step1ProjectInfoProps {
@@ -21,6 +24,13 @@ interface Step1ProjectInfoProps {
     files: File[]
   }) => void
   onBack?: () => void
+  // Jamie props
+  jamieMessages?: JamieMessage[]
+  jamieLoading?: boolean
+  jamieBuildingEstimate?: boolean
+  onJamieStart?: () => void
+  onJamieSendMessage?: (text: string) => void
+  onJamieBuildEstimate?: () => void
 }
 
 interface UploadedFile {
@@ -121,7 +131,12 @@ function FilePreview({ file, onRemove }: { file: UploadedFile; onRemove: () => v
 
 export { ProgressIndicator }
 
-export function Step1ProjectInfo({ estimate, onGenerate, onBack }: Step1ProjectInfoProps) {
+export function Step1ProjectInfo({
+  estimate, onGenerate, onBack,
+  jamieMessages, jamieLoading, jamieBuildingEstimate,
+  onJamieStart, onJamieSendMessage, onJamieBuildEstimate,
+}: Step1ProjectInfoProps) {
+  const [showJamie, setShowJamie] = useState(false)
   const [clientName, setClientName] = useState(estimate?.client_name ?? '')
   const [projectAddress, setProjectAddress] = useState(estimate?.project_address ?? '')
   const [projectDescription, setProjectDescription] = useState(estimate?.project_description ?? '')
@@ -205,7 +220,32 @@ export function Step1ProjectInfo({ estimate, onGenerate, onBack }: Step1ProjectI
       <ProgressIndicator currentStep={1} />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-6 text-xl font-bold text-blue-900">Project Information</h2>
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-blue-900">Project Information</h2>
+          {onJamieStart && !showJamie && !isRegenerate && (
+            <button
+              onClick={() => { setShowJamie(true); onJamieStart() }}
+              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#1e3a8a] to-[#1e40af] px-4 py-2 text-sm font-semibold text-white hover:from-[#1e40af] hover:to-[#2563eb] shadow-sm transition-all"
+            >
+              <Bot size={16} />
+              Start with Jamie
+            </button>
+          )}
+        </div>
+
+        {/* Jamie Chat Panel */}
+        {showJamie && jamieMessages && onJamieSendMessage && onJamieBuildEstimate && (
+          <div className="mb-6">
+            <JamieChatPanel
+              messages={jamieMessages}
+              onSendMessage={onJamieSendMessage}
+              onComplete={onJamieBuildEstimate}
+              onClose={() => setShowJamie(false)}
+              loading={jamieLoading ?? false}
+              buildingEstimate={jamieBuildingEstimate ?? false}
+            />
+          </div>
+        )}
 
         {/* Client Name */}
         <div className="mb-5">

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { EstimateRecord, WorkAreaData, LineItemData } from '@/lib/types'
 import { ProgressIndicator } from './Step1ProjectInfo'
+import { JamieEstimateSummary } from './JamieInsights'
 import {
   Send,
   PenLine,
@@ -24,6 +25,11 @@ interface Step4SendProps {
   onEdit: () => void
   onSend: () => void
   onNewEstimate: () => void
+  // Jamie summary
+  jamieSummary?: string | null
+  jamieSummaryLoading?: boolean
+  onJamieGenerateSummary?: () => void
+  onJamieUpdateSummary?: (summary: string) => void
 }
 
 function SummaryWorkArea({
@@ -96,6 +102,10 @@ export function Step4Send({
   onEdit,
   onSend,
   onNewEstimate,
+  jamieSummary,
+  jamieSummaryLoading,
+  onJamieGenerateSummary,
+  onJamieUpdateSummary,
 }: Step4SendProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
@@ -158,7 +168,19 @@ export function Step4Send({
       <div className="space-y-4">
         {/* Summary card */}
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-6 text-xl font-bold text-blue-900">Estimate Summary</h2>
+          <h2 className="mb-4 text-xl font-bold text-blue-900">Estimate Summary</h2>
+
+          {/* Jamie Summary */}
+          {onJamieGenerateSummary && (
+            <div className="mb-6">
+              <JamieEstimateSummary
+                summary={jamieSummary ?? null}
+                loading={jamieSummaryLoading ?? false}
+                onGenerate={onJamieGenerateSummary}
+                onUpdate={onJamieUpdateSummary ?? (() => {})}
+              />
+            </div>
+          )}
 
           {/* Project details */}
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
