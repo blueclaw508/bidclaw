@@ -55,15 +55,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCompanyProfile(null)
     }
 
-    // Check subscription tier from profiles table
-    const { data: profile } = await supabase
-      .from('profiles')
+    // Check subscription tier from kyn_user_settings table
+    const { data: tierData } = await supabase
+      .from('kyn_user_settings')
       .select('subscription_tier')
-      .eq('id', userId)
+      .eq('user_id', userId)
       .maybeSingle()
 
-    if (profile?.subscription_tier) {
-      setSubscriptionTier(profile.subscription_tier as SubscriptionTier)
+    if (tierData?.subscription_tier) {
+      setSubscriptionTier(tierData.subscription_tier as SubscriptionTier)
     } else if (email && FREE_ACCESS_EMAILS.includes(email)) {
       setSubscriptionTier('bidclaw')
     } else {
