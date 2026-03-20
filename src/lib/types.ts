@@ -69,6 +69,8 @@ export interface WorkAreaData {
   description: string
   complexity: 'Simple' | 'Moderate' | 'Complex'
   approved: boolean
+  crew_size?: number
+  crew_hours_per_day?: number
   line_items?: LineItemData[]
 }
 

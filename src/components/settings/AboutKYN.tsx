@@ -39,7 +39,7 @@ export default function AboutKYN() {
           <div className="flex flex-wrap items-center justify-center gap-3">
             {[
               { label: 'KYN', sub: 'Know Your Numbers', color: 'bg-slate-800 text-white' },
-              { label: 'BidClaw', sub: 'AI Estimating', color: 'bg-[#1e40af] text-white' },
+              { label: 'BidClaw', sub: 'Estimating Engine', color: 'bg-[#1e40af] text-white' },
               { label: 'BlueQuickCalc', sub: 'Pricing Engine', color: 'bg-emerald-600 text-white' },
               { label: 'Profitable Job', sub: 'Real Margins', color: 'bg-amber-500 text-white' },
             ].map((step, i, arr) => (

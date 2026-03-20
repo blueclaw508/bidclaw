@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Search, Filter, Upload, Download, Pencil, Trash2, X,
-  AlertTriangle, Package, BookOpen,
+  Package, BookOpen,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -26,11 +26,9 @@ const SOURCE_BADGE: Record<CatalogSource, { label: string; className: string }> 
 interface FormState {
   name: string
   type: CatalogCategory
-  unit_cost: string
-  default_amount: string
 }
 
-const EMPTY_FORM: FormState = { name: '', type: 'Materials', unit_cost: '', default_amount: '' }
+const EMPTY_FORM: FormState = { name: '', type: 'Materials' }
 
 export default function ItemCatalog() {
   const { user } = useAuth()
@@ -69,7 +67,7 @@ export default function ItemCatalog() {
   function openAdd() { setEditingItem(null); setForm(EMPTY_FORM); setModalOpen(true) }
   function openEdit(item: CatalogItem) {
     setEditingItem(item)
-    setForm({ name: item.name, type: item.type as CatalogCategory, unit_cost: item.unit_cost != null ? String(item.unit_cost) : '', default_amount: item.default_amount != null ? String(item.default_amount) : '' })
+    setForm({ name: item.name, type: item.type as CatalogCategory })
     setModalOpen(true)
   }
 
@@ -78,9 +76,7 @@ export default function ItemCatalog() {
     setSaving(true)
     const payload = {
       user_id: user.id, name: form.name.trim(), type: form.type,
-      unit_cost: form.unit_cost ? parseFloat(form.unit_cost) : null,
-      default_amount: form.default_amount ? parseFloat(form.default_amount) : null,
-      needs_pricing: !form.unit_cost, source: 'manual' as CatalogSource,
+      source: 'manual' as CatalogSource,
       updated_at: new Date().toISOString(),
     }
     if (editingItem) {
@@ -103,7 +99,7 @@ export default function ItemCatalog() {
     <PageLayout
       icon={<BookOpen size={24} />}
       title="Item Catalog"
-      subtitle="Manage your catalog items — BidClaw matches AI-generated items to this list"
+      subtitle="Manage your catalog items — Jamie matches items to this list"
     >
       <CardSection
         icon={<Package size={18} />}
@@ -131,11 +127,7 @@ export default function ItemCatalog() {
               {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50">
-            <input type="checkbox" checked={showNeedsPricing} onChange={(e) => setShowNeedsPricing(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-slate-300 text-[#1e40af] accent-[#1e40af]" />
-            <AlertTriangle size={14} className="text-amber-500" /> Needs Pricing
-          </label>
+          {/* No pricing filter — BidClaw doesn't handle pricing */}
           <button onClick={handleImportCSV} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
             <Upload size={14} /> Import
           </button>
@@ -161,9 +153,7 @@ export default function ItemCatalog() {
                 <tr className="border-b border-slate-100 bg-slate-50/50 text-left text-xs font-medium uppercase tracking-wider text-slate-400">
                   <th className="px-5 py-2.5">Name</th>
                   <th className="px-4 py-2.5">Category</th>
-                  <th className="px-4 py-2.5 text-right">Unit Cost</th>
                   <th className="px-4 py-2.5">Source</th>
-                  <th className="px-4 py-2.5">Status</th>
                   <th className="px-5 py-2.5 text-right">Actions</th>
                 </tr>
               </thead>
@@ -176,20 +166,10 @@ export default function ItemCatalog() {
                         {item.type}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">
-                      {item.unit_cost != null ? `$${item.unit_cost.toFixed(2)}` : '--'}
-                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${SOURCE_BADGE[item.source]?.className ?? 'bg-slate-100 text-slate-500'}`}>
                         {SOURCE_BADGE[item.source]?.label ?? item.source}
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {item.needs_pricing && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
-                          <AlertTriangle size={10} /> No price set
-                        </span>
-                      )}
                     </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -237,16 +217,6 @@ export default function ItemCatalog() {
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#1e40af] focus:outline-none focus:ring-1 focus:ring-[#1e40af]">
                   {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Unit Cost <span className="text-slate-400">(optional)</span></label>
-                <input type="number" step="0.01" min="0" value={form.unit_cost} onChange={(e) => setForm((f) => ({ ...f, unit_cost: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#1e40af] focus:outline-none focus:ring-1 focus:ring-[#1e40af]" placeholder="0.00" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Default Amount <span className="text-slate-400">(optional)</span></label>
-                <input type="number" step="0.01" min="0" value={form.default_amount} onChange={(e) => setForm((f) => ({ ...f, default_amount: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#1e40af] focus:outline-none focus:ring-1 focus:ring-[#1e40af]" placeholder="1" />
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">

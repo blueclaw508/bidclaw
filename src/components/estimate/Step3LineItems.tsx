@@ -5,6 +5,7 @@ import { ProgressIndicator } from './Step1ProjectInfo'
 import { LineItemRow } from './LineItemRow'
 import { NewItemsAlertBanner } from './NewItemsAlertBanner'
 import { JamieScopeWriter, JamieAnalysisPanel, JamieBuiltBanner } from './JamieInsights'
+import { roundManHours } from '@/lib/types'
 import {
   ArrowLeft,
   Plus,
@@ -15,6 +16,8 @@ import {
   PenLine,
   AlertTriangle,
   Send,
+  Users,
+  RotateCcw,
 } from 'lucide-react'
 
 interface Step3LineItemsProps {
@@ -28,6 +31,7 @@ interface Step3LineItemsProps {
   onAddLineItem: (workAreaId: string) => void
   onApproveWorkArea: (workAreaId: string) => void
   onUnapproveWorkArea: (workAreaId: string) => void
+  onUpdateWorkArea?: (workAreaId: string, updates: Partial<WorkAreaData>) => void
   onSend: () => void
   onBack: () => void
   onBackToStep1: () => void
@@ -51,6 +55,8 @@ interface WorkAreaSectionProps {
   onAddItem: () => void
   onApprove: () => void
   onUnapprove: () => void
+  onUpdateWorkArea?: (updates: Partial<WorkAreaData>) => void
+  onRoundManHours?: () => void
   // Jamie scope
   jamieScope?: string | null
   jamieScopeLoading?: boolean
@@ -67,6 +73,8 @@ function WorkAreaSection({
   onAddItem,
   onApprove,
   onUnapprove,
+  onUpdateWorkArea,
+  onRoundManHours,
   jamieScope,
   jamieScopeLoading,
   onJamieWriteScope,
@@ -75,6 +83,8 @@ function WorkAreaSection({
   const [collapsed, setCollapsed] = useState(workArea.approved)
   const hasItems = items.length > 0
   const newItemCount = items.filter((i) => i.catalog_match_type === 'new_created').length
+  const laborItems = items.filter((i) => i.category === 'Labor')
+  const totalManHours = laborItems.reduce((sum, i) => sum + (i.quantity || 0), 0)
 
   return (
     <div
@@ -157,6 +167,53 @@ function WorkAreaSection({
             </div>
           )}
 
+          {/* Crew Size & Man Hours */}
+          {onUpdateWorkArea && (
+            <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-3 py-3 bg-slate-50/50">
+              <Users size={14} className="text-slate-400" />
+              <div className="flex items-center gap-1.5">
+                <label className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Crew</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={workArea.crew_size ?? 3}
+                  onChange={(e) => onUpdateWorkArea({ crew_size: parseInt(e.target.value) || 3 })}
+                  className="w-14 rounded-md border border-slate-200 px-2 py-1 text-center text-xs focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB]"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Hrs/Day</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={16}
+                  step={0.5}
+                  value={workArea.crew_hours_per_day ?? 8}
+                  onChange={(e) => onUpdateWorkArea({ crew_hours_per_day: parseFloat(e.target.value) || 8 })}
+                  className="w-14 rounded-md border border-slate-200 px-2 py-1 text-center text-xs focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB]"
+                />
+              </div>
+              {totalManHours > 0 && (
+                <>
+                  <span className="text-xs text-slate-500">
+                    {totalManHours.toFixed(1)} MH
+                    {' · '}
+                    {((totalManHours / ((workArea.crew_size ?? 3) * (workArea.crew_hours_per_day ?? 8))) || 0).toFixed(1)} days
+                  </span>
+                  <button
+                    onClick={onRoundManHours}
+                    className="inline-flex items-center gap-1 rounded-md bg-[#2563EB] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-600 transition-colors"
+                    title="Round labor man hours to nearest crew-day increment"
+                  >
+                    <RotateCcw size={10} />
+                    Round
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Add + Approve actions */}
           <div className="flex items-center justify-between border-t border-slate-100 px-3 py-3">
             <button
@@ -195,6 +252,7 @@ export function Step3LineItems({
   onAddLineItem,
   onApproveWorkArea,
   onUnapproveWorkArea,
+  onUpdateWorkArea,
   onSend,
   onBack,
   onBackToStep1,
@@ -240,7 +298,7 @@ export function Step3LineItems({
               <h2 className="text-xl font-bold text-blue-900">Line Items</h2>
               <p className="text-sm text-slate-500">
                 {loading
-                  ? 'AI is generating line items for each work area...'
+                  ? 'Jamie is generating line items for each work area...'
                   : 'Review and edit line items per work area'}
               </p>
             </div>
@@ -293,6 +351,22 @@ export function Step3LineItems({
               onAddItem={() => onAddLineItem(wa.id)}
               onApprove={() => onApproveWorkArea(wa.id)}
               onUnapprove={() => onUnapproveWorkArea(wa.id)}
+              onUpdateWorkArea={onUpdateWorkArea ? (updates) => onUpdateWorkArea(wa.id, updates) : undefined}
+              onRoundManHours={onUpdateWorkArea ? () => {
+                const waItems = lineItems[wa.id] ?? []
+                const crewSize = wa.crew_size ?? 3
+                const hrsPerDay = wa.crew_hours_per_day ?? 8
+                const crewDay = crewSize * hrsPerDay
+                if (crewDay <= 0) return
+                for (const item of waItems) {
+                  if (item.category === 'Labor' && item.quantity > 0) {
+                    const rounded = Math.ceil(item.quantity / crewDay) * crewDay
+                    if (rounded !== item.quantity) {
+                      onUpdateLineItem(wa.id, item.id, { quantity: rounded })
+                    }
+                  }
+                }
+              } : undefined}
               jamieScope={jamieScopes?.[wa.id]}
               jamieScopeLoading={jamieScopeLoading === wa.id}
               onJamieWriteScope={onJamieWriteScope ? () => onJamieWriteScope(wa.id) : undefined}

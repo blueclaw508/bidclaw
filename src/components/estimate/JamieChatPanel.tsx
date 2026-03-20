@@ -57,7 +57,7 @@ export function JamieChatPanel({
           </div>
           <div>
             <h3 className="text-sm font-bold text-white">Jamie</h3>
-            <p className="text-[10px] text-blue-200">AI Estimating Agent</p>
+            <p className="text-[10px] text-blue-200">Estimating Agent</p>
           </div>
         </div>
         <button onClick={onClose} className="rounded-md p-1 text-blue-200 hover:bg-white/10 hover:text-white">

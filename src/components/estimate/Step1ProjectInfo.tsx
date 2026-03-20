@@ -2,6 +2,8 @@ import { useState, useRef, useCallback } from 'react'
 import type { EstimateRecord } from '@/lib/types'
 import type { JamieMessage } from '@/lib/jamie'
 import { JamieChatPanel } from './JamieChatPanel'
+import { PlanMeasure } from './PlanMeasure'
+import type { Measurement } from './PlanMeasure'
 import {
   Upload,
   X,
@@ -13,6 +15,7 @@ import {
   AlertTriangle,
   RefreshCw,
   Bot,
+  Ruler,
 } from 'lucide-react'
 
 interface Step1ProjectInfoProps {
@@ -93,8 +96,9 @@ function ProgressIndicator({ currentStep }: { currentStep: number }) {
   )
 }
 
-function FilePreview({ file, onRemove }: { file: UploadedFile; onRemove: () => void }) {
+function FilePreview({ file, onRemove, onMeasure }: { file: UploadedFile; onRemove: () => void; onMeasure?: () => void }) {
   const isPdf = file.file.type === 'application/pdf'
+  const isImage = file.file.type.startsWith('image/')
 
   return (
     <div className="group relative flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-blue-200">
@@ -118,6 +122,16 @@ function FilePreview({ file, onRemove }: { file: UploadedFile; onRemove: () => v
           {file.pageCount ? ` \u00B7 ${file.pageCount} page${file.pageCount !== 1 ? 's' : ''}` : ''}
         </p>
       </div>
+      {isImage && onMeasure && (
+        <button
+          onClick={onMeasure}
+          className="flex-shrink-0 inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 hover:bg-[#2563EB] hover:text-white transition-colors"
+          title="Open measurement tool"
+        >
+          <Ruler size={12} />
+          Measure
+        </button>
+      )}
       <button
         onClick={onRemove}
         className="flex-shrink-0 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
@@ -143,6 +157,8 @@ export function Step1ProjectInfo({
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false)
+  const [measurements, setMeasurements] = useState<Measurement[]>([])
+  const [measureImageUrl, setMeasureImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isRegenerate = estimate !== null && (estimate.work_areas?.length ?? 0) > 0
@@ -279,7 +295,7 @@ export function Step1ProjectInfo({
             Project Description / Scope Notes
           </label>
           <p className="mb-1.5 text-xs text-slate-400">
-            The more detail you provide, the better the AI estimate will be.
+            The more detail you provide, the better Jamie's estimate will be.
           </p>
           <textarea
             value={projectDescription}
@@ -334,7 +350,12 @@ export function Step1ProjectInfo({
           {uploadedFiles.length > 0 && (
             <div className="mt-4 space-y-2">
               {uploadedFiles.map((f, idx) => (
-                <FilePreview key={`${f.file.name}-${idx}`} file={f} onRemove={() => removeFile(idx)} />
+                <FilePreview
+                  key={`${f.file.name}-${idx}`}
+                  file={f}
+                  onRemove={() => removeFile(idx)}
+                  onMeasure={f.preview ? () => setMeasureImageUrl(f.preview!) : undefined}
+                />
               ))}
               <button
                 onClick={() => fileInputRef.current?.click()}
@@ -420,6 +441,16 @@ export function Step1ProjectInfo({
           </div>
         )}
       </div>
+
+      {/* Plan Measure overlay */}
+      {measureImageUrl && (
+        <PlanMeasure
+          imageUrl={measureImageUrl}
+          measurements={measurements}
+          onMeasurementsChange={setMeasurements}
+          onClose={() => setMeasureImageUrl(null)}
+        />
+      )}
     </div>
   )
 }

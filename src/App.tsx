@@ -400,6 +400,9 @@ function AppContent() {
               onUnapproveWorkArea={(waId: string) => {
                 updateEstimate({ work_areas: workAreas.map((wa) => wa.id === waId ? { ...wa, approved: false } : wa) })
               }}
+              onUpdateWorkArea={(waId: string, updates: Partial<WorkAreaData>) => {
+                updateEstimate({ work_areas: workAreas.map((wa) => wa.id === waId ? { ...wa, ...updates } : wa) })
+              }}
               onSend={() => updateEstimate({ workflow_step: 4 })}
               onBack={() => updateEstimate({ workflow_step: 2 })}
               onBackToStep1={() => updateEstimate({ workflow_step: 1 })}
@@ -457,11 +460,11 @@ function AppContent() {
           <div className="sticky top-20">
             <img
               src="/jamie-avatar.png"
-              alt="Jamie — AI Estimating Agent"
+              alt="Jamie — Estimating Agent"
               className="w-56 rounded-2xl opacity-85 shadow-lg"
             />
             <p className="mt-3 text-center text-xs font-semibold text-slate-500 tracking-wide uppercase">
-              AI Estimating Agent
+              Estimating Agent
             </p>
           </div>
         </aside>

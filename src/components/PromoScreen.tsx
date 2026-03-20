@@ -25,7 +25,7 @@ const featureCards = [
     icon: Clock,
     title: 'Slash Estimate Time',
     description:
-      'AI-powered takeoffs turn hours of manual counting into minutes. Upload your plans and let BidClaw do the heavy lifting.',
+      'Jamie-powered takeoffs turn hours of manual counting into minutes. Upload your plans and let Jamie do the heavy lifting.',
   },
   {
     icon: TrendingDown,
@@ -55,7 +55,7 @@ const featureCards = [
     icon: FileText,
     title: 'Plan to Proposal Handoff',
     description:
-      'From uploaded plans through AI takeoff to a finished QuickCalc estimate — one continuous workflow, start to finish.',
+      'From uploaded plans through Jamie\'s takeoff to a finished QuickCalc estimate — one continuous workflow, start to finish.',
   },
 ] as const
 
@@ -72,16 +72,16 @@ const howItWorksSteps = [
   {
     icon: Brain,
     step: '2',
-    title: 'AI Takeoff',
+    title: 'Jamie Takeoff',
     description:
-      "BidClaw's AI identifies work areas, counts fixtures, and measures quantities automatically.",
+      "Jamie identifies work areas, counts fixtures, and measures quantities automatically.",
   },
   {
     icon: ClipboardList,
     step: '3',
     title: 'Review & Adjust',
     description:
-      'Verify the AI takeoff, tweak quantities, and confirm everything matches the scope.',
+      'Verify Jamie\'s takeoff, tweak quantities, and confirm everything matches the scope.',
   },
   {
     icon: Send,
@@ -163,10 +163,10 @@ export function PromoScreen() {
                     <span className="text-xs font-bold text-white">J</span>
                   </div>
                   <span className="text-sm font-bold text-[#1e3a8a]">Jamie</span>
-                  <span className="text-[10px] text-slate-400">AI Estimating Agent</span>
+                  <span className="text-[10px] text-slate-400">Estimating Agent</span>
                 </div>
                 <p className="text-sm leading-relaxed text-slate-700">
-                  "Hey, I'm Jamie — your AI estimating agent. Tell me about your project and I'll build
+                  "Hey, I'm Jamie — your estimating agent. Tell me about your project and I'll build
                   a full estimate for you in minutes. I'll walk you through a quick interview, match
                   everything to your catalog, and send it straight to QuickCalc. Let's get started!"
                 </p>
@@ -178,10 +178,10 @@ export function PromoScreen() {
           </div>
 
           <p className="mt-2 text-lg font-medium text-blue-100 sm:text-xl">
-            The AI Estimating Engine for BlueQuickCalc
+            The Estimating Engine for BlueQuickCalc
           </p>
           <p className="mx-auto mt-4 max-w-2xl text-base text-blue-200 sm:text-lg">
-            Upload your construction plans, let AI handle the takeoff, and push results straight
+            Upload your construction plans, let Jamie handle the takeoff, and push results straight
             into QuickCalc — cutting hours off every estimate.
           </p>
         </div>
@@ -194,7 +194,7 @@ export function PromoScreen() {
             What BidClaw Does for You
           </h2>
           <p className="mx-auto mb-10 max-w-xl text-center text-slate-500">
-            Six ways AI-powered estimating transforms your workflow.
+            Six ways Jamie transforms your estimating workflow.
           </p>
 
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -284,7 +284,7 @@ export function PromoScreen() {
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-[#0EA5E9]" />
-                BidClaw AI Estimating Engine — plan upload, AI takeoff, and QuickCalc integration
+                BidClaw Estimating Engine — plan upload, Jamie takeoff, and QuickCalc integration
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-[#0EA5E9]" />

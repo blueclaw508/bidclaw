@@ -10,7 +10,7 @@ export function JamieSuggestionBanner({ children, label }: { children: React.Rea
       <div className="flex items-center gap-1.5 border-b border-[#1e40af]/10 px-3 py-1.5">
         <Bot size={12} className="text-[#1e40af]" />
         <span className="text-[10px] font-semibold text-[#1e40af] uppercase tracking-wider">
-          {label ?? 'Jamie AI Suggestion'}
+          {label ?? 'Jamie Suggestion'}
         </span>
       </div>
       <div className="px-3 py-2.5 text-sm text-slate-700 leading-relaxed">

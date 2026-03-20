@@ -105,7 +105,7 @@ export function Step2WorkAreas({
             <h2 className="text-xl font-bold text-blue-900">Work Areas</h2>
             <p className="text-sm text-slate-500">
               {loading
-                ? 'AI is analyzing your project...'
+                ? 'Jamie is analyzing your project...'
                 : `${workAreas.length} work area${workAreas.length !== 1 ? 's' : ''} identified`}
             </p>
           </div>

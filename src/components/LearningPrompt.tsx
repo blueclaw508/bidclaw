@@ -77,7 +77,7 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
         <div className="flex items-center gap-2">
           <Sparkles size={18} className="text-blue-700" />
           <h4 className="text-sm font-semibold text-blue-900">
-            AI Noticed Your Edits
+            Jamie Noticed Your Edits
           </h4>
         </div>
         <button onClick={onDismiss} className="text-slate-500 hover:text-blue-900">
@@ -86,7 +86,7 @@ export function LearningPrompt({ diffs, onDismiss }: LearningPromptProps) {
       </div>
 
       <p className="mb-4 text-xs text-slate-500">
-        You changed some AI-generated values. Should I update your company
+        You changed some values. Should I update your company
         profile so future estimates use these numbers?
       </p>
 
