@@ -173,7 +173,7 @@ export function PromoScreen() {
               </div>
 
               {/* Logo — half the bubble width, centered below */}
-              <img src="/bidclaw-logo.png" alt="BidClaw" className="mx-auto h-16 w-16 rounded-xl object-contain" />
+              <img src="/bidclaw-logo.png" alt="BidClaw" className="mx-auto w-44 rounded-xl object-contain" />
             </div>
           </div>
 
