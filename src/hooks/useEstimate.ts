@@ -169,21 +169,192 @@ export function useEstimate(estimateId: string | null) {
   }, [estimate, user, updateEstimate])
 
   const sendToQuickCalc = useCallback(async (): Promise<boolean> => {
-    if (!estimate) return false
+    if (!estimate || !user) return false
     try {
+      // ── Map BidClaw category to QC catalog type ──
+      const categoryToType: Record<string, string> = {
+        'Materials': 'material',
+        'Labor': 'labor',
+        'Equipment': 'equipment',
+        'Subcontractor': 'subcontractor',
+        'Disposal': 'other',
+      }
+
+      // ── Fetch user's existing QC catalog ──
+      const { data: existingCatalog } = await supabase
+        .from('kyn_catalog_items')
+        .select('*')
+        .eq('user_id', user.id)
+
+      const catalogItems = existingCatalog ?? []
+      const catalogByNameType = new Map<string, any>()
+      for (const item of catalogItems) {
+        catalogByNameType.set(`${(item.name || '').toLowerCase()}::${item.type}`, item)
+      }
+
+      const newCatalogItems: { id: string; name: string; type: string }[] = []
+      const workAreas = estimate.work_areas ?? []
+      const lineItemsByWa = estimate.line_items ?? {}
+
+      // ── Build QC work areas with line items ──
+      const qcWorkAreas = []
+      let laborSubtotal = 0
+      let materialSubtotal = 0
+      let subcontractorSubtotal = 0
+      let equipmentSubtotal = 0
+      let otherSubtotal = 0
+
+      for (let i = 0; i < workAreas.length; i++) {
+        const wa = workAreas[i]
+        const bcItems = lineItemsByWa[wa.id] ?? []
+        const qcLineItems = []
+
+        let waLabor = 0, waMaterial = 0, waSub = 0, waEquip = 0, waOther = 0
+
+        for (const li of bcItems) {
+          const qcType = categoryToType[li.category] || 'other'
+          const lookupKey = `${li.name.toLowerCase()}::${qcType}`
+          let catalogItem = catalogByNameType.get(lookupKey)
+
+          // If not found, create new catalog item at $0
+          if (!catalogItem) {
+            const newId = crypto.randomUUID()
+            const newItem = {
+              id: newId,
+              user_id: user.id,
+              type: qcType,
+              name: li.name,
+              labor_type_id: null,
+              unit_cost: qcType === 'material' ? 0 : null,
+              equipment_rate_id: null,
+              sub_cost: qcType === 'subcontractor' ? 0 : null,
+              default_amount: qcType === 'other' ? 0 : null,
+            }
+            await supabase.from('kyn_catalog_items').insert(newItem)
+            catalogItem = newItem
+            catalogByNameType.set(lookupKey, newItem)
+            newCatalogItems.push({ id: newId, name: li.name, type: qcType })
+          }
+
+          // Get rate from catalog item
+          let rate = 0
+          if (qcType === 'material') rate = catalogItem.unit_cost ?? 0
+          else if (qcType === 'subcontractor') rate = catalogItem.sub_cost ?? 0
+          else if (qcType === 'equipment') rate = catalogItem.unit_cost ?? 0
+          else if (qcType === 'other') rate = catalogItem.default_amount ?? 0
+          // Labor rate comes from labor types in settings — use 0 for now
+
+          const amount = li.quantity * rate
+
+          // Track subtotals
+          if (qcType === 'labor') waLabor += amount
+          else if (qcType === 'material') waMaterial += amount
+          else if (qcType === 'subcontractor') waSub += amount
+          else if (qcType === 'equipment') waEquip += amount
+          else waOther += amount
+
+          qcLineItems.push({
+            id: crypto.randomUUID(),
+            catalogItemId: catalogItem.id,
+            catalogItemType: qcType,
+            catalogItemName: li.name,
+            quantity: li.quantity,
+            rate: rate,
+            amount: amount,
+            isAmountOverridden: false,
+          })
+        }
+
+        laborSubtotal += waLabor
+        materialSubtotal += waMaterial
+        subcontractorSubtotal += waSub
+        equipmentSubtotal += waEquip
+        otherSubtotal += waOther
+
+        qcWorkAreas.push({
+          id: crypto.randomUUID(),
+          name: wa.name,
+          description: wa.description || '',
+          enabled: true,
+          lineItems: qcLineItems,
+          laborSubtotal: waLabor,
+          materialSubtotal: waMaterial,
+          subcontractorSubtotal: waSub,
+          equipmentSubtotal: waEquip,
+          otherSubtotal: waOther,
+          total: waLabor + waMaterial + waSub + waEquip + waOther,
+        })
+      }
+
+      const grandTotal = laborSubtotal + materialSubtotal + subcontractorSubtotal + equipmentSubtotal + otherSubtotal
+      const now = new Date().toISOString()
+      const qcEstimateId = crypto.randomUUID()
+
+      // ── Parse address into structured fields ──
+      const addressParts = (estimate.project_address || '').split(',').map(s => s.trim())
+      const addressLine1 = addressParts[0] || ''
+      const city = addressParts[1] || ''
+      const stateZip = (addressParts[2] || '').split(' ').filter(Boolean)
+      const state = stateZip[0] || ''
+      const zip = stateZip[1] || ''
+
+      // ── Insert into kyn_estimates ──
+      const { error: insertError } = await supabase.from('kyn_estimates').insert({
+        id: qcEstimateId,
+        user_id: user.id,
+        name: estimate.client_name
+          ? `BidClaw — ${estimate.client_name}`
+          : `BidClaw Estimate — ${new Date().toLocaleDateString()}`,
+        client_name: estimate.client_name || '',
+        client_job_address_line1: addressLine1,
+        client_job_city: city,
+        client_job_state: state,
+        client_job_zip: zip,
+        client_email: '',
+        client_phone: '',
+        project_description: estimate.project_description || '',
+        work_areas: qcWorkAreas,
+        line_items: [],
+        labor_subtotal: laborSubtotal,
+        material_subtotal: materialSubtotal,
+        subcontractor_subtotal: subcontractorSubtotal,
+        equipment_subtotal: equipmentSubtotal,
+        other_subtotal: otherSubtotal,
+        grand_total: grandTotal,
+        is_calculated: true,
+        payment_terms: [],
+        terms_and_conditions: '',
+        bottom_images: [],
+        created_at: now,
+        updated_at: now,
+        status: 'Draft',
+      })
+
+      if (insertError) throw new Error(insertError.message)
+
+      // ── Mark BidClaw estimate as sent ──
       await supabase.from('estimates')
-        .update({ approval_status: 'sent', sent_to_quickcalc_at: new Date().toISOString() })
+        .update({ approval_status: 'sent', sent_to_quickcalc_at: now })
         .eq('id', estimate.id)
       setEstimate((prev) => prev ? {
-        ...prev, approval_status: 'sent', sent_to_quickcalc_at: new Date().toISOString(),
+        ...prev, approval_status: 'sent', sent_to_quickcalc_at: now,
       } : prev)
-      toast.success('Estimate sent to QuickCalc!')
+
+      // ── Show result ──
+      if (newCatalogItems.length > 0) {
+        toast.success(
+          `Estimate sent to QuickCalc! ${newCatalogItems.length} new catalog item${newCatalogItems.length !== 1 ? 's' : ''} created at $0 — add pricing in QuickCalc.`,
+          { duration: 8000 }
+        )
+      } else {
+        toast.success('Estimate sent to QuickCalc!')
+      }
       return true
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to send')
       return false
     }
-  }, [estimate])
+  }, [estimate, user])
 
   return {
     estimate, loading, saving, aiLoading, aiMessage,
