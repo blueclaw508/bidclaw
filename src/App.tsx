@@ -151,7 +151,12 @@ function AppContent() {
     if (!wa) return
     setJamieScopeLoading(waId)
     try {
-      const scope = await jamieWriteScope(wa.name, lineItems[waId] ?? [])
+      const scope = await jamieWriteScope(
+        wa.name,
+        lineItems[waId] ?? [],
+        estimate?.project_description ?? undefined,
+        (estimate?.plan_file_urls?.length ?? 0) > 0,
+      )
       setJamieScopes((prev) => ({ ...prev, [waId]: scope }))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Jamie could not write scope')
