@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import type { WorkAreaData } from '@/lib/types'
-import { CheckCircle2, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { CheckCircle2, Trash2 } from 'lucide-react'
 
 interface WorkAreaCardProps {
   workArea: WorkAreaData
@@ -14,17 +14,25 @@ const complexityColors: Record<string, string> = {
   Complex: 'bg-red-100 text-red-700',
 }
 
+const DESCRIPTION_TEMPLATE = `Line 1: Overall description of what is being done
+Line 2: Material / brand / type qualifier
+Line 3: Size qualifier(s)
+Step 1: ...
+Step 2: ...
+Step 3: ...
+Disposal fees included.`
+
 export function WorkAreaCard({ workArea, onUpdate, onRemove }: WorkAreaCardProps) {
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState(workArea.name)
-  const [descExpanded, setDescExpanded] = useState(false)
-  const [descValue, setDescValue] = useState(workArea.description)
+  const [descValue, setDescValue] = useState(workArea.description || '')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
+  const descRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     setNameValue(workArea.name)
-    setDescValue(workArea.description)
+    setDescValue(workArea.description || '')
   }, [workArea.name, workArea.description])
 
   useEffect(() => {
@@ -33,6 +41,14 @@ export function WorkAreaCard({ workArea, onUpdate, onRemove }: WorkAreaCardProps
       nameInputRef.current.select()
     }
   }, [editingName])
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (descRef.current) {
+      descRef.current.style.height = 'auto'
+      descRef.current.style.height = descRef.current.scrollHeight + 'px'
+    }
+  }, [descValue])
 
   const saveName = () => {
     setEditingName(false)
@@ -120,32 +136,23 @@ export function WorkAreaCard({ workArea, onUpdate, onRemove }: WorkAreaCardProps
         )}
       </div>
 
-      {/* Body */}
+      {/* Body — Description always visible and editable */}
       <div className="px-4 py-3">
-        {/* Description */}
-        <div>
-          <button
-            onClick={() => setDescExpanded(!descExpanded)}
-            className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700"
-          >
-            Description
-            {descExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
-
-          {descExpanded ? (
-            <textarea
-              value={descValue}
-              onChange={(e) => setDescValue(e.target.value)}
-              onBlur={saveDescription}
-              rows={3}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 resize-y"
-            />
-          ) : (
-            <p className="text-sm text-slate-600 line-clamp-2">
-              {workArea.description || 'No description'}
-            </p>
-          )}
-        </div>
+        <label className="mb-1 block text-xs font-medium text-slate-500">
+          Scope Description
+        </label>
+        <textarea
+          ref={descRef}
+          value={descValue}
+          onChange={(e) => setDescValue(e.target.value)}
+          onBlur={saveDescription}
+          placeholder={DESCRIPTION_TEMPLATE}
+          rows={7}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 leading-relaxed outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 resize-y font-mono"
+        />
+        <p className="mt-1 text-[10px] text-slate-400">
+          Format: Description &rarr; Material/brand &rarr; Size &rarr; Steps &rarr; Disposal note
+        </p>
       </div>
 
       {/* Delete confirmation */}

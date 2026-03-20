@@ -36,6 +36,7 @@ export async function matchOrCreateCatalogItem(
   const { data: newItem, error } = await supabase
     .from('kyn_catalog_items')
     .insert({
+      id: crypto.randomUUID(),
       user_id: userId,
       name: aiItem.name,
       type: categoryToType[aiItem.category] ?? 'other',
