@@ -36,7 +36,7 @@ export default function ItemCatalog() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<CatalogCategory | 'All'>('All')
-  const [showNeedsPricing, setShowNeedsPricing] = useState(false)
+  const [showNeedsPricing, _setShowNeedsPricing] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)

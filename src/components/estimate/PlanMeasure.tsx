@@ -74,7 +74,7 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
 
   const [tool, setTool] = useState<Tool>('pan')
   const [scale, setScale] = useState<ScaleCalibration | null>(null)
-  const [scaleInput, setScaleInput] = useState('')
+  const [_scaleInput, _setScaleInput] = useState('')
   const [scalePoints, setScalePoints] = useState<MeasurePoint[]>([])
 
   const [currentPoints, setCurrentPoints] = useState<MeasurePoint[]>([])

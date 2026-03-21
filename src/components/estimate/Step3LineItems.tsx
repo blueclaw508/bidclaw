@@ -5,7 +5,7 @@ import { ProgressIndicator } from './Step1ProjectInfo'
 import { LineItemRow } from './LineItemRow'
 import { NewItemsAlertBanner } from './NewItemsAlertBanner'
 import { JamieScopeWriter, JamieAnalysisPanel, JamieBuiltBanner } from './JamieInsights'
-import { roundManHours } from '@/lib/types'
+// roundManHours imported from types is used inline via Math.ceil pattern
 import {
   ArrowLeft,
   Plus,
