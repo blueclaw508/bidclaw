@@ -1,4 +1,4 @@
-// Jamie AI — BidClaw's AI Estimating Agent
+// Jamie — BidClaw's Estimating Agent
 // Powered by Anthropic Claude, trained in KYN methodology
 
 import { callAI } from '@/lib/supabase'
@@ -325,4 +325,62 @@ export function jamieAnalyzeEstimate(
       : 'Estimate looks complete — ready to send to QuickCalc.',
     items: warnings,
   }
+}
+
+// ── Work Area Review (Conversational) ──
+
+export async function jamieReviewWorkArea(
+  workAreaName: string,
+  lineItems: LineItemData[],
+  scopeDescription: string | null,
+  gapQuestions: string[],
+  newCatalogItemNames: string[],
+  conversationHistory: { role: 'user' | 'assistant'; content: string }[]
+): Promise<string> {
+  const itemsSummary = lineItems.map((li) => `${li.name}: ${li.quantity} ${li.unit} (${li.category})`).join('\n')
+  const laborItems = lineItems.filter((li) => li.category === 'Labor')
+  const totalManHours = laborItems.reduce((sum, li) => sum + li.quantity, 0)
+
+  // Build initial review message if no conversation history
+  let initialContext = ''
+  if (conversationHistory.length === 0) {
+    initialContext = `Generate an initial review message for this work area. Follow this format exactly:
+
+"Here's what I built for ${workAreaName}. Before I lock this in:
+
+[SUMMARY: ${lineItems.length} items, ~${Math.round(totalManHours)} man hours]
+
+A few things to confirm:
+${gapQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+${newCatalogItemNames.length > 0 ? `\nI also flagged ${newCatalogItemNames.length} item${newCatalogItemNames.length !== 1 ? 's' : ''} not priced in your catalog yet.` : ''}
+
+Ready to finalize?"
+
+Adjust the summary numbers based on the actual line items provided.`
+  }
+
+  const messages = conversationHistory.length > 0
+    ? conversationHistory.map((m) => ({
+        role: m.role as string,
+        content: m.content,
+      }))
+    : [{ role: 'user', content: initialContext }]
+
+  const { data, error } = await callAI<{ reply: string }>({
+    system: `${JAMIE_SYSTEM}
+
+You are reviewing a work area estimate with the contractor. Be direct, trade-savvy, and helpful. If the contractor asks questions, answer them using the line item data. If they want changes, suggest specific adjustments.
+
+Work Area: ${workAreaName}
+${scopeDescription ? `Scope: ${scopeDescription}` : ''}
+Line Items:
+${itemsSummary}
+
+Return ONLY valid JSON: { "reply": "..." }`,
+    max_tokens: 1000,
+    messages,
+  })
+
+  if (error || !data) throw new Error(error ?? 'Jamie could not review the work area')
+  return data.reply
 }

@@ -312,7 +312,10 @@ function AppContent() {
     const handleApproveWorkAreas = async () => {
       const approved = workAreas.map((wa) => ({ ...wa, approved: true }))
       updateEstimate({ work_areas: approved })
-      await runAiPass2(approved)
+      const pass2Result = await runAiPass2(approved)
+      if (pass2Result?.scopeDescriptions) {
+        setJamieScopes(pass2Result.scopeDescriptions)
+      }
     }
 
     return (

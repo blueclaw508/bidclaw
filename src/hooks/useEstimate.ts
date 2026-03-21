@@ -116,7 +116,7 @@ export function useEstimate(estimateId: string | null) {
       updateEstimate({ work_areas: workAreas, workflow_step: 2, approval_status: 'draft' })
       return workAreas
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'AI analysis failed')
+      toast.error(err instanceof Error ? err.message : 'Jamie analysis failed')
       return null
     } finally {
       setAiLoading(false)
@@ -126,7 +126,7 @@ export function useEstimate(estimateId: string | null) {
 
   const runAiPass2 = useCallback(async (
     approvedWorkAreas: WorkAreaData[]
-  ): Promise<Record<string, LineItemData[]> | null> => {
+  ): Promise<{ lineItems: Record<string, LineItemData[]>; scopeDescriptions: Record<string, string>; gapQuestions: Record<string, string[]> } | null> => {
     if (!estimate || !user) return null
     setAiLoading(true)
     setAiMessage('Analyzing work areas...')
@@ -144,8 +144,13 @@ export function useEstimate(estimateId: string | null) {
       const allItems = result.work_areas.flatMap((wa) => wa.line_items)
       const matchResults = await matchAllLineItems(allItems, userCatalog, user.id)
       const lineItems: Record<string, LineItemData[]> = {}
+      const scopeDescriptions: Record<string, string> = {}
+      const gapQuestions: Record<string, string[]> = {}
       const newCatalogItems: string[] = []
       for (const wa of result.work_areas) {
+        // Extract scope and gap questions from unified response
+        if (wa.scope_description) scopeDescriptions[wa.id] = wa.scope_description
+        if (wa.gap_questions) gapQuestions[wa.id] = wa.gap_questions
         lineItems[wa.id] = wa.line_items.map((li) => {
           const match = matchResults.get(li.id)
           if (match?.matchType === 'new_created') newCatalogItems.push(match.catalogItem.id)
@@ -155,10 +160,11 @@ export function useEstimate(estimateId: string | null) {
       setAiMessage('Estimate ready for review')
       await new Promise((r) => setTimeout(r, 500))
       updateEstimate({
-        line_items: lineItems, new_catalog_items_created: newCatalogItems,
+        line_items: lineItems, scope_descriptions: scopeDescriptions,
+        gap_questions: gapQuestions, new_catalog_items_created: newCatalogItems,
         workflow_step: 3, approval_status: 'work_areas_approved',
       })
-      return lineItems
+      return { lineItems, scopeDescriptions, gapQuestions }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Line item generation failed')
       return null

@@ -272,7 +272,7 @@ export function Step3LineItems({
   const totalCount = workAreas.length
   const allApproved = approvedCount === totalCount && totalCount > 0
 
-  // Build new items info for the banner
+  // Build new items info for the banner (include catalogItemId for inline pricing)
   const newItemsList = newCatalogItems.map((name) => {
     // Find matching line item for unit/category info
     for (const waId of Object.keys(lineItems)) {
@@ -280,7 +280,7 @@ export function Step3LineItems({
         (li) => li.name === name && li.catalog_match_type === 'new_created'
       )
       if (found) {
-        return { name: found.name, unit: found.unit, category: found.category }
+        return { name: found.name, unit: found.unit, category: found.category, catalogItemId: found.catalog_item_id }
       }
     }
     return { name, unit: '-', category: '-' }

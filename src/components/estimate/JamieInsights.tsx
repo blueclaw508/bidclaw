@@ -168,15 +168,44 @@ export function JamieEstimateSummary({ summary, loading, onGenerate, onUpdate }:
   )
 }
 
-// ── Estimate Analysis Panel ──
+// ── Estimate Analysis Panel (Conversational) ──
 
 interface AnalysisProps {
   analysis: JamieAnalysisResult | null
   loading: boolean
   onAnalyze: () => void
+  // Conversational review props
+  workAreaName?: string
+  reviewMessages?: { role: 'jamie' | 'user'; content: string }[]
+  reviewLoading?: boolean
+  onStartReview?: () => void
+  onSendReviewMessage?: (message: string) => void
 }
 
-export function JamieAnalysisPanel({ analysis, loading, onAnalyze }: AnalysisProps) {
+export function JamieAnalysisPanel({
+  analysis,
+  loading,
+  onAnalyze,
+  workAreaName: _workAreaName,
+  reviewMessages,
+  reviewLoading,
+  onStartReview,
+  onSendReviewMessage,
+}: AnalysisProps) {
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [userInput, setUserInput] = useState('')
+
+  const handleStartReview = () => {
+    setReviewOpen(true)
+    onStartReview?.()
+  }
+
+  const handleSendMessage = () => {
+    if (!userInput.trim()) return
+    onSendReviewMessage?.(userInput.trim())
+    setUserInput('')
+  }
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-[#1e40af]/15 bg-blue-50/50 px-4 py-3 text-sm text-[#1e40af]">
@@ -186,6 +215,64 @@ export function JamieAnalysisPanel({ analysis, loading, onAnalyze }: AnalysisPro
     )
   }
 
+  // Conversational review panel
+  if (reviewOpen && reviewMessages) {
+    return (
+      <JamieSuggestionBanner label="Jamie Analysis">
+        <div className="space-y-3">
+          {/* Conversation messages */}
+          <div className="max-h-80 overflow-y-auto space-y-2">
+            {reviewMessages.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`rounded-lg px-3 py-2 text-sm ${
+                  msg.role === 'jamie'
+                    ? 'bg-white border border-slate-100 text-slate-700 whitespace-pre-wrap'
+                    : 'bg-[#1e40af] text-white ml-8'
+                }`}
+              >
+                {msg.content}
+              </div>
+            ))}
+            {reviewLoading && (
+              <div className="flex items-center gap-2 px-3 py-2 text-sm text-[#1e40af]">
+                <Loader2 size={12} className="animate-spin" />
+                Jamie is thinking...
+              </div>
+            )}
+          </div>
+
+          {/* Input */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+              placeholder="Ask Jamie a question..."
+              className="flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-[#1e40af] focus:outline-none"
+            />
+            <button
+              onClick={handleSendMessage}
+              disabled={!userInput.trim() || reviewLoading}
+              className="rounded-md bg-[#1e40af] px-3 py-2 text-xs font-medium text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+            >
+              Send
+            </button>
+          </div>
+
+          <button
+            onClick={() => setReviewOpen(false)}
+            className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Close Review
+          </button>
+        </div>
+      </JamieSuggestionBanner>
+    )
+  }
+
+  // Classic analysis result display
   if (analysis) {
     const statusIcon = analysis.overall_status === 'ok'
       ? <CheckCircle2 size={18} className="text-green-600" />
@@ -194,7 +281,6 @@ export function JamieAnalysisPanel({ analysis, loading, onAnalyze }: AnalysisPro
     return (
       <JamieSuggestionBanner label="Jamie KYN Analysis">
         <div className="space-y-3">
-          {/* Overall status */}
           <div className="flex items-center gap-2">
             {statusIcon}
             <span className={`text-sm font-semibold ${analysis.overall_status === 'ok' ? 'text-green-700' : 'text-amber-700'}`}>
@@ -202,7 +288,6 @@ export function JamieAnalysisPanel({ analysis, loading, onAnalyze }: AnalysisPro
             </span>
           </div>
 
-          {/* Item-level flags */}
           {analysis.items.filter((i) => i.status !== 'ok').length > 0 && (
             <div className="space-y-1.5">
               {analysis.items
@@ -226,13 +311,24 @@ export function JamieAnalysisPanel({ analysis, loading, onAnalyze }: AnalysisPro
   }
 
   return (
-    <button
-      onClick={onAnalyze}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-[#1e40af]/20 bg-blue-50 px-3 py-2 text-xs font-medium text-[#1e40af] hover:bg-blue-100 transition-colors"
-    >
-      <BarChart3 size={14} />
-      Jamie Analysis
-    </button>
+    <div className="flex gap-2">
+      <button
+        onClick={onAnalyze}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[#1e40af]/20 bg-blue-50 px-3 py-2 text-xs font-medium text-[#1e40af] hover:bg-blue-100 transition-colors"
+      >
+        <BarChart3 size={14} />
+        Jamie Analysis
+      </button>
+      {onStartReview && (
+        <button
+          onClick={handleStartReview}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#1e40af]/20 bg-blue-50 px-3 py-2 text-xs font-medium text-[#1e40af] hover:bg-blue-100 transition-colors"
+        >
+          <Bot size={14} />
+          Review with Jamie
+        </button>
+      )}
+    </div>
   )
 }
 

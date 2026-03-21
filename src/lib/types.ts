@@ -100,6 +100,8 @@ export interface EstimateRecord {
   workflow_step: number
   work_areas: WorkAreaData[] | null
   line_items: Record<string, LineItemData[]> | null
+  scope_descriptions: Record<string, string> | null
+  gap_questions: Record<string, string[]> | null
   new_catalog_items_created: string[] | null
   approval_status: ApprovalStatus
   sent_to_quickcalc_at: string | null
@@ -132,7 +134,10 @@ export interface AiLineItem {
 export interface AiPass2WorkArea {
   id: string
   name: string
+  scope_description: string
   line_items: AiLineItem[]
+  gap_questions: string[]
+  new_catalog_items: string[]
 }
 
 export interface AiPass2Response {

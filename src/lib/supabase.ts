@@ -9,44 +9,110 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
-// Call Netlify serverless function for AI
+// Call Netlify serverless function for AI (handles SSE streaming response)
 export async function callAI<T = unknown>(payload: {
   messages: Array<{ role: string; content: string | Array<Record<string, unknown>> }>
   system?: string
   max_tokens?: number
 }): Promise<{ data: T | null; error: string | null }> {
-  try {
-    const response = await fetch('/.netlify/functions/ai-chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
+  const MAX_RETRIES = 2
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      return { data: null, error: errorText || `HTTP ${response.status}` }
-    }
-
-    const raw = await response.json()
-    // Anthropic returns { content: [{ type: 'text', text: '...' }] }
-    const text = raw?.content?.[0]?.text
-    if (!text) return { data: null, error: 'No response from AI' }
-
-    // Try to parse JSON from the response (strip markdown code fences if present)
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const jsonStr = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
-      const parsed = JSON.parse(jsonStr) as T
-      return { data: parsed, error: null }
-    } catch {
-      // If it's not JSON, return as error so callers don't get a string where they expect an object
-      return { data: null, error: `AI returned unparseable response: ${text.slice(0, 200)}` }
-    }
-  } catch (err) {
-    return {
-      data: null,
-      error: err instanceof Error ? err.message : 'Unknown error',
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 120_000) // 2 minute timeout
+
+      const response = await fetch('/.netlify/functions/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeout)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        // Retry on 5xx server errors
+        if (response.status >= 500 && attempt < MAX_RETRIES) continue
+        return { data: null, error: errorText || `HTTP ${response.status}` }
+      }
+
+      // Handle SSE streaming response
+      const contentType = response.headers.get('content-type') || ''
+      let text: string
+
+      if (contentType.includes('text/event-stream')) {
+        // Read the SSE stream and accumulate the full text
+        text = await readSSEStream(response)
+      } else {
+        // Fallback: handle non-streaming JSON response (backward compat)
+        const raw = await response.json()
+        text = raw?.content?.[0]?.text
+        if (!text) return { data: null, error: 'No response from Jamie' }
+      }
+
+      // Parse JSON from the response (strip markdown code fences if present)
+      try {
+        const jsonStr = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+        const parsed = JSON.parse(jsonStr) as T
+        return { data: parsed, error: null }
+      } catch {
+        return { data: null, error: `Jamie returned unparseable response: ${text.slice(0, 200)}` }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      // Retry on network/abort errors
+      if (attempt < MAX_RETRIES && (msg.includes('abort') || msg.includes('network') || msg.includes('fetch'))) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1))) // exponential backoff
+        continue
+      }
+      return { data: null, error: msg }
     }
   }
+
+  return { data: null, error: 'Jamie could not complete the request after retries' }
+}
+
+// Read an SSE stream from the ai-chat function and return the full text
+async function readSSEStream(response: Response): Promise<string> {
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No readable stream')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let fullText = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      try {
+        const event = JSON.parse(line.slice(6))
+        if (event.type === 'chunk') {
+          fullText += event.text
+        } else if (event.type === 'done') {
+          // Server sends final assembled response — use its text
+          const finalText = event.response?.content?.[0]?.text
+          if (finalText) return finalText
+        } else if (event.type === 'error') {
+          throw new Error(event.error || 'Stream error')
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message !== 'Stream error') continue // skip parse errors
+        throw e
+      }
+    }
+  }
+
+  if (!fullText) throw new Error('Empty response from Jamie')
+  return fullText
 }
 
 // Legacy edge function caller (for send-to-quickcalc etc.)

@@ -91,6 +91,7 @@ export default async (req) => {
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens,
+        stream: true,
         system: system || '',
         messages: processedMessages,
       }),
@@ -104,10 +105,65 @@ export default async (req) => {
       )
     }
 
-    const data = await response.json()
-    return new Response(JSON.stringify(data), {
+    // Stream the response back to the client using SSE format
+    // This keeps the connection alive and prevents timeouts
+    const { readable, writable } = new TransformStream()
+    const writer = writable.getWriter()
+    const encoder = new TextEncoder()
+
+    // Process the Anthropic SSE stream in the background
+    ;(async () => {
+      try {
+        let fullText = ''
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            const data = line.slice(6).trim()
+            if (data === '[DONE]') continue
+
+            try {
+              const event = JSON.parse(data)
+              if (event.type === 'content_block_delta' && event.delta?.text) {
+                fullText += event.delta.text
+                // Send keepalive chunk to prevent client timeout
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: event.delta.text })}\n\n`))
+              }
+            } catch { /* skip unparseable lines */ }
+          }
+        }
+
+        // Send the final assembled response in the format the client expects
+        const finalResponse = {
+          content: [{ type: 'text', text: fullText }],
+          model: 'claude-sonnet-4-20250514',
+          stop_reason: 'end_turn',
+        }
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', response: finalResponse })}\n\n`))
+      } catch (err) {
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`))
+      } finally {
+        await writer.close()
+      }
+    })()
+
+    return new Response(readable, {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     })
   } catch (err) {
     return new Response(
