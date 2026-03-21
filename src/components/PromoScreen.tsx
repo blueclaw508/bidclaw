@@ -114,7 +114,7 @@ export function PromoScreen() {
         <div className="relative z-10 border-t border-white/10 px-12 py-4 xl:px-16">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
-              <a href="https://knowyournumbers.com" target="_blank" rel="noopener noreferrer"
+              <a href="https://blueclawgroup.com/know-your-numbers/" target="_blank" rel="noopener noreferrer"
                 className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
                 Know Your Numbers
               </a>

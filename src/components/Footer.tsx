@@ -15,7 +15,7 @@ export function Footer() {
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <a
-                  href="https://knowyournumbers.com"
+                  href="https://blueclawgroup.com/know-your-numbers/"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-lg bg-[#1e40af] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#2563eb] transition-colors"
@@ -99,7 +99,7 @@ export function Footer() {
       <div className="bg-[#080e1d] py-3">
         <div className="mx-auto max-w-6xl px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
           <div className="flex items-center gap-4">
-            <a href="https://knowyournumbers.com" target="_blank" rel="noopener noreferrer"
+            <a href="https://blueclawgroup.com/know-your-numbers/" target="_blank" rel="noopener noreferrer"
               className="hover:text-slate-300 transition-colors">
               Know Your Numbers
             </a>
