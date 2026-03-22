@@ -25,6 +25,16 @@ interface Step1ProjectInfoProps {
   estimate: EstimateRecord | null
   onGenerate: (data: {
     client_name: string
+    first_name: string
+    last_name: string
+    company_name: string | null
+    estimate_name: string | null
+    phone: string | null
+    email: string | null
+    address_line: string
+    city: string
+    state: string
+    zip: string
     project_address: string
     project_description: string
     files: File[]
@@ -186,8 +196,7 @@ export function Step1ProjectInfo({
   const [city, setCity] = useState(estimate?.city ?? '')
   const [addrState, setAddrState] = useState(estimate?.state ?? '')
   const [zip, setZip] = useState(estimate?.zip ?? '')
-  // Legacy fallback for backward compat init
-  const [clientName] = useState(estimate?.client_name ?? '')
+  // Legacy client_name is now computed from firstName + lastName
   const [projectDescription, setProjectDescription] = useState(estimate?.project_description ?? '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [dragActive, setDragActive] = useState(false)
@@ -587,9 +596,20 @@ export function Step1ProjectInfo({
                 </button>
                 <button
                   onClick={() => {
+                    const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
                     onGenerate({
-                      client_name: clientName.trim(),
-                      project_address: projectAddress.trim(),
+                      client_name: fullName,
+                      first_name: firstName.trim(),
+                      last_name: lastName.trim(),
+                      company_name: companyName.trim() || null,
+                      estimate_name: estimateName.trim() || null,
+                      phone: phone.trim() || null,
+                      email: email.trim() || null,
+                      address_line: addressLine.trim(),
+                      city: city.trim(),
+                      state: addrState.trim(),
+                      zip: zip.trim(),
+                      project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
                       project_description: projectDescription.trim(),
                       files: uploadedFiles.map((f) => f.file),
                     })
