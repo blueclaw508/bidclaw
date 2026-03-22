@@ -56,72 +56,75 @@ export function PromoScreen() {
         <div className="absolute -top-40 -right-40 h-80 w-80 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7c3aed]/10 blur-3xl" />
         <div className="absolute -bottom-20 -left-20 h-60 w-60 rounded-full bg-gradient-to-br from-[#0EA5E9]/10 to-[#2563EB]/10 blur-3xl" />
 
-        {/* Content — two-column: info left, video right */}
-        <div className="relative z-10 flex flex-1 items-center px-8 py-8 xl:px-12">
-          {/* Left column — branding + steps */}
-          <div className="flex-1 min-w-0 pr-6">
-            <img src="/bidclaw-logo.png" alt="BidClaw" className="mb-5 w-36 rounded-xl object-contain" />
+        {/* Content */}
+        <div className="relative z-10 flex flex-1 flex-col justify-center px-8 py-6 xl:px-12">
+          {/* Top row: branding left, bubble+video right */}
+          <div className="flex items-start gap-6">
+            {/* Left — logo + heading + tagline */}
+            <div className="flex-1 min-w-0">
+              <img src="/bidclaw-logo.png" alt="BidClaw" className="mb-4 w-36 rounded-xl object-contain" />
 
-            <h1 className="text-2xl font-bold leading-tight text-white xl:text-3xl">
-              The Estimating Engine<br />
-              <span className="bg-gradient-to-r from-[#2563EB] to-[#0EA5E9] bg-clip-text text-transparent">
-                for BlueQuickCalc
-              </span>
-            </h1>
+              <h1 className="text-2xl font-bold leading-tight text-white xl:text-3xl">
+                The Estimating Engine<br />
+                <span className="bg-gradient-to-r from-[#2563EB] to-[#0EA5E9] bg-clip-text text-transparent">
+                  for BlueQuickCalc
+                </span>
+              </h1>
 
-            <p className="mt-3 max-w-sm text-sm leading-relaxed text-slate-400">
-              Upload your construction plans, let Jamie handle the takeoff, and push results
-              straight into QuickCalc — cutting hours off every estimate.
-            </p>
+              <p className="mt-3 max-w-sm text-sm leading-relaxed text-slate-400">
+                Upload your construction plans, let Jamie handle the takeoff, and push results
+                straight into QuickCalc — cutting hours off every estimate.
+              </p>
+            </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-2">
-              {[
-                { icon: Upload, label: 'Upload Plans', desc: 'PDFs, images, or scanned drawings' },
-                { icon: Brain, label: 'Jamie Takeoff', desc: 'Work areas, quantities, materials' },
-                { icon: ClipboardList, label: 'Review & Adjust', desc: 'Tweak quantities and scope' },
-                { icon: Send, label: 'Send to QuickCalc', desc: 'Push directly to your estimate' },
-              ].map((step, i) => {
-                const Icon = step.icon
-                return (
-                  <div key={i} className="flex items-start gap-2 rounded-lg bg-white/5 p-2.5">
-                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[#2563EB]/20 text-[#60A5FA]">
-                      <Icon size={14} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-white">{step.label}</p>
-                      <p className="text-[10px] text-slate-500">{step.desc}</p>
-                    </div>
-                  </div>
-                )
-              })}
+            {/* Right — Jamie bubble + video */}
+            <div className="flex w-80 flex-shrink-0 flex-col items-center gap-3">
+              {/* Speech bubble */}
+              <div className="flex items-start gap-2 self-start">
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a8a] to-[#2563EB]">
+                  <span className="text-xs font-bold text-white">J</span>
+                </div>
+                <div className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur-sm">
+                  <p className="text-xs leading-relaxed text-slate-300">
+                    "I'm Jamie — your estimating agent. Tell me about your project and
+                    I'll build a full estimate in minutes."
+                  </p>
+                </div>
+              </div>
+              {/* Video */}
+              <div className="w-full overflow-hidden rounded-2xl shadow-2xl border-2 border-white/20">
+                <video
+                  src="/jamie-intro.mp4"
+                  controls
+                  loop
+                  playsInline
+                  className="w-full"
+                />
+              </div>
             </div>
           </div>
 
-          {/* Right column — Jamie bubble + video */}
-          <div className="flex w-64 flex-shrink-0 flex-col items-center gap-3">
-            {/* Speech bubble */}
-            <div className="flex items-start gap-2">
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a8a] to-[#2563EB]">
-                <span className="text-xs font-bold text-white">J</span>
-              </div>
-              <div className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur-sm">
-                <p className="text-xs leading-relaxed text-slate-300">
-                  "I'm Jamie — your estimating agent. Tell me about your project and
-                  I'll build a full estimate in minutes."
-                </p>
-              </div>
-            </div>
-            {/* Video */}
-            <div className="w-full overflow-hidden rounded-2xl shadow-2xl border-2 border-white/20">
-              <video
-                src="/jamie-intro.mp4"
-                controls
-                loop
-                playsInline
-                poster=""
-                className="w-full"
-              />
-            </div>
+          {/* Step cards — full width below, right under the video */}
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            {[
+              { icon: Upload, label: 'Upload Plans', desc: 'PDFs, images, or scanned drawings' },
+              { icon: Brain, label: 'Jamie Takeoff', desc: 'Work areas, quantities, materials' },
+              { icon: ClipboardList, label: 'Review & Adjust', desc: 'Tweak quantities and scope' },
+              { icon: Send, label: 'Send to QuickCalc', desc: 'Push directly to your estimate' },
+            ].map((step, i) => {
+              const Icon = step.icon
+              return (
+                <div key={i} className="flex items-start gap-2 rounded-lg bg-white/5 p-2.5">
+                  <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[#2563EB]/20 text-[#60A5FA]">
+                    <Icon size={14} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-white">{step.label}</p>
+                    <p className="text-[10px] text-slate-500">{step.desc}</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
 
