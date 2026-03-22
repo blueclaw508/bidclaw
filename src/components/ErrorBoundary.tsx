@@ -22,10 +22,10 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-            <AlertCircle size={48} className="mx-auto mb-4 text-red-600" />
-            <h2 className="mb-2 text-lg font-semibold text-blue-900">Something went wrong</h2>
+            <AlertCircle size={48} className="mx-auto mb-4 text-amber-500" />
+            <h2 className="mb-2 text-lg font-semibold text-blue-900">Jamie hit a snag</h2>
             <p className="mb-4 text-sm text-slate-500">
-              {this.state.error?.message || 'An unexpected error occurred.'}
+              Something unexpected happened on my end — not yours. Give it a moment and reload.
             </p>
             <button
               onClick={() => {

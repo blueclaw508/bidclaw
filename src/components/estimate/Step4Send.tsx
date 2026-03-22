@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { EstimateRecord, WorkAreaData, LineItemData } from '@/lib/types'
+import type { KYNRates } from '@/lib/jamiePrompt'
+import { KYN_RATE_DEFAULTS } from '@/lib/jamiePrompt'
 import { ProgressIndicator } from './Step1ProjectInfo'
 import { JamieEstimateSummary } from './JamieInsights'
 import {
@@ -17,6 +19,8 @@ import {
   User,
   Lock,
   X,
+  DollarSign,
+  TrendingUp,
 } from 'lucide-react'
 
 interface Step4SendProps {
@@ -24,6 +28,8 @@ interface Step4SendProps {
   workAreas: WorkAreaData[]
   lineItems: Record<string, LineItemData[]>
   newCatalogItemCount: number
+  unpricedItemNames: string[]
+  kynRates: KYNRates
   onEdit: () => void
   onSend: () => void
   onNewEstimate: () => void
@@ -66,7 +72,6 @@ function SummaryWorkArea({
 
       {expanded && (
         <div className="border-t border-slate-100 px-4 py-2">
-          {/* Column headers */}
           <div className="flex items-center gap-2 border-b border-slate-100 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             <div className="min-w-0 flex-1">Item</div>
             <div className="w-16 text-right">Qty</div>
@@ -99,11 +104,17 @@ function SummaryWorkArea({
   )
 }
 
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value)
+}
+
 export function Step4Send({
   estimate,
   workAreas,
   lineItems,
   newCatalogItemCount,
+  unpricedItemNames,
+  kynRates,
   onEdit,
   onSend,
   onNewEstimate,
@@ -118,10 +129,47 @@ export function Step4Send({
   const [sent, setSent] = useState(false)
   const [showTrialModal, setShowTrialModal] = useState(false)
 
+  const hasUnpricedItems = unpricedItemNames.length > 0
   const totalLineItems = Object.values(lineItems).reduce((sum, items) => sum + items.length, 0)
 
+  // ── Pre-send financial summary ──
+  const financials = useMemo(() => {
+    const rates = kynRates ?? KYN_RATE_DEFAULTS
+    let totalManHours = 0
+    let materialCost = 0
+    let subCost = 0
+    let equipmentCost = 0
+    let otherCost = 0
+
+    for (const items of Object.values(lineItems)) {
+      for (const li of items) {
+        if (li.category === 'Labor') {
+          totalManHours += li.quantity || 0
+        } else if (li.category === 'Materials') {
+          materialCost += (li.quantity || 0) * (li.unit_cost || 0)
+        } else if (li.category === 'Subcontractor') {
+          subCost += (li.quantity || 0) * (li.unit_cost || 0)
+        } else if (li.category === 'Equipment') {
+          equipmentCost += (li.quantity || 0) * (li.unit_cost || 0)
+        } else {
+          otherCost += (li.quantity || 0) * (li.unit_cost || 0)
+        }
+      }
+    }
+
+    const laborSell = totalManHours * rates.retail_labor_rate
+    const materialSell = materialCost * (1 + rates.material_markup / 100)
+    const subSell = subCost * (1 + rates.sub_markup / 100)
+    const equipmentSell = equipmentCost * (1 + rates.equipment_markup / 100)
+    const totalCost = materialCost + subCost + equipmentCost + otherCost
+    const totalSell = laborSell + materialSell + subSell + equipmentSell + otherCost
+    const crewDays = totalManHours > 0 ? Math.ceil(totalManHours / 27) : 0
+
+    return { totalManHours, crewDays, totalCost, totalSell, laborSell, materialCost, materialSell }
+  }, [lineItems, kynRates])
+
   const handleSend = async () => {
-    // Trial users get intercepted — show upgrade modal instead
+    if (hasUnpricedItems) return
     if (isTrial) {
       setShowTrialModal(true)
       return
@@ -200,52 +248,126 @@ export function Step4Send({
             <div className="flex items-start gap-3">
               <User size={16} className="mt-0.5 flex-shrink-0 text-slate-400" />
               <div>
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                  Client
-                </p>
-                <p className="text-sm font-medium text-blue-900">
-                  {estimate.client_name || 'Not specified'}
-                </p>
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Client</p>
+                <p className="text-sm font-medium text-blue-900">{estimate.client_name || 'Not specified'}</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
               <MapPin size={16} className="mt-0.5 flex-shrink-0 text-slate-400" />
               <div>
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                  Address
-                </p>
-                <p className="text-sm font-medium text-blue-900">
-                  {estimate.project_address || 'Not specified'}
-                </p>
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Address</p>
+                <p className="text-sm font-medium text-blue-900">{estimate.project_address || 'Not specified'}</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
               <Layers size={16} className="mt-0.5 flex-shrink-0 text-slate-400" />
               <div>
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                  Work Areas
-                </p>
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Work Areas</p>
                 <p className="text-sm font-medium text-blue-900">{workAreas.length}</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
               <FileText size={16} className="mt-0.5 flex-shrink-0 text-slate-400" />
               <div>
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                  Total Line Items
-                </p>
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Total Line Items</p>
                 <p className="text-sm font-medium text-blue-900">{totalLineItems}</p>
               </div>
             </div>
           </div>
 
-          {/* New catalog items warning */}
-          {newCatalogItemCount > 0 && (
+          {/* ── Pre-send financial summary ── */}
+          <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-blue-900">
+              <TrendingUp size={16} />
+              Estimated Financials
+            </h3>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Labor Hours</p>
+                <p className="text-lg font-bold text-blue-900 tabular-nums">
+                  {financials.totalManHours.toFixed(1)}
+                  <span className="ml-1 text-xs font-normal text-slate-400">MH</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Crew Days</p>
+                <p className="text-lg font-bold text-blue-900 tabular-nums">
+                  {financials.crewDays}
+                  <span className="ml-1 text-xs font-normal text-slate-400">days</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                  Labor Sell
+                  <span className="ml-1 text-slate-300">@ ${kynRates.retail_labor_rate}/hr</span>
+                </p>
+                <p className="text-lg font-bold text-blue-900 tabular-nums">{formatCurrency(financials.laborSell)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Material Cost</p>
+                <p className="text-sm font-semibold text-slate-700 tabular-nums">{formatCurrency(financials.materialCost)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                  Material Sell
+                  <span className="ml-1 text-slate-300">+{kynRates.material_markup}%</span>
+                </p>
+                <p className="text-sm font-semibold text-slate-700 tabular-nums">{formatCurrency(financials.materialSell)}</p>
+              </div>
+              <div className="col-span-2 sm:col-span-1 border-t border-blue-200 pt-2 mt-1">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-blue-600">Est. Sell Price</p>
+                <p className="text-xl font-bold text-blue-900 tabular-nums">{formatCurrency(financials.totalSell)}</p>
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] text-slate-400">
+              These are estimates based on your KYN rates. Final pricing is calculated in QuickCalc.
+            </p>
+          </div>
+
+          {/* Unpriced items blocker */}
+          {hasUnpricedItems && (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-red-500" />
+                <div>
+                  <p className="text-sm font-semibold text-red-800">
+                    Price these new items before sending
+                  </p>
+                  <p className="mt-1 text-xs text-red-700">
+                    {unpricedItemNames.length} item{unpricedItemNames.length !== 1 ? 's' : ''} need pricing in your catalog:
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {unpricedItemNames.slice(0, 8).map((name) => (
+                      <li key={name} className="flex items-center gap-1.5 text-xs text-red-700">
+                        <DollarSign size={10} className="text-red-400" />
+                        {name}
+                      </li>
+                    ))}
+                    {unpricedItemNames.length > 8 && (
+                      <li className="text-xs text-red-500 italic">
+                        ...and {unpricedItemNames.length - 8} more
+                      </li>
+                    )}
+                  </ul>
+                  <button
+                    onClick={onEdit}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 transition-colors"
+                  >
+                    <PenLine size={12} />
+                    Go Back to Price Items
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* New catalog items warning (for items that ARE priced but are new) */}
+          {!hasUnpricedItems && newCatalogItemCount > 0 && (
             <div className="mb-6 flex items-center gap-3 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
               <AlertTriangle size={16} className="flex-shrink-0 text-yellow-600" />
               <p className="text-sm text-yellow-800">
                 <span className="font-semibold">{newCatalogItemCount} new catalog item{newCatalogItemCount !== 1 ? 's' : ''}</span>{' '}
-                will need pricing in QuickCalc.
+                were added to your catalog during this estimate.
               </p>
             </div>
           )}
@@ -276,10 +398,12 @@ export function Step4Send({
 
             <button
               onClick={handleSend}
-              disabled={sending}
-              className={`inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white transition-colors disabled:opacity-70 ${
+              disabled={sending || hasUnpricedItems}
+              className={`inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white transition-colors disabled:opacity-70 disabled:cursor-not-allowed ${
                 isTrial
                   ? 'bg-amber-500 hover:bg-amber-600'
+                  : hasUnpricedItems
+                  ? 'bg-slate-400'
                   : 'bg-[#2563EB] hover:bg-blue-600'
               }`}
             >
@@ -287,6 +411,11 @@ export function Step4Send({
                 <>
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                   Sending...
+                </>
+              ) : hasUnpricedItems ? (
+                <>
+                  <AlertTriangle size={16} />
+                  PRICE ITEMS FIRST
                 </>
               ) : isTrial ? (
                 <>

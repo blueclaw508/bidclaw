@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import {
@@ -9,6 +9,44 @@ import {
   CheckCircle2,
   ArrowRight,
 } from 'lucide-react'
+
+/* ------------------------------------------------------------------ */
+/*  Jamie Avatar — consistent circular "J" avatar                      */
+/* ------------------------------------------------------------------ */
+function JamieAvatar({ size = 48 }: { size?: number }) {
+  const borderW = size > 30 ? 2.5 : 1.5
+  const fontSize = size * 0.46
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      fill="none"
+      className="flex-shrink-0"
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={size / 2 - borderW}
+        fill="#0c1428"
+        stroke="#3b82f6"
+        strokeWidth={borderW}
+      />
+      <text
+        x="50%"
+        y="50%"
+        dominantBaseline="central"
+        textAnchor="middle"
+        fill="#fff"
+        fontFamily="Georgia, 'Times New Roman', serif"
+        fontWeight="700"
+        fontSize={fontSize}
+      >
+        J
+      </text>
+    </svg>
+  )
+}
 
 /* ------------------------------------------------------------------ */
 /*  PromoScreen — Branded cover page matching QuickCalc                */
@@ -23,6 +61,7 @@ export function PromoScreen() {
   const [signUpSuccess, setSignUpSuccess] = useState(false)
   const [showReset, setShowReset] = useState(false)
   const [resetSent, setResetSent] = useState(false)
+  const loginRef = useRef<HTMLDivElement>(null)
 
   /* ---------- handlers ---------- */
   const handleResetPassword = async (e: React.FormEvent) => {
@@ -45,67 +84,99 @@ export function PromoScreen() {
     setLoading(false)
   }
 
+  const scrollToLogin = () => {
+    loginRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   /* ---------- render ---------- */
   return (
-    <div className="flex min-h-screen">
-      {/* ====== LEFT — Branded Panel ====== */}
-      <div className="hidden lg:flex lg:w-[55%] flex-col justify-between bg-[#0c1428] relative overflow-y-auto">
+    <div className="min-h-screen bg-[#0c1428]">
+      {/* ====== HERO — Full-width dark section ====== */}
+      <div className="relative min-h-svh overflow-hidden">
         {/* Background pattern */}
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgMGg2MHY2MEgweiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjMwIiBjeT0iMzAiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wMykiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IGZpbGw9InVybCgjZykiIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiLz48L3N2Zz4=')] opacity-60" />
-        {/* Gradient accent */}
+        {/* Gradient accents */}
         <div className="absolute -top-40 -right-40 h-80 w-80 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7c3aed]/10 blur-3xl" />
         <div className="absolute -bottom-20 -left-20 h-60 w-60 rounded-full bg-gradient-to-br from-[#0EA5E9]/10 to-[#2563EB]/10 blur-3xl" />
 
-        {/* Content */}
-        <div className="relative z-10 flex flex-1 flex-col justify-center px-8 py-6 xl:px-12">
-          {/* Top row: branding left, bubble+video right */}
-          <div className="flex items-start gap-6">
-            {/* Left — logo + heading + tagline */}
-            <div className="flex-1 min-w-0">
-              <img src="/bidclaw-logo.png" alt="BidClaw" className="mb-4 w-36 rounded-xl object-contain" />
+        {/* Hero content — two-column on desktop, stacked on mobile */}
+        <div className="relative z-10 mx-auto max-w-7xl px-6 py-12 sm:px-10 lg:px-16">
+          <div className="flex flex-col items-center gap-10 lg:flex-row lg:items-center lg:gap-16">
 
-              <h1 className="text-2xl font-bold leading-tight text-white xl:text-3xl">
+            {/* ── Left column: Logo + Headline + Body + CTA ── */}
+            <div className="flex-1 text-center lg:text-left" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              {/* Logo — 200×200 minimum */}
+              <img
+                src="/bidclaw-logo.png"
+                alt="BidClaw"
+                width={200}
+                height={200}
+                className="mx-auto mb-6 flex-shrink-0 rounded-xl object-contain lg:mx-0"
+                style={{ width: '200px', height: '200px', minWidth: '200px', minHeight: '200px' }}
+              />
+
+              <h1 className="text-3xl font-bold leading-tight text-white sm:text-4xl lg:text-5xl xl:text-[3.4rem]">
                 The Estimating Engine<br />
                 <span className="bg-gradient-to-r from-[#2563EB] to-[#0EA5E9] bg-clip-text text-transparent">
                   for BlueQuickCalc
                 </span>
               </h1>
 
-              <p className="mt-3 max-w-sm text-sm leading-relaxed text-slate-400">
+              <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-slate-400 sm:text-lg lg:mx-0 lg:mt-6">
                 Upload your construction plans, let Jamie handle the takeoff, and push results
                 straight into QuickCalc — cutting hours off every estimate.
               </p>
+
+              {/* CTA Button — lime green */}
+              <button
+                onClick={scrollToLogin}
+                style={{
+                  backgroundColor: '#a3e635',
+                  color: '#0f172a',
+                  fontWeight: 'bold',
+                  padding: '14px 28px',
+                  borderRadius: '8px',
+                  fontSize: '18px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  marginTop: '24px',
+                }}
+                className="inline-flex items-center gap-2 self-center transition-all hover:brightness-110 hover:shadow-lg hover:shadow-lime-400/25 lg:self-start"
+              >
+                Start Your Estimate →
+              </button>
             </div>
 
-            {/* Right — Jamie bubble + video */}
-            <div className="flex w-80 flex-shrink-0 flex-col items-center gap-3">
-              {/* Speech bubble */}
-              <div className="flex items-start gap-2 self-start">
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a8a] to-[#2563EB]">
-                  <span className="text-xs font-bold text-white">J</span>
-                </div>
-                <div className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur-sm">
-                  <p className="text-xs leading-relaxed text-slate-300">
+            {/* ── Right column: Jamie bubble + Video ── */}
+            <div className="w-full max-w-xl flex-shrink-0 lg:w-[48%]">
+              {/* Jamie bubble + avatar */}
+              <div className="mb-5 flex items-start gap-3">
+                <JamieAvatar size={44} />
+                <div className="rounded-xl bg-white/10 px-4 py-3 backdrop-blur-sm">
+                  <p className="text-sm leading-relaxed text-slate-300">
                     "I'm Jamie — your estimating agent. Tell me about your project and
                     I'll build a full estimate in minutes."
                   </p>
                 </div>
               </div>
+
               {/* Video */}
-              <div className="w-full overflow-hidden rounded-2xl shadow-2xl border-2 border-white/20">
+              <div className="relative w-full overflow-hidden rounded-xl border border-white/10 shadow-2xl">
                 <video
                   src="/jamie-intro.mp4"
                   controls
-                  loop
                   playsInline
-                  className="w-full"
+                  preload="metadata"
+                  poster="/jamie-avatar.png"
+                  className="w-full rounded-xl"
+                  style={{ aspectRatio: '16/9' }}
                 />
               </div>
             </div>
           </div>
 
-          {/* Step cards — full width below, right under the video */}
-          <div className="mt-4 grid grid-cols-4 gap-2">
+          {/* How it works — 4 tiles (below hero columns) */}
+          <div className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:mt-14 lg:gap-4">
             {[
               { icon: Upload, label: 'Upload Plans', desc: 'PDFs, images, or scanned drawings' },
               { icon: Brain, label: 'Jamie Takeoff', desc: 'Work areas, quantities, materials' },
@@ -114,86 +185,55 @@ export function PromoScreen() {
             ].map((step, i) => {
               const Icon = step.icon
               return (
-                <div key={i} className="flex items-start gap-2 rounded-lg bg-white/5 p-2.5">
-                  <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[#2563EB]/20 text-[#60A5FA]">
-                    <Icon size={14} />
+                <div key={i} className="flex items-start gap-3 rounded-lg bg-white/5 p-3">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#2563EB]/20 text-[#60A5FA]">
+                    <Icon size={16} />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-white">{step.label}</p>
-                    <p className="text-[10px] text-slate-500">{step.desc}</p>
+                    <p className="text-sm font-semibold text-white">{step.label}</p>
+                    <p className="text-[11px] text-slate-500">{step.desc}</p>
                   </div>
                 </div>
               )
             })}
           </div>
         </div>
-
-        {/* Bottom brand bar */}
-        <div className="relative z-10 border-t border-white/10 px-12 py-4 xl:px-16">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
-              <a href="https://blueclawgroup.com/know-your-numbers/" target="_blank" rel="noopener noreferrer"
-                className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
-                Know Your Numbers
-              </a>
-              <a href="https://bluequickcalc.app" target="_blank" rel="noopener noreferrer"
-                className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
-                QuickCalc
-              </a>
-              <a href="https://blueclawgroup.com" target="_blank" rel="noopener noreferrer"
-                className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
-                Blue Claw Group
-              </a>
-            </div>
-            <p className="text-[10px] text-slate-600">
-              &copy; {new Date().getFullYear()} Blue Claw Group
-            </p>
-          </div>
-        </div>
       </div>
 
-      {/* ====== RIGHT — Login Form ====== */}
-      <div className="flex w-full flex-col justify-center bg-white px-8 lg:w-[45%] lg:px-16">
-        {/* Mobile logo (hidden on desktop) */}
-        <div className="mb-8 lg:hidden">
-          <img src="/bidclaw-logo.png" alt="BidClaw" className="mx-auto w-36 rounded-xl object-contain" />
-          <p className="mt-3 text-center text-sm text-slate-500">
-            The Estimating Engine for BlueQuickCalc
-          </p>
-        </div>
-
+      {/* ====== LOGIN SECTION — full-width dark ====== */}
+      <div ref={loginRef} className="bg-[#0c1428] px-6 py-12 sm:px-8 lg:py-16">
         <div className="mx-auto w-full max-w-sm">
           {resetSent ? (
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#DBEAFE] text-[#2563EB]">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#2563EB]/20 text-[#60A5FA]">
                 <Send className="h-6 w-6" />
               </div>
-              <h2 className="text-xl font-bold text-slate-900">Check your email</h2>
-              <p className="mt-2 text-sm text-slate-500">
-                We sent a password reset link to <strong>{email}</strong>.
+              <h2 className="text-xl font-bold text-white">Check your email</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                We sent a password reset link to <strong className="text-white">{email}</strong>.
               </p>
               <button
                 onClick={() => { setShowReset(false); setResetSent(false) }}
-                className="mt-6 text-sm font-medium text-[#2563EB] hover:text-[#1D4ED8]"
+                className="mt-6 text-sm font-medium text-[#60A5FA] hover:text-[#93C5FD]"
               >
                 Back to sign in
               </button>
             </div>
           ) : showReset ? (
             <div>
-              <h2 className="mb-2 text-2xl font-bold text-slate-900">Reset Password</h2>
-              <p className="mb-6 text-sm text-slate-500">
+              <h2 className="mb-2 text-2xl font-bold text-white">Reset Password</h2>
+              <p className="mb-6 text-sm text-slate-400">
                 Enter your email and we'll send you a reset link.
               </p>
               <form onSubmit={handleResetPassword} className="space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">Email</label>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+                    className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
                     placeholder="you@company.com"
                   />
                 </div>
@@ -208,35 +248,35 @@ export function PromoScreen() {
                   {loading ? 'Sending...' : 'Send Reset Link'}
                 </button>
               </form>
-              <p className="mt-4 text-center text-sm text-slate-500">
+              <p className="mt-4 text-center text-sm text-slate-400">
                 <button onClick={() => { setShowReset(false); setError(null) }}
-                  className="font-medium text-[#2563EB] hover:text-[#1D4ED8]">
+                  className="font-medium text-[#60A5FA] hover:text-[#93C5FD]">
                   Back to sign in
                 </button>
               </p>
             </div>
           ) : signUpSuccess ? (
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#DBEAFE] text-[#2563EB]">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#2563EB]/20 text-[#60A5FA]">
                 <CheckCircle2 className="h-6 w-6" />
               </div>
-              <h2 className="text-xl font-bold text-slate-900">Check your email</h2>
-              <p className="mt-2 text-sm text-slate-500">
-                We sent a confirmation link to <strong>{email}</strong>. Click it to activate your account.
+              <h2 className="text-xl font-bold text-white">Check your email</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                We sent a confirmation link to <strong className="text-white">{email}</strong>. Click it to activate your account.
               </p>
               <button
                 onClick={() => { setIsSignUp(false); setSignUpSuccess(false) }}
-                className="mt-6 text-sm font-medium text-[#2563EB] hover:text-[#1D4ED8]"
+                className="mt-6 text-sm font-medium text-[#60A5FA] hover:text-[#93C5FD]"
               >
                 Back to sign in
               </button>
             </div>
           ) : (
             <>
-              <h2 className="mb-1 text-2xl font-bold text-slate-900">
+              <h2 className="mb-1 text-2xl font-bold text-white">
                 {isSignUp ? 'Create Account' : 'Welcome back'}
               </h2>
-              <p className="mb-8 text-sm text-slate-500">
+              <p className="mb-8 text-sm text-slate-400">
                 {isSignUp
                   ? 'Sign up with your QuickCalc email to get started.'
                   : 'Sign in with your QuickCalc credentials.'}
@@ -244,26 +284,26 @@ export function PromoScreen() {
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">Email</label>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+                    className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
                     placeholder="you@company.com"
                     autoFocus
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">Password</label>
                   <input
                     type="password"
                     required
                     minLength={6}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+                    className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
                     placeholder="••••••••"
                   />
                 </div>
@@ -281,11 +321,11 @@ export function PromoScreen() {
                 </button>
               </form>
 
-              <p className="mt-6 text-center text-sm text-slate-500">
+              <p className="mt-6 text-center text-sm text-slate-400">
                 {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
                 <button
                   onClick={() => { setIsSignUp(!isSignUp); setError(null) }}
-                  className="font-medium text-[#2563EB] hover:text-[#1D4ED8]"
+                  className="font-medium text-[#60A5FA] hover:text-[#93C5FD]"
                 >
                   {isSignUp ? 'Sign in' : 'Sign up'}
                 </button>
@@ -295,7 +335,7 @@ export function PromoScreen() {
                 <p className="mt-2 text-center">
                   <button
                     onClick={() => { setShowReset(true); setError(null) }}
-                    className="text-xs text-slate-400 hover:text-[#2563EB]"
+                    className="text-xs text-slate-500 hover:text-[#60A5FA]"
                   >
                     Forgot your password?
                   </button>
@@ -303,15 +343,38 @@ export function PromoScreen() {
               )}
 
               {/* QuickCalc requirement note */}
-              <div className="mt-8 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <ArrowRight size={16} className="mt-0.5 flex-shrink-0 text-[#2563EB]" />
-                <p className="text-xs leading-relaxed text-slate-500">
-                  BidClaw requires a <strong className="text-slate-700">BlueQuickCalc</strong> account.
+              <div className="mt-8 flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
+                <ArrowRight size={16} className="mt-0.5 flex-shrink-0 text-[#60A5FA]" />
+                <p className="text-xs leading-relaxed text-slate-400">
+                  BidClaw requires a <strong className="text-white">BlueQuickCalc</strong> account.
                   Your catalog, production rates, and company profile sync automatically.
                 </p>
               </div>
             </>
           )}
+        </div>
+      </div>
+
+      {/* Bottom brand bar */}
+      <div className="border-t border-white/10 bg-[#0c1428] px-6 py-4 sm:px-12">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <div className="flex items-center gap-6">
+            <a href="https://blueclawgroup.com/know-your-numbers/" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
+              Know Your Numbers
+            </a>
+            <a href="https://bluequickcalc.app" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
+              QuickCalc
+            </a>
+            <a href="https://blueclawgroup.com" target="_blank" rel="noopener noreferrer"
+              className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
+              Blue Claw Group
+            </a>
+          </div>
+          <p className="text-[10px] text-slate-600">
+            &copy; {new Date().getFullYear()} Blue Claw Group
+          </p>
         </div>
       </div>
     </div>

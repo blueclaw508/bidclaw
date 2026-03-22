@@ -48,6 +48,10 @@ export async function callAI<T = unknown>(payload: {
       } else {
         // Fallback: handle non-streaming JSON response (backward compat)
         const raw = await response.json()
+        // Guard: edge function may return { error: '...' } directly when JSON parse failed server-side
+        if (raw?.error && !raw?.content) {
+          return { data: null, error: 'Jamie needs a bit more detail to build work areas. Add a project description or upload a plan and try again.' }
+        }
         text = raw?.content?.[0]?.text
         if (!text) return { data: null, error: 'No response from Jamie' }
       }
@@ -55,10 +59,20 @@ export async function callAI<T = unknown>(payload: {
       // Parse JSON from the response (strip markdown code fences if present)
       try {
         const jsonStr = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
-        const parsed = JSON.parse(jsonStr) as T
-        return { data: parsed, error: null }
+        const parsed = JSON.parse(jsonStr)
+        // Guard: if edge function returned an error object instead of expected data, surface it cleanly
+        if (parsed && typeof parsed === 'object' && 'error' in parsed && !('work_areas' in parsed) && !('line_items' in parsed) && !('message' in parsed)) {
+          return { data: null, error: 'Jamie needs a bit more detail to build work areas. Add a project description or upload a plan and try again.' }
+        }
+        return { data: parsed as T, error: null }
       } catch {
-        return { data: null, error: `Jamie returned unparseable response: ${text.slice(0, 200)}` }
+        // Auto-retry once on unparseable response (Jamie may have returned prose)
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 1000))
+          continue
+        }
+        // Don't expose raw response text — classify for the friendly modal
+        return { data: null, error: 'Jamie returned unparseable response' }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'

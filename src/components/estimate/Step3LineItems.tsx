@@ -3,13 +3,14 @@ import type { WorkAreaData, LineItemData, CatalogItem } from '@/lib/types'
 import type { JamieAnalysisResult } from '@/lib/jamie'
 import { ProgressIndicator } from './Step1ProjectInfo'
 import { LineItemRow } from './LineItemRow'
-import { NewItemsAlertBanner } from './NewItemsAlertBanner'
+import { NewCatalogItemPrompt } from './NewCatalogItemPrompt'
+import { ScopeMismatchWarning } from './ScopeMismatchWarning'
+import { crossValidateScopeAndItems } from '@/lib/jamiePrompt'
 import { JamieScopeWriter, JamieAnalysisPanel, JamieBuiltBanner } from './JamieInsights'
 // roundManHours imported from types is used inline via Math.ceil pattern
 import {
   ArrowLeft,
   Plus,
-  Loader2,
   ChevronDown,
   ChevronUp,
   CheckCircle2,
@@ -25,6 +26,7 @@ interface Step3LineItemsProps {
   lineItems: Record<string, LineItemData[]>
   newCatalogItems: string[]
   loading: boolean
+  loadingMessage?: string
   catalogItems?: CatalogItem[]
   onUpdateLineItem: (workAreaId: string, itemId: string, updates: Partial<LineItemData>) => void
   onRemoveLineItem: (workAreaId: string, itemId: string) => void
@@ -44,6 +46,8 @@ interface Step3LineItemsProps {
   jamieAnalysis?: JamieAnalysisResult | null
   jamieAnalysisLoading?: boolean
   onJamieAnalyze?: () => void
+  onNewItemPriceSaved?: (catalogItemId: string, price: number) => void
+  onAddMismatchItem?: (workAreaId: string, itemName: string) => void
 }
 
 interface WorkAreaSectionProps {
@@ -85,6 +89,11 @@ function WorkAreaSection({
   const newItemCount = items.filter((i) => i.catalog_match_type === 'new_created').length
   const laborItems = items.filter((i) => i.category === 'Labor')
   const totalManHours = laborItems.reduce((sum, i) => sum + (i.quantity || 0), 0)
+  const unpricedCount = items.filter((i) => i.unit_cost == null).length
+  const workAreaTotal = items.reduce((sum, i) => {
+    const cost = i.unit_cost ?? 0
+    return sum + (i.quantity * cost)
+  }, 0)
 
   return (
     <div
@@ -140,6 +149,8 @@ function WorkAreaSection({
             <div className="w-20 text-center">Qty</div>
             <div className="w-20 text-center">Unit</div>
             <div className="hidden sm:block w-32 text-center">Category</div>
+            <div className="hidden sm:block w-20 text-right">Unit Cost</div>
+            <div className="hidden sm:block w-24 text-right">Total</div>
             <div className="w-6" />
             <div className="w-6" />
           </div>
@@ -154,6 +165,26 @@ function WorkAreaSection({
               catalogItems={catalogItems}
             />
           ))}
+
+          {/* Work Area Subtotal */}
+          {hasItems && (
+            <div className="hidden sm:flex items-center gap-2 border-t border-slate-200 bg-slate-50/50 px-3 py-2.5">
+              <div className="min-w-0 flex-1 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Work Area Total
+                {unpricedCount > 0 && (
+                  <span className="ml-2 text-[10px] font-medium text-yellow-600 normal-case tracking-normal">
+                    ({unpricedCount} item{unpricedCount !== 1 ? 's' : ''} unpriced)
+                  </span>
+                )}
+              </div>
+              <div className="w-20" />
+              <div className="w-24 text-right text-sm font-bold tabular-nums text-slate-700">
+                ${workAreaTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div className="w-6" />
+              <div className="w-6" />
+            </div>
+          )}
 
           {/* Jamie Scope Writer */}
           {onJamieWriteScope && (
@@ -244,8 +275,9 @@ function WorkAreaSection({
 export function Step3LineItems({
   workAreas,
   lineItems,
-  newCatalogItems,
+  newCatalogItems: _newCatalogItems,
   loading,
+  loadingMessage,
   catalogItems,
   onUpdateLineItem,
   onRemoveLineItem,
@@ -264,6 +296,8 @@ export function Step3LineItems({
   jamieAnalysis,
   jamieAnalysisLoading,
   onJamieAnalyze,
+  onNewItemPriceSaved,
+  onAddMismatchItem,
 }: Step3LineItemsProps) {
   const [showBackConfirm, setShowBackConfirm] = useState(false)
   const [showBackToStep1Confirm, setShowBackToStep1Confirm] = useState(false)
@@ -272,19 +306,6 @@ export function Step3LineItems({
   const totalCount = workAreas.length
   const allApproved = approvedCount === totalCount && totalCount > 0
 
-  // Build new items info for the banner (include catalogItemId for inline pricing)
-  const newItemsList = newCatalogItems.map((name) => {
-    // Find matching line item for unit/category info
-    for (const waId of Object.keys(lineItems)) {
-      const found = lineItems[waId]?.find(
-        (li) => li.name === name && li.catalog_match_type === 'new_created'
-      )
-      if (found) {
-        return { name: found.name, unit: found.unit, category: found.category, catalogItemId: found.catalog_item_id }
-      }
-    }
-    return { name, unit: '-', category: '-' }
-  })
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -308,11 +329,6 @@ export function Step3LineItems({
         {/* Jamie built banner */}
         {!loading && jamieBuilt && <JamieBuiltBanner />}
 
-        {/* New items alert */}
-        {!loading && newCatalogItems.length > 0 && (
-          <NewItemsAlertBanner count={newCatalogItems.length} items={newItemsList} />
-        )}
-
         {/* Jamie Analysis */}
         {!loading && onJamieAnalyze && (
           <JamieAnalysisPanel
@@ -322,57 +338,112 @@ export function Step3LineItems({
           />
         )}
 
-        {/* Loading state */}
+        {/* Loading state — shows per-work-area progress */}
         {loading && (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white py-16">
-            <div className="relative mb-6">
-              <div className="h-14 w-14 animate-spin rounded-full border-4 border-slate-200 border-t-[#2563EB]" />
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 mt-0.5">
+                <div className="h-10 w-10 animate-spin rounded-full border-3 border-slate-200 border-t-[#2563EB]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-blue-900">
+                  {loadingMessage || 'Generating line items...'}
+                </p>
+                {/* Progress bar */}
+                {loadingMessage && loadingMessage.includes(' of ') && (() => {
+                  const match = loadingMessage.match(/\((\d+) of (\d+)/)
+                  if (!match) return null
+                  const done = parseInt(match[1])
+                  const total = parseInt(match[2])
+                  const pct = total > 0 ? (done / total) * 100 : 0
+                  return (
+                    <div className="mt-3">
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-[#2563EB] transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <p className="mt-1.5 text-xs text-slate-400">
+                        {done} of {total} work area{total !== 1 ? 's' : ''} complete
+                      </p>
+                    </div>
+                  )
+                })()}
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-sm font-medium text-blue-900">
-              <Loader2 size={16} className="animate-spin text-[#2563EB]" />
-              Generating line items...
-            </div>
-            <p className="mt-2 text-xs text-slate-400">
-              This may take a moment for complex projects
-            </p>
           </div>
         )}
 
-        {/* Work area sections */}
-        {!loading &&
-          workAreas.map((wa) => (
-            <WorkAreaSection
-              key={wa.id}
-              workArea={wa}
-              items={lineItems[wa.id] ?? []}
-              catalogItems={catalogItems}
-              onUpdateItem={(itemId, updates) => onUpdateLineItem(wa.id, itemId, updates)}
-              onRemoveItem={(itemId) => onRemoveLineItem(wa.id, itemId)}
-              onAddItem={() => onAddLineItem(wa.id)}
-              onApprove={() => onApproveWorkArea(wa.id)}
-              onUnapprove={() => onUnapproveWorkArea(wa.id)}
-              onUpdateWorkArea={onUpdateWorkArea ? (updates) => onUpdateWorkArea(wa.id, updates) : undefined}
-              onRoundManHours={onUpdateWorkArea ? () => {
-                const waItems = lineItems[wa.id] ?? []
-                const crewSize = wa.crew_size ?? 3
-                const hrsPerDay = wa.crew_hours_per_day ?? 8
-                const crewDay = crewSize * hrsPerDay
-                if (crewDay <= 0) return
-                for (const item of waItems) {
-                  if (item.category === 'Labor' && item.quantity > 0) {
-                    const rounded = Math.ceil(item.quantity / crewDay) * crewDay
-                    if (rounded !== item.quantity) {
-                      onUpdateLineItem(wa.id, item.id, { quantity: rounded })
+        {/* Work area sections with inline new item prompts — rendered incrementally as each completes */}
+        {workAreas.map((wa) => {
+            // During loading, only show work areas that have line items (completed by Jamie)
+            if (loading && (!lineItems[wa.id] || lineItems[wa.id].length === 0)) return null
+            const waItems = lineItems[wa.id] ?? []
+            const newItems = waItems.filter((li) => li.catalog_match_type === 'new_created' && li.catalog_item_id)
+            return (
+              <div key={wa.id} className="space-y-2">
+                <WorkAreaSection
+                  workArea={wa}
+                  items={waItems}
+                  catalogItems={catalogItems}
+                  onUpdateItem={(itemId, updates) => onUpdateLineItem(wa.id, itemId, updates)}
+                  onRemoveItem={(itemId) => onRemoveLineItem(wa.id, itemId)}
+                  onAddItem={() => onAddLineItem(wa.id)}
+                  onApprove={() => onApproveWorkArea(wa.id)}
+                  onUnapprove={() => onUnapproveWorkArea(wa.id)}
+                  onUpdateWorkArea={onUpdateWorkArea ? (updates) => onUpdateWorkArea(wa.id, updates) : undefined}
+                  onRoundManHours={onUpdateWorkArea ? () => {
+                    const crewSize = wa.crew_size ?? 3
+                    const hrsPerDay = wa.crew_hours_per_day ?? 8
+                    const crewDay = crewSize * hrsPerDay
+                    if (crewDay <= 0) return
+                    for (const item of waItems) {
+                      if (item.category === 'Labor' && item.quantity > 0) {
+                        const rounded = Math.ceil(item.quantity / crewDay) * crewDay
+                        if (rounded !== item.quantity) {
+                          onUpdateLineItem(wa.id, item.id, { quantity: rounded })
+                        }
+                      }
                     }
-                  }
-                }
-              } : undefined}
-              jamieScope={jamieScopes?.[wa.id]}
-              jamieScopeLoading={jamieScopeLoading === wa.id}
-              onJamieWriteScope={onJamieWriteScope ? () => onJamieWriteScope(wa.id) : undefined}
-              onJamieUpdateScope={onJamieUpdateScope ? (scope: string) => onJamieUpdateScope(wa.id, scope) : undefined}
-            />
-          ))}
+                  } : undefined}
+                  jamieScope={jamieScopes?.[wa.id]}
+                  jamieScopeLoading={jamieScopeLoading === wa.id}
+                  onJamieWriteScope={onJamieWriteScope ? () => onJamieWriteScope(wa.id) : undefined}
+                  onJamieUpdateScope={onJamieUpdateScope ? (scope: string) => onJamieUpdateScope(wa.id, scope) : undefined}
+                />
+                {/* Scope/line-item mismatch warnings */}
+                {!loading && jamieScopes?.[wa.id] && waItems.length > 0 && onAddMismatchItem && (() => {
+                  const warnings = crossValidateScopeAndItems(jamieScopes[wa.id], waItems)
+                  if (warnings.length === 0) return null
+                  return (
+                    <ScopeMismatchWarning
+                      warnings={warnings}
+                      workAreaId={wa.id}
+                      onAddLineItem={onAddMismatchItem}
+                    />
+                  )
+                })()}
+                {/* Inline new catalog item pricing prompts */}
+                {newItems.length > 0 && onNewItemPriceSaved && (
+                  <div className="space-y-2 pl-2">
+                    {newItems.map((li) => (
+                      <NewCatalogItemPrompt
+                        key={li.catalog_item_id!}
+                        catalogItemId={li.catalog_item_id!}
+                        itemName={li.name}
+                        itemType={li.category === 'Materials' ? 'material'
+                          : li.category === 'Subcontractor' ? 'subcontractor'
+                          : li.category === 'Equipment' ? 'equipment'
+                          : 'other'}
+                        onPriceSaved={onNewItemPriceSaved}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
 
         {/* Bottom bar */}
         {!loading && (

@@ -1,5 +1,8 @@
 import { callAI } from '@/lib/supabase'
-import type { AiPass1Response, AiPass2Response, CatalogItem } from '@/lib/types'
+import { processPlanFile } from '@/lib/planProcessor'
+import { buildUnifiedEstimatePrompt, crossValidateScopeAndItems } from '@/lib/jamiePrompt'
+import type { KYNRates } from '@/lib/jamiePrompt'
+import type { AiPass1Response, AiPass2Response, CatalogItem, ProductionRate } from '@/lib/types'
 
 const PASS1_SYSTEM = `You are Jamie, a landscape and masonry estimating assistant trained in the Know Your Numbers (KYN) methodology by Blue Claw Group.
 
@@ -18,6 +21,7 @@ For each work area provide:
 1. A clear, professional name with location descriptor per rules above
 2. A one-sentence description of the scope
 3. A complexity rating: Simple | Moderate | Complex
+4. gap_questions: 2-4 clarifying questions you need answered BEFORE you can build accurate line items for this work area. Ask about things the description doesn't cover: substrate type, disposal scope, site access, material preferences, equipment owned vs. rental, existing conditions, Nantucket vs. mainland pricing. If the description is detailed enough that you have no questions, return an empty array.
 
 Return ONLY valid JSON. No preamble, no explanation outside the JSON structure:
 {
@@ -26,7 +30,8 @@ Return ONLY valid JSON. No preamble, no explanation outside the JSON structure:
       "id": "wa_1",
       "name": "Work Area Name with Location",
       "description": "Brief scope description",
-      "complexity": "Moderate"
+      "complexity": "Moderate",
+      "gap_questions": ["Is this on wood framing or CMU block?", "Is demolition/haul-off included?"]
     }
   ]
 }`
@@ -39,18 +44,31 @@ export async function runPass1(
 ): Promise<AiPass1Response> {
   const content: Array<Record<string, unknown>> = []
 
-  // Add plan files as documents/images
+  // Process each plan file — auto-detects raster vs text PDFs
   for (const url of planFileUrls) {
-    const ext = url.split('.').pop()?.toLowerCase()
-    if (ext === 'pdf') {
-      content.push({
-        type: 'document',
-        source: { type: 'url', url },
-      })
-    } else if (['png', 'jpg', 'jpeg'].includes(ext ?? '')) {
+    const plan = await processPlanFile(url)
+
+    if (plan.type === 'image_base64' && plan.data) {
+      // Raster PDF — converted to JPEG, send as base64 image for vision
       content.push({
         type: 'image',
-        source: { type: 'url', url },
+        source: {
+          type: 'base64',
+          media_type: plan.mediaType ?? 'image/jpeg',
+          data: plan.data,
+        },
+      })
+    } else if (plan.type === 'image_url' && plan.url) {
+      // Non-PDF image (JPG, PNG, WebP, TIFF) — pass URL directly
+      content.push({
+        type: 'image',
+        source: { type: 'url', url: plan.url },
+      })
+    } else if (plan.type === 'document_url' && plan.url) {
+      // Text-based PDF — use document URL (Claude text extraction)
+      content.push({
+        type: 'document',
+        source: { type: 'url', url: plan.url },
       })
     }
   }
@@ -66,87 +84,178 @@ export async function runPass1(
     messages: [{ role: 'user', content }],
   })
 
-  if (error || !data) throw new Error(error ?? 'No response from AI')
+  if (error || !data) throw new Error(error ?? 'No response from Jamie')
   return data
 }
 
+// ── Pass2 Single Work Area ──
+// Estimates one work area at a time for incremental rendering and resumable retries.
+
+import type { AiPass2WorkArea } from '@/lib/types'
+
+const PASS2_SINGLE_SUFFIX = `Return a single work area JSON object (NOT wrapped in an array):
+{
+  "id": "wa_1",
+  "name": "Front Entry Walkway",
+  "scope_description": "• Install approximately 120 SF of irregular bluestone walkway at front entry per site visit.\\n• Approx. 120 SF walkway area.\\n• Excavate and remove existing material to depth of 10\\".\\n• Install and compact 6\\" processed gravel base.\\n• Install bluestone pavers on compacted base.\\n• Sweep polymeric sand into joints and compact.\\n• Install edge restraint at perimeter.",
+  "line_items": [
+    {
+      "id": "li_1",
+      "name": "Bluestone Irregular",
+      "quantity": 120,
+      "unit": "SF",
+      "category": "Materials",
+      "description": "Supply irregular bluestone pavers for walkway installation."
+    }
+  ],
+  "gap_questions": ["Is this on an existing gravel base or new construction?"],
+  "new_catalog_items": ["Polymeric Sand"]
+}`
+
+async function runPass2Single(
+  workArea: { id: string; name: string; description: string },
+  projectDescription: string,
+  systemPrompt: string,
+  gapAnswers?: Record<string, string>,
+): Promise<AiPass2WorkArea> {
+  let userContent = `Estimate this single work area:\n${JSON.stringify(workArea)}\n\nProject context: ${projectDescription}`
+
+  if (gapAnswers && Object.keys(gapAnswers).length > 0) {
+    const answersBlock = Object.entries(gapAnswers)
+      .map(([q, a]) => `Q: ${q}\nA: ${a}`)
+      .join('\n\n')
+    userContent += `\n\nCONTRACTOR ANSWERED THESE QUESTIONS:\n${answersBlock}\nUse these answers when building line items. Do not ask these questions again.`
+  }
+
+  const { data, error } = await callAI<AiPass2WorkArea>({
+    system: systemPrompt,
+    max_tokens: 4000,
+    messages: [{ role: 'user', content: userContent }],
+  })
+
+  if (error || !data) throw new Error(error ?? 'No response from Jamie')
+
+  // Ensure the id matches what we sent
+  data.id = workArea.id
+
+  // Cross-validate
+  if (data.scope_description && data.line_items) {
+    crossValidateScopeAndItems(data.scope_description, data.line_items)
+  }
+
+  return data
+}
+
+// ── Progress callback type ──
+export interface Pass2Progress {
+  completedCount: number
+  totalCount: number
+  currentWorkAreaName: string
+  completedWorkArea?: AiPass2WorkArea
+}
+
+/**
+ * Run Pass2 for all work areas, one at a time, with progress callbacks.
+ * Each work area gets its own API call. If one fails, it retries that single
+ * work area (up to 1 retry) before moving on. Completed work areas are
+ * delivered incrementally via the onProgress callback.
+ */
 export async function runPass2(
   approvedWorkAreas: { id: string; name: string; description: string }[],
   projectDescription: string,
-  userCatalog: CatalogItem[]
+  userCatalog: CatalogItem[],
+  productionRates: ProductionRate[],
+  kynRates: KYNRates,
+  gapAnswers?: Record<string, string>,
+  webSearchContext?: string,
+  onProgress?: (progress: Pass2Progress) => void,
+  manualMode?: boolean
 ): Promise<AiPass2Response> {
-  const catalogNames = userCatalog.map((i) => i.name)
+  const basePrompt = buildUnifiedEstimatePrompt({
+    catalog: userCatalog,
+    productionRates,
+    kynRates,
+  })
 
-  const system = `You are Jamie, a KYN-trained estimating agent for BidClaw. You generate unified scope descriptions AND line items in a single response.
+  const searchBlock = webSearchContext ? `\n\n${webSearchContext}\n` : ''
 
-JAMIE'S ESTIMATING INTELLIGENCE:
-1. Build a COMPLETE material assembly — every physical component that goes into the job is a line item. For stone veneer this means: stone, mortar, metal lath, water-resistive barrier, fasteners, weep screed, corner pieces, and sealer if specified. For pavers: pavers, polymeric sand, gravel base, geotextile fabric, edge restraint.
-2. Equipment is always billed separately at an internal rental rate — cement mixer, grinder, plate compactor, excavator, skid steer, etc.
-3. Labor uses the KYN full crew day standard: 27 man hours = 3 men × 9 hours. Round up to full day if within 20% of 27 hours.
-4. Labor hour baselines by work type:
-   - Stone veneer: 0.12–0.25 hrs/SF (simple to complex)
-   - Paver patio: 0.20–0.38 hrs/SF
-   - Natural stone steps: 1.5–4.0 hrs/step
-   - Retaining wall: 0.25–0.50 hrs/SF face
-   - Planting: 0.25–0.60 hrs/plant
-   - Mulch: 0.05–0.10 hrs/SF
-5. Always add a General Conditions line to cover incidentals (waste disposal, site protection, mobilization).
+  const manualBlock = manualMode
+    ? `\n\nTHE CONTRACTOR HAS DEFINED THESE WORK AREAS. Estimate each one exactly as named. Do not add work areas. Do not combine work areas. Do not skip any. Build a complete line item set for each one listed:\n${approvedWorkAreas.map((wa) => `- ${wa.name}`).join('\n')}\n`
+    : ''
 
-CRITICAL RULES:
-- Output quantities and scope ONLY. Do NOT include pricing, unit costs, or dollar amounts.
-- Pricing is handled separately by BlueQuickCalc using the contractor's KYN rates.
-- Match item names to this contractor's Item Catalog where possible: ${JSON.stringify(catalogNames)}
-- Use professional, trade-savvy language — no salesy wording.
-- Written in third person imperative ("Install..." not "We will install...")
-- ABSOLUTE RULE: Every material, product, or component mentioned in the scope_description MUST have a corresponding line item. No exceptions. If it's in the scope, it gets a line item.
+  const systemPrompt = `${basePrompt}${searchBlock}${manualBlock}
 
-For each work area return:
-- scope_description: A professional 2-4 sentence client-facing scope. Mention the key materials and methods.
+You are estimating a SINGLE work area. Return scope_description and line_items generated TOGETHER.
+
+For the work area return:
+- scope_description: Bullet list (• character) per the SCOPE FORMAT rules above. Must match line_items 100%.
 - line_items: Complete list with id, name, quantity, unit, category, description
 - gap_questions: 2-4 questions to confirm with the contractor (site conditions, material preferences, access)
 - new_catalog_items: item names that are NOT in the contractor's catalog
 
 For each line item include:
+- id: unique identifier (e.g. "li_1")
 - name: item name (match catalog names exactly where possible)
 - quantity: numeric quantity
 - unit: SF | LF | CY | SY | EA | LS | HR | Day | Allow
 - category: Materials | Labor | Equipment | Subcontractor | Disposal
 - description: one precise sentence describing this line item's scope (crew-directive style)
 
-Return ONLY valid JSON:
-{
-  "work_areas": [
-    {
-      "id": "wa_1",
-      "name": "Front Entry Walkway",
-      "scope_description": "Install approximately 120 SF of irregular bluestone walkway on a compacted gravel base with polymeric sand joints. Includes excavation, base preparation, and edge restraint installation.",
-      "line_items": [
-        {
-          "id": "li_1",
-          "name": "Bluestone Irregular",
-          "quantity": 120,
-          "unit": "SF",
-          "category": "Materials",
-          "description": "Supply irregular bluestone pavers for walkway installation."
+${PASS2_SINGLE_SUFFIX}`
+
+  const completedWorkAreas: AiPass2WorkArea[] = []
+
+  for (let i = 0; i < approvedWorkAreas.length; i++) {
+    const wa = approvedWorkAreas[i]
+
+    // Report progress — starting this work area
+    onProgress?.({
+      completedCount: i,
+      totalCount: approvedWorkAreas.length,
+      currentWorkAreaName: wa.name,
+    })
+
+    let result: AiPass2WorkArea | null = null
+
+    // Try up to 2 attempts per work area
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        result = await runPass2Single(wa, projectDescription, systemPrompt, gapAnswers)
+        break
+      } catch (err) {
+        if (attempt === 0) {
+          console.warn(`[Pass2] Retry for "${wa.name}":`, err instanceof Error ? err.message : err)
+          await new Promise((r) => setTimeout(r, 1500))
+        } else {
+          console.error(`[Pass2] Failed for "${wa.name}" after retry:`, err instanceof Error ? err.message : err)
         }
-      ],
-      "gap_questions": ["Is this on an existing gravel base or new construction?"],
-      "new_catalog_items": ["Polymeric Sand"]
+      }
     }
-  ]
-}`
 
-  const { data, error } = await callAI<AiPass2Response>({
-    system,
-    max_tokens: 8000,
-    messages: [
-      {
-        role: 'user',
-        content: `Work areas to estimate:\n${JSON.stringify(approvedWorkAreas)}\n\nProject context: ${projectDescription}`,
-      },
-    ],
-  })
+    if (result) {
+      completedWorkAreas.push(result)
 
-  if (error || !data) throw new Error(error ?? 'No response from Jamie')
-  return data
+      // Report progress — work area completed
+      onProgress?.({
+        completedCount: i + 1,
+        totalCount: approvedWorkAreas.length,
+        currentWorkAreaName: i + 1 < approvedWorkAreas.length
+          ? approvedWorkAreas[i + 1].name
+          : wa.name,
+        completedWorkArea: result,
+      })
+    } else {
+      // Work area failed even after retry — create a stub so the estimate isn't incomplete
+      completedWorkAreas.push({
+        id: wa.id,
+        name: wa.name,
+        scope_description: `• ${wa.description || wa.name} — Jamie could not generate line items for this work area. Add items manually.`,
+        line_items: [],
+        gap_questions: [],
+        new_catalog_items: [],
+      })
+    }
+  }
+
+  return { work_areas: completedWorkAreas }
 }

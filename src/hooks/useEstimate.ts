@@ -8,12 +8,16 @@ import type {
   LineItemData,
   CatalogItem,
   AiPass1Response,
-  AiPass2Response,
 } from '@/lib/types'
 import { runPass1, runPass2 } from '@/lib/anthropic'
+import type { Pass2Progress } from '@/lib/anthropic'
 import { matchAllLineItems } from '@/lib/catalogMatcher'
+import { searchMaterialAssemblies, formatSearchResultsForPrompt } from '@/lib/webSearch'
+import { KYN_RATE_DEFAULTS } from '@/lib/jamiePrompt'
+import type { KYNRates } from '@/lib/jamiePrompt'
+import type { ProductionRate } from '@/lib/types'
 
-export function useEstimate(estimateId: string | null) {
+export function useEstimate(estimateId: string | null, onJamieError?: (msg: string, retry?: () => void) => void) {
   const { user } = useAuth()
   const [estimate, setEstimate] = useState<EstimateRecord | null>(null)
   const [loading, setLoading] = useState(true)
@@ -30,7 +34,7 @@ export function useEstimate(estimateId: string | null) {
         .select('*')
         .eq('id', estimateId)
         .single()
-      if (error) { toast.error('Failed to load estimate'); setLoading(false); return }
+      if (error) { toast.error('Jamie hit a snag — couldn\'t load this estimate. Try refreshing the page.'); setLoading(false); return }
       setEstimate(data as EstimateRecord)
       setLoading(false)
     }
@@ -76,7 +80,7 @@ export function useEstimate(estimateId: string | null) {
       })
       .select('id')
       .single()
-    if (error) { toast.error(error.message); return null }
+    if (error) { toast.error('Jamie hit a snag — couldn\'t save the project. Try again.'); return null }
     return row.id
   }, [user])
 
@@ -87,14 +91,14 @@ export function useEstimate(estimateId: string | null) {
       const ext = file.name.split('.').pop()
       const path = user.id + '/' + crypto.randomUUID() + '.' + ext
       const { error } = await supabase.storage.from('plans').upload(path, file)
-      if (error) { toast.error('Upload failed: ' + file.name); continue }
+      if (error) { toast.error('Jamie hit a snag — couldn\'t upload ' + file.name + '. Check the file and try again.'); continue }
       const { data } = supabase.storage.from('plans').getPublicUrl(path)
       urls.push(data.publicUrl)
     }
     return urls
   }, [user])
 
-  const runAiPass1 = useCallback(async (): Promise<WorkAreaData[] | null> => {
+  const runAiPass1 = useCallback(async (): Promise<{ workAreas: WorkAreaData[]; gapQuestions: Record<string, string[]> } | null> => {
     if (!estimate) return null
     setAiLoading(true)
     setAiMessage('Reading your project plans...')
@@ -113,66 +117,140 @@ export function useEstimate(estimateId: string | null) {
         id: wa.id, name: wa.name, description: wa.description,
         complexity: wa.complexity, approved: false,
       }))
-      updateEstimate({ work_areas: workAreas, workflow_step: 2, approval_status: 'draft' })
-      return workAreas
+      // Extract gap questions from Pass1 response
+      const gapQuestions: Record<string, string[]> = {}
+      for (const wa of result.work_areas) {
+        if (wa.gap_questions && wa.gap_questions.length > 0) {
+          gapQuestions[wa.id] = wa.gap_questions
+        }
+      }
+      updateEstimate({ work_areas: workAreas, gap_questions: gapQuestions, workflow_step: 2, approval_status: 'draft' })
+      return { workAreas, gapQuestions }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Jamie analysis failed')
+      const msg = err instanceof Error ? err.message : 'Jamie analysis failed'
+      if (onJamieError) onJamieError(msg, runAiPass1)
+      else toast.error(msg)
       return null
     } finally {
       setAiLoading(false)
       setAiMessage('')
     }
-  }, [estimate, updateEstimate])
+  }, [estimate, updateEstimate, onJamieError])
 
   const runAiPass2 = useCallback(async (
-    approvedWorkAreas: WorkAreaData[]
+    approvedWorkAreas: WorkAreaData[],
+    gapAnswers?: Record<string, string>,
+    manualMode?: boolean
   ): Promise<{ lineItems: Record<string, LineItemData[]>; scopeDescriptions: Record<string, string>; gapQuestions: Record<string, string[]> } | null> => {
     if (!estimate || !user) return null
     setAiLoading(true)
     setAiMessage('Analyzing work areas...')
     try {
-      const { data: catalog } = await supabase
-        .from('kyn_catalog_items').select('*').eq('user_id', user.id)
+      // Fetch catalog, production rates, and KYN rates in parallel
+      const [{ data: catalog }, { data: ratesData }, { data: kynData }] = await Promise.all([
+        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
+        supabase.from('production_rates').select('*').eq('user_id', user.id),
+        supabase.from('bidclaw_kyn_rates').select('*').eq('user_id', user.id).maybeSingle(),
+      ])
       const userCatalog = (catalog ?? []) as CatalogItem[]
-      setAiMessage('Building line items...')
-      const result: AiPass2Response = await runPass2(
-        approvedWorkAreas.map((wa) => ({ id: wa.id, name: wa.name, description: wa.description })),
-        estimate.project_description ?? '',
-        userCatalog
-      )
-      setAiMessage('Matching items to your catalog...')
-      const allItems = result.work_areas.flatMap((wa) => wa.line_items)
-      const matchResults = await matchAllLineItems(allItems, userCatalog, user.id)
+      const productionRates = (ratesData ?? []) as ProductionRate[]
+      const kynRates: KYNRates = kynData
+        ? {
+            retail_labor_rate: kynData.retail_labor_rate ?? KYN_RATE_DEFAULTS.retail_labor_rate,
+            material_markup: kynData.material_markup ?? KYN_RATE_DEFAULTS.material_markup,
+            sub_markup: kynData.sub_markup ?? KYN_RATE_DEFAULTS.sub_markup,
+            equipment_markup: kynData.equipment_markup ?? KYN_RATE_DEFAULTS.equipment_markup,
+          }
+        : { ...KYN_RATE_DEFAULTS }
+
+      // Web Search Layer — fire material assembly searches
+      setAiMessage('Researching material assemblies...')
+      const waList = approvedWorkAreas.map((wa) => ({ id: wa.id, name: wa.name, description: wa.description }))
+      const searchResults = await searchMaterialAssemblies(waList)
+      const searchContext = formatSearchResultsForPrompt(searchResults, waList)
+
+      // Accumulators for incremental results
       const lineItems: Record<string, LineItemData[]> = {}
       const scopeDescriptions: Record<string, string> = {}
       const gapQuestions: Record<string, string[]> = {}
       const newCatalogItems: string[] = []
-      for (const wa of result.work_areas) {
-        // Extract scope and gap questions from unified response
-        if (wa.scope_description) scopeDescriptions[wa.id] = wa.scope_description
-        if (wa.gap_questions) gapQuestions[wa.id] = wa.gap_questions
-        lineItems[wa.id] = wa.line_items.map((li) => {
-          const match = matchResults.get(li.id)
-          if (match?.matchType === 'new_created') newCatalogItems.push(match.catalogItem.id)
-          return { ...li, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
-        })
+
+      // Transition to Step 3 immediately so the user sees progress
+      updateEstimate({
+        line_items: lineItems,
+        scope_descriptions: scopeDescriptions,
+        gap_questions: gapQuestions,
+        new_catalog_items_created: newCatalogItems,
+        workflow_step: 3,
+        approval_status: 'work_areas_approved',
+      })
+
+      // Progress callback — updates the loading message and incrementally adds each completed work area
+      const handleProgress = async (progress: Pass2Progress) => {
+        const { completedCount, totalCount, currentWorkAreaName, completedWorkArea } = progress
+        setAiMessage(`Jamie is working on ${currentWorkAreaName}... (${completedCount} of ${totalCount} complete)`)
+
+        if (completedWorkArea) {
+          // Match this work area's line items to catalog
+          const waItems = completedWorkArea.line_items ?? []
+          const matchResults = await matchAllLineItems(waItems, userCatalog, user.id)
+
+          if (completedWorkArea.scope_description) scopeDescriptions[completedWorkArea.id] = completedWorkArea.scope_description
+          if (completedWorkArea.gap_questions) gapQuestions[completedWorkArea.id] = completedWorkArea.gap_questions
+
+          lineItems[completedWorkArea.id] = waItems.map((li) => {
+            const match = matchResults.get(li.id)
+            if (match?.matchType === 'new_created') newCatalogItems.push(match.catalogItem.id)
+            return { ...li, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
+          })
+
+          // Incrementally update estimate so completed work areas render immediately
+          updateEstimate({
+            line_items: { ...lineItems },
+            scope_descriptions: { ...scopeDescriptions },
+            gap_questions: { ...gapQuestions },
+            new_catalog_items_created: [...newCatalogItems],
+          })
+        }
       }
+
+      setAiMessage(`Jamie is working on ${waList[0]?.name ?? 'work areas'}... (0 of ${waList.length} complete)`)
+
+      // Run Pass2 per work area with progress callbacks
+      await runPass2(
+        waList,
+        estimate.project_description ?? '',
+        userCatalog,
+        productionRates,
+        kynRates,
+        gapAnswers,
+        searchContext,
+        handleProgress,
+        manualMode
+      )
+
       setAiMessage('Estimate ready for review')
       await new Promise((r) => setTimeout(r, 500))
+
+      // Final update with all results
       updateEstimate({
-        line_items: lineItems, scope_descriptions: scopeDescriptions,
-        gap_questions: gapQuestions, new_catalog_items_created: newCatalogItems,
-        workflow_step: 3, approval_status: 'work_areas_approved',
+        line_items: lineItems,
+        scope_descriptions: scopeDescriptions,
+        gap_questions: gapQuestions,
+        new_catalog_items_created: newCatalogItems,
       })
+
       return { lineItems, scopeDescriptions, gapQuestions }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Line item generation failed')
+      const msg = err instanceof Error ? err.message : 'Line item generation failed'
+      if (onJamieError) onJamieError(msg)
+      else toast.error(msg)
       return null
     } finally {
       setAiLoading(false)
       setAiMessage('')
     }
-  }, [estimate, user, updateEstimate])
+  }, [estimate, user, updateEstimate, onJamieError])
 
   const sendToQuickCalc = useCallback(async (): Promise<boolean> => {
     if (!estimate || !user) return false
@@ -186,11 +264,13 @@ export function useEstimate(estimateId: string | null) {
         'Disposal': 'other',
       }
 
-      // ── Fetch user's existing QC catalog ──
-      const { data: existingCatalog } = await supabase
-        .from('kyn_catalog_items')
-        .select('*')
-        .eq('user_id', user.id)
+      // ── Fetch user's existing QC catalog + KYN rates ──
+      const [{ data: existingCatalog }, { data: kynData }] = await Promise.all([
+        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
+        supabase.from('bidclaw_kyn_rates').select('*').eq('user_id', user.id).maybeSingle(),
+      ])
+
+      const retailLaborRate = kynData?.retail_labor_rate ?? KYN_RATE_DEFAULTS.retail_labor_rate
 
       const catalogItems = existingCatalog ?? []
       const catalogByNameType = new Map<string, any>()
@@ -242,13 +322,13 @@ export function useEstimate(estimateId: string | null) {
             newCatalogItems.push({ id: newId, name: li.name, type: qcType })
           }
 
-          // Get rate from catalog item
+          // Get rate from catalog item — labor uses the KYN retail labor rate
           let rate = 0
-          if (qcType === 'material') rate = catalogItem.unit_cost ?? 0
+          if (qcType === 'labor') rate = retailLaborRate
+          else if (qcType === 'material') rate = catalogItem.unit_cost ?? 0
           else if (qcType === 'subcontractor') rate = catalogItem.sub_cost ?? 0
           else if (qcType === 'equipment') rate = catalogItem.unit_cost ?? 0
           else if (qcType === 'other') rate = catalogItem.default_amount ?? 0
-          // Labor rate comes from labor types in settings — use 0 for now
 
           const amount = li.quantity * rate
 
@@ -347,17 +427,10 @@ export function useEstimate(estimateId: string | null) {
       } : prev)
 
       // ── Show result ──
-      if (newCatalogItems.length > 0) {
-        toast.success(
-          `Estimate sent to QuickCalc! ${newCatalogItems.length} new catalog item${newCatalogItems.length !== 1 ? 's' : ''} created at $0 — add pricing in QuickCalc.`,
-          { duration: 8000 }
-        )
-      } else {
-        toast.success('Estimate sent to QuickCalc!')
-      }
+      toast.success('Estimate sent to QuickCalc!')
       return true
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to send')
+      toast.error('Jamie hit a snag — couldn\'t send to QuickCalc. Try again.')
       return false
     }
   }, [estimate, user])

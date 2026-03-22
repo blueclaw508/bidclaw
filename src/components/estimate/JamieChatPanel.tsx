@@ -1,7 +1,35 @@
 import { useState, useRef, useEffect } from 'react'
-import { Bot, Send, Loader2, X } from 'lucide-react'
+import { Send, Loader2, X } from 'lucide-react'
 import type { JamieMessage } from '@/lib/jamie'
 import { isIntakeComplete } from '@/lib/jamie'
+
+// ── Jamie Avatar SVG (reusable at any size) ──
+function JamieAvatar({ size = 52 }: { size?: number }) {
+  const borderW = size > 30 ? 2 : 1.5
+  const fontSize = size * 0.48
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} fill="none" className="flex-shrink-0">
+      <defs>
+        <filter id="ja-shadow" x="-10%" y="-10%" width="130%" height="130%">
+          <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#000" floodOpacity="0.25" />
+        </filter>
+      </defs>
+      <circle cx={size / 2} cy={size / 2} r={size / 2 - borderW} fill="#0c1428" stroke="#3b82f6" strokeWidth={borderW} filter="url(#ja-shadow)" />
+      <text
+        x="50%"
+        y="50%"
+        dominantBaseline="central"
+        textAnchor="middle"
+        fill="#fff"
+        fontFamily="Georgia, 'Times New Roman', serif"
+        fontWeight="700"
+        fontSize={fontSize}
+      >
+        J
+      </text>
+    </svg>
+  )
+}
 
 interface JamieChatPanelProps {
   messages: JamieMessage[]
@@ -49,19 +77,18 @@ export function JamieChatPanel({
 
   return (
     <div className="flex flex-col rounded-xl border border-[#1e40af]/20 bg-white shadow-lg overflow-hidden" style={{ height: '520px' }}>
-      {/* Header */}
-      <div className="flex items-center justify-between bg-gradient-to-r from-[#0c1428] to-[#1e40af] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15">
-            <Bot size={18} className="text-white" />
-          </div>
+      {/* ── CHANGE 1: Bigger Blue Bar (~85px) ── */}
+      <div className="flex items-center justify-between bg-gradient-to-r from-[#0c1428] to-[#1e40af] px-4 py-4" style={{ minHeight: '85px' }}>
+        <div className="flex items-center gap-3">
+          {/* ── CHANGE 2: Jamie Avatar (52×52) ── */}
+          <JamieAvatar size={52} />
           <div>
-            <h3 className="text-sm font-bold text-white">Jamie</h3>
-            <p className="text-[10px] text-blue-200">Estimating Agent</p>
+            <h3 className="text-lg font-bold text-white leading-tight" style={{ fontSize: '18px' }}>Jamie</h3>
+            <p className="text-blue-200 font-medium" style={{ fontSize: '13px' }}>Estimating Agent</p>
           </div>
         </div>
-        <button onClick={onClose} className="rounded-md p-1 text-blue-200 hover:bg-white/10 hover:text-white">
-          <X size={16} />
+        <button onClick={onClose} className="rounded-md p-1.5 text-blue-200 hover:bg-white/10 hover:text-white transition-colors">
+          <X size={18} />
         </button>
       </div>
 
@@ -76,9 +103,11 @@ export function JamieChatPanel({
                   : 'bg-white border border-slate-200 text-slate-700 rounded-bl-sm shadow-sm'
               }`}
             >
+              {/* ── CHANGE 3: Mini avatar in message bubble ── */}
               {msg.role === 'jamie' && (
-                <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-[#1e40af]">
-                  <Bot size={10} /> Jamie
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold text-[#1e40af]">
+                  <JamieAvatar size={20} />
+                  Jamie
                 </div>
               )}
               {msg.content}

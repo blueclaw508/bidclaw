@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
+import * as pdfjsLib from 'pdfjs-dist'
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
 import type { EstimateRecord } from '@/lib/types'
 import type { JamieMessage } from '@/lib/jamie'
 import { JamieChatPanel } from './JamieChatPanel'
@@ -16,6 +18,7 @@ import {
   RefreshCw,
   Bot,
   Ruler,
+  Loader2,
 } from 'lucide-react'
 
 interface Step1ProjectInfoProps {
@@ -27,6 +30,7 @@ interface Step1ProjectInfoProps {
     files: File[]
   }) => void
   onBack?: () => void
+  generating?: boolean
   // Jamie props
   jamieMessages?: JamieMessage[]
   jamieLoading?: boolean
@@ -99,6 +103,7 @@ function ProgressIndicator({ currentStep }: { currentStep: number }) {
 function FilePreview({ file, onRemove, onMeasure }: { file: UploadedFile; onRemove: () => void; onMeasure?: () => void }) {
   const isPdf = file.file.type === 'application/pdf'
   const isImage = file.file.type.startsWith('image/')
+  const canMeasure = (isImage || isPdf) && onMeasure
 
   return (
     <div className="group relative flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-blue-200">
@@ -122,7 +127,7 @@ function FilePreview({ file, onRemove, onMeasure }: { file: UploadedFile; onRemo
           {file.pageCount ? ` \u00B7 ${file.pageCount} page${file.pageCount !== 1 ? 's' : ''}` : ''}
         </p>
       </div>
-      {isImage && onMeasure && (
+      {canMeasure && (
         <button
           onClick={onMeasure}
           className="flex-shrink-0 inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 hover:bg-[#2563EB] hover:text-white transition-colors"
@@ -145,8 +150,26 @@ function FilePreview({ file, onRemove, onMeasure }: { file: UploadedFile; onRemo
 
 export { ProgressIndicator }
 
+/** Render PDF page 1 as a data URL for the measure tool */
+async function rasterizePdfPage1(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer()
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+  const page = await pdf.getPage(1)
+  const scale = 150 / 72 // 150 DPI
+  const viewport = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not create canvas context')
+  await page.render({ canvasContext: ctx, viewport, canvas } as Parameters<typeof page.render>[0]).promise
+  const dataUrl = canvas.toDataURL('image/png')
+  pdf.destroy()
+  return dataUrl
+}
+
 export function Step1ProjectInfo({
-  estimate, onGenerate, onBack,
+  estimate, onGenerate, onBack, generating,
   jamieMessages, jamieLoading, jamieBuildingEstimate,
   onJamieStart, onJamieSendMessage, onJamieBuildEstimate,
 }: Step1ProjectInfoProps) {
@@ -349,14 +372,30 @@ export function Step1ProjectInfo({
           {/* Uploaded files list */}
           {uploadedFiles.length > 0 && (
             <div className="mt-4 space-y-2">
-              {uploadedFiles.map((f, idx) => (
-                <FilePreview
-                  key={`${f.file.name}-${idx}`}
-                  file={f}
-                  onRemove={() => removeFile(idx)}
-                  onMeasure={f.preview ? () => setMeasureImageUrl(f.preview!) : undefined}
-                />
-              ))}
+              {uploadedFiles.map((f, idx) => {
+                const isPdf = f.file.type === 'application/pdf'
+                const isImage = f.file.type.startsWith('image/')
+                const handleMeasure = isImage && f.preview
+                  ? () => setMeasureImageUrl(f.preview!)
+                  : isPdf
+                  ? async () => {
+                      try {
+                        const dataUrl = await rasterizePdfPage1(f.file)
+                        setMeasureImageUrl(dataUrl)
+                      } catch {
+                        // Silently fail — measure tool won't open
+                      }
+                    }
+                  : undefined
+                return (
+                  <FilePreview
+                    key={`${f.file.name}-${idx}`}
+                    file={f}
+                    onRemove={() => removeFile(idx)}
+                    onMeasure={handleMeasure}
+                  />
+                )
+              })}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-[#2563EB] hover:bg-blue-50 transition-colors"
@@ -384,17 +423,22 @@ export function Step1ProjectInfo({
 
           <button
             onClick={handleSubmit}
-            disabled={!canSubmit}
+            disabled={!canSubmit || generating}
             className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isRegenerate ? (
+            {generating ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Jamie is on it...
+              </>
+            ) : isRegenerate ? (
               <>
                 <RefreshCw size={16} />
-                Regenerate Estimate
+                Regenerate Work Areas
               </>
             ) : (
               <>
-                Generate Estimate
+                Generate Work Areas
                 <ArrowRight size={16} />
               </>
             )}

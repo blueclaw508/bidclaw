@@ -2,10 +2,12 @@
 // Powered by Anthropic Claude, trained in KYN methodology
 
 import { callAI } from '@/lib/supabase'
+import { buildUnifiedEstimatePrompt, crossValidateScopeAndItems } from '@/lib/jamiePrompt'
+import type { KYNRates } from '@/lib/jamiePrompt'
 import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate } from '@/lib/types'
 
-// ── Jamie System Prompt ──
-const JAMIE_SYSTEM = `You are Jamie, the AI estimating agent for BidClaw — a landscape and masonry estimating tool by Blue Claw Group.
+// ── Jamie Conversational System Prompt (intake, review, summary — NOT estimate generation) ──
+const JAMIE_CONVERSATIONAL = `You are Jamie, the estimating agent for BidClaw — a landscape and masonry estimating tool by Blue Claw Group.
 
 You sound like an experienced landscaping estimator, not a generic chatbot. Short, direct questions. Professional and trade-savvy. No jargon overload.
 
@@ -71,18 +73,19 @@ export async function jamieBuildEstimate(
   clientName: string,
   projectAddress: string,
   userCatalog: CatalogItem[],
-  productionRates: ProductionRate[]
+  productionRates: ProductionRate[],
+  kynRates: KYNRates
 ): Promise<JamieBuildResult> {
-  const catalogNames = userCatalog.map((i) => `${i.name} (${i.type})`).join(', ')
-  const ratesList = productionRates.map((r) => `${r.task_name}: ${r.hours_per_unit} hrs/${r.unit}, crew of ${r.crew_size}`).join('; ')
+  const basePrompt = buildUnifiedEstimatePrompt({
+    catalog: userCatalog,
+    productionRates,
+    kynRates,
+  })
 
   const { data, error } = await callAI<JamieBuildResult>({
-    system: `${JAMIE_SYSTEM}
+    system: `${basePrompt}
 
-You are building an estimate from a job intake conversation. Generate work areas with line items.
-
-The contractor's Item Catalog: ${catalogNames || 'No items yet'}
-The contractor's Production Rates: ${ratesList || 'No rates configured'}
+You are building an estimate from a job intake conversation. Generate work areas with UNIFIED scope descriptions and line items.
 
 WORK AREA NAMING RULES:
 - Every work area name must include a location descriptor unless obviously unique (e.g. "Driveway")
@@ -90,20 +93,6 @@ WORK AREA NAMING RULES:
 - Use relational descriptors otherwise: "Bluestone Patio at Rear of Residence"
 - If plan labels areas by name, use plan terminology
 - Differentiate similar items: never "Stone Wall" x5 — always include location
-
-RULES:
-- Match item names to the catalog exactly where possible
-- Use realistic quantities based on the intake answers
-- Include all relevant categories: Materials, Labor, Equipment, Subcontractor, Disposal
-- Output quantities and scope ONLY — no dollar amounts
-
-SCOPE DESCRIPTIONS — use this exact bullet format (• character, not *):
-• [Line 1] One sentence: what is being installed, where, per what spec.
-• [Line 2] Overall size or quantity.
-• [Line 3] Material specified if known.
-• [Lines 4+] Step-by-step crew instructions, one bullet per step.
-• [Last line] "Disposal Fees Included." only if demolition/removal is in scope.
-The location in the work area name and Line 1 must match.
 
 Return ONLY valid JSON:
 {
@@ -129,85 +118,77 @@ Return ONLY valid JSON:
   })
 
   if (error || !data) throw new Error(error ?? 'Jamie could not build the estimate')
+
+  // Cross-validate scope/line-item alignment
+  for (const [waId, scope] of Object.entries(data.scope_descriptions ?? {})) {
+    const items = data.line_items[waId]
+    if (scope && items) {
+      crossValidateScopeAndItems(scope, items)
+    }
+  }
+
   return data
 }
 
-// ── Scope Writer (per work area) ──
+// ── Unified Scope + Line Items Writer (per work area) ──
+// Prime Directive: scope and line items are ALWAYS generated together.
 
-const NOTES_FORMAT_PROMPT = `Write scope notes for a work area using this EXACT bullet format. These notes serve as both the client proposal AND the crew field directive.
-
-MANDATORY FORMAT (every line is a bullet using the • character):
-• [Line 1] One sentence: what is being installed, where on the property, and per what spec (plan or site visit).
-• [Line 2] Overall size or quantity of the work area.
-• [Line 3] Material specified — manufacturer, product name, color if known. Skip if no specific material.
-• [Lines 4+] Step-by-step work sequence. One bullet per step. Written as crew instructions — precise enough to hold up as a field directive.
-• [Last line] "Disposal Fees Included." — ONLY when demolition or removal is involved.
-
-CRITICAL RULES:
-- Every single line = one bullet point (•)
-- No asterisks (*) — bullets (•) only
-- No numbered lists
-- No plain unformatted lines
-- No headers within notes
-- No salesy language — pure scope description
-- Written in third person imperative ("Install..." not "We will install...")
-- Precise enough that a crew could execute from this document alone
-- The location in Line 1 must match the work area name
-
-EXAMPLE — Paver Patio:
-• Install new EP Henry Cambridge paver patio at rear of residence per site visit.
-• Approx. 890 SF patio area.
-• EP Henry Cambridge Cobble, color: Toffee Onyx.
-• Excavate and remove existing lawn area to depth of 10".
-• Install and compact 6" processed gravel base.
-• Install 1" bedding sand and screed to grade.
-• Install pavers per pattern specified.
-• Sweep polymeric sand into joints and compact.
-• Install aluminum edge restraint at perimeter.
-• Disposal Fees Included.
-
-EXAMPLE — Loam & Sod:
-• Install new lawn area at rear of residence per site visit.
-• Approx. 1,430 SF lawn area.
-• Premium sod, species per site conditions.
-• Fine grade existing subgrade and remove construction debris from lawn areas.
-• Deliver and spread 27 CY of premium loam at 6" depth.
-• Fine grade and roll loam to smooth, even finish.
-• Install sod in staggered pattern per standard practice.
-• Roll sod upon completion.
-• Water all sod thoroughly upon installation.
-• Disposal Fees Included.
-
-SPEC SOURCE LANGUAGE for Line 1:
-- If plan was uploaded → "per [Plan Name] prepared by [Designer] dated [Date]"
-- If no plan → "per site visit"
-- If dimensions were manually entered → "per site measurements"`
+export interface JamieScopeResult {
+  scope_description: string
+  line_items: LineItemData[]
+}
 
 export async function jamieWriteScope(
   workAreaName: string,
   lineItems: LineItemData[],
+  userCatalog: CatalogItem[],
+  productionRates: ProductionRate[],
+  kynRates: KYNRates,
   projectDescription?: string,
   planUploaded?: boolean
-): Promise<string> {
+): Promise<JamieScopeResult> {
+  const basePrompt = buildUnifiedEstimatePrompt({
+    catalog: userCatalog,
+    productionRates,
+    kynRates,
+  })
+
   const itemsSummary = lineItems.map((li) => `${li.name}: ${li.quantity} ${li.unit} (${li.category})`).join('\n')
 
-  const { data, error } = await callAI<{ scope: string }>({
-    system: `${JAMIE_SYSTEM}
+  const { data, error } = await callAI<{ scope_description: string; line_items: LineItemData[] }>({
+    system: `${basePrompt}
 
-${NOTES_FORMAT_PROMPT}
+You are rewriting the scope and line items for a single work area. The user has existing line items — use them as a starting point but apply the Prime Directive: if you add something to the scope, add a line item. If you remove something from the scope, remove the line item.
 
-Return ONLY valid JSON: { "scope": "• Line 1\\n• Line 2\\n..." }`,
-    max_tokens: 800,
+SPEC SOURCE LANGUAGE for the first bullet:
+- If plan was uploaded → "per project plans"
+- If no plan → "per site visit"
+
+Return ONLY valid JSON:
+{
+  "scope_description": "• Line 1\\n• Line 2\\n...",
+  "line_items": [
+    { "id": "li_1", "name": "Item Name", "quantity": 100, "unit": "SF", "category": "Materials", "description": "Scope line" }
+  ]
+}`,
+    max_tokens: 2000,
     messages: [
       {
         role: 'user',
-        content: `Work Area: ${workAreaName}\n\nLine Items:\n${itemsSummary}${projectDescription ? `\n\nProject Description: ${projectDescription}` : ''}${planUploaded ? '\n\nNote: Plans were uploaded for this project.' : ''}`,
+        content: `Work Area: ${workAreaName}\n\nExisting Line Items:\n${itemsSummary}${projectDescription ? `\n\nProject Description: ${projectDescription}` : ''}${planUploaded ? '\n\nNote: Plans were uploaded for this project.' : ''}`,
       },
     ],
   })
 
   if (error || !data) throw new Error(error ?? 'Jamie could not write scope')
-  return data.scope
+
+  // Cross-validate
+  crossValidateScopeAndItems(data.scope_description, data.line_items)
+
+  return {
+    scope_description: data.scope_description,
+    line_items: data.line_items,
+  }
 }
 
 // ── Estimate Narrative / Summary ──
@@ -224,7 +205,7 @@ export async function jamieGenerateSummary(
   }).join('\n')
 
   const { data, error } = await callAI<{ summary: string }>({
-    system: `${JAMIE_SYSTEM}
+    system: `${JAMIE_CONVERSATIONAL}
 
 Write a professional estimate introduction paragraph for a client proposal. Include:
 1. A brief project overview
@@ -367,7 +348,7 @@ Adjust the summary numbers based on the actual line items provided.`
     : [{ role: 'user', content: initialContext }]
 
   const { data, error } = await callAI<{ reply: string }>({
-    system: `${JAMIE_SYSTEM}
+    system: `${JAMIE_CONVERSATIONAL}
 
 You are reviewing a work area estimate with the contractor. Be direct, trade-savvy, and helpful. If the contractor asks questions, answer them using the line item data. If they want changes, suggest specific adjustments.
 

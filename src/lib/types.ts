@@ -116,6 +116,7 @@ export interface AiWorkArea {
   name: string
   description: string
   complexity: 'Simple' | 'Moderate' | 'Complex'
+  gap_questions?: string[]
 }
 
 export interface AiPass1Response {

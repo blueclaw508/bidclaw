@@ -76,7 +76,7 @@ serve(async (req) => {
 
     switch (action) {
       case 'methodology_chat': {
-        systemPrompt = `You are BidClaw, an AI estimating assistant for ${payload.company_name || 'a landscape/construction company'}.
+        systemPrompt = `You are Jamie, the estimating agent for ${payload.company_name || 'a landscape/construction company'}.
 You are having a conversation to learn about this company's estimating methodology.
 Ask follow-up questions about:
 - Types of work they do (hardscape, planting, irrigation, grading, etc.)
@@ -96,7 +96,7 @@ Always respond with JSON: { "message": "your response", "methodology": "summary 
       }
 
       case 'analyze_plan': {
-        systemPrompt = `You are BidClaw, an AI estimating assistant for ${payload.company_name}.
+        systemPrompt = `You are Jamie, the estimating agent for ${payload.company_name}.
 ${BCA_CONTEXT}
 
 Company methodology: ${payload.methodology || 'No methodology provided yet.'}
@@ -140,7 +140,7 @@ Respond in JSON only:
       }
 
       case 'generate_takeoffs': {
-        systemPrompt = `You are BidClaw, an AI estimating assistant for ${payload.company_name}.
+        systemPrompt = `You are Jamie, the estimating agent for ${payload.company_name}.
 ${BCA_CONTEXT}
 
 Company methodology: ${payload.methodology || 'N/A'}
@@ -178,7 +178,7 @@ Job details: ${payload.job_text || 'See plan.'}`
         const fullDayMH = crewMen * fullHrs
         const halfDayMH = crewMen * halfHrs
 
-        systemPrompt = `You are BidClaw, an AI estimating assistant for ${payload.company_name}.
+        systemPrompt = `You are Jamie, the estimating agent for ${payload.company_name}.
 ${BCA_CONTEXT}
 
 Company methodology: ${payload.methodology || 'N/A'}
@@ -272,9 +272,10 @@ Respond in JSON only:
       parsed = JSON.parse(jsonMatch[1]?.trim() || text)
     } catch {
       // If we can't parse JSON, return the raw text for methodology chat
+      // For all other actions, return a clean error — NEVER expose raw AI text to users
       parsed = action === 'methodology_chat'
         ? { message: text, methodology: null }
-        : { error: 'Failed to parse AI response', raw: text }
+        : { error: 'Jamie needs a bit more detail to build work areas. Add a project description or upload a plan and try again.' }
     }
 
     return new Response(JSON.stringify(parsed), {
