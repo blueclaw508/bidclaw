@@ -204,7 +204,7 @@ export function Step4Send({
               href="https://bluequickcalc.app"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-6 py-3 text-sm font-semibold text-white hover:bg-blue-600 transition-colors"
+              className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-6 py-3 text-sm font-semibold text-white cursor-pointer transition-all duration-100 hover:brightness-110 active:scale-95 active:brightness-90"
             >
               <ExternalLink size={16} />
               Open BlueQuickCalc
@@ -456,7 +456,7 @@ export function Step4Send({
               </p>
               <button
                 onClick={() => { setShowTrialModal(false); onUpgrade?.() }}
-                className="inline-flex w-full max-w-xs items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#1d4ed8] transition-colors"
+                className="inline-flex w-full max-w-xs items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-6 py-3 text-sm font-semibold text-white shadow-sm cursor-pointer transition-all duration-100 hover:brightness-110 active:scale-95 active:brightness-90"
               >
                 Upgrade to BidClaw — $599
               </button>

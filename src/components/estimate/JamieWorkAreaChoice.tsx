@@ -151,7 +151,7 @@ export function JamieWorkAreaChoice({
           ) : (
             <button
               onClick={() => { onPullFromPlan() }}
-              className="flex items-center justify-center gap-3 rounded-xl border-2 border-slate-200 px-4 py-4 text-sm font-semibold text-slate-700 transition-all hover:border-[#2563EB] hover:bg-blue-50 hover:text-[#2563EB]"
+              className="flex items-center justify-center gap-3 rounded-xl border-2 border-slate-200 px-4 py-4 text-sm font-semibold text-slate-700 cursor-pointer transition-all duration-100 hover:border-[#2563EB] hover:bg-blue-50 hover:text-[#2563EB] active:scale-95 active:brightness-90"
             >
               <FileSearch size={20} />
               Pull them from the plan
@@ -160,7 +160,7 @@ export function JamieWorkAreaChoice({
           <button
             onClick={() => setMode('manual')}
             disabled={loading}
-            className="flex items-center justify-center gap-3 rounded-xl border-2 border-slate-200 px-4 py-4 text-sm font-semibold text-slate-700 transition-all hover:border-[#2563EB] hover:bg-blue-50 hover:text-[#2563EB] disabled:opacity-50"
+            className="flex items-center justify-center gap-3 rounded-xl border-2 border-slate-200 px-4 py-4 text-sm font-semibold text-slate-700 cursor-pointer transition-all duration-100 hover:border-[#2563EB] hover:bg-blue-50 hover:text-[#2563EB] active:scale-95 active:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <PenLine size={20} />
             I'll provide them

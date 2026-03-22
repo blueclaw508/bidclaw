@@ -122,7 +122,7 @@ export function GapQuestions({
             <button
               onClick={handleSubmit}
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:opacity-70 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-6 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all duration-100 hover:brightness-110 active:scale-95 active:brightness-90 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <>
