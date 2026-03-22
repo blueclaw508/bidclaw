@@ -80,11 +80,10 @@ export function JamieChatPanel({
       {/* ── CHANGE 1: Bigger Blue Bar (~85px) ── */}
       <div className="flex items-center justify-between bg-gradient-to-r from-[#0c1428] to-[#1e40af] px-4 py-4" style={{ minHeight: '85px' }}>
         <div className="flex items-center gap-3">
-          {/* ── CHANGE 2: Jamie Avatar (52×52) ── */}
-          <JamieAvatar size={52} />
+          {/* ── Jamie Avatar (80×80) ── */}
+          <JamieAvatar size={80} />
           <div>
-            <h3 className="text-lg font-bold text-white leading-tight" style={{ fontSize: '18px' }}>Jamie</h3>
-            <p className="text-blue-200 font-medium" style={{ fontSize: '13px' }}>Estimating Agent</p>
+            <h3 className="text-lg font-bold text-white leading-tight" style={{ fontSize: '22px' }}>Jamie</h3>
           </div>
         </div>
         <button onClick={onClose} className="rounded-md p-1.5 text-blue-200 hover:bg-white/10 hover:text-white transition-colors">
@@ -105,8 +104,8 @@ export function JamieChatPanel({
             >
               {/* ── CHANGE 3: Mini avatar in message bubble ── */}
               {msg.role === 'jamie' && (
-                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold text-[#1e40af]">
-                  <JamieAvatar size={20} />
+                <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-[#1e40af]">
+                  <JamieAvatar size={36} />
                   Jamie
                 </div>
               )}

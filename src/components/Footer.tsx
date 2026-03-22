@@ -8,7 +8,7 @@ export function Footer() {
             {/* Left — Product Family */}
             <div className="max-w-md">
               <h3 className="text-lg font-bold text-white">
-                The Blue Claw Family of Products
+                The Blue Claw Group Family of Products
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-300">
                 Everything you need to run a more profitable contracting business — from mastering your numbers to generating estimates in minutes.
