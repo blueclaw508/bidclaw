@@ -376,28 +376,25 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       const now = new Date().toISOString()
       const qcEstimateId = crypto.randomUUID()
 
-      // ── Parse address into structured fields ──
-      const addressParts = (estimate.project_address || '').split(',').map(s => s.trim())
-      const addressLine1 = addressParts[0] || ''
-      const city = addressParts[1] || ''
-      const stateZip = (addressParts[2] || '').split(' ').filter(Boolean)
-      const state = stateZip[0] || ''
-      const zip = stateZip[1] || ''
+      // ── Build structured name and address for QuickCalc ──
+      const fullName = [estimate.first_name, estimate.last_name].filter(Boolean).join(' ') || estimate.client_name || ''
+      const qcEstimateName = estimate.estimate_name || (fullName ? `BidClaw — ${fullName}` : `BidClaw Estimate — ${new Date().toLocaleDateString()}`)
 
       // ── Insert into kyn_estimates ──
       const { error: insertError } = await supabase.from('kyn_estimates').insert({
         id: qcEstimateId,
         user_id: user.id,
-        name: estimate.client_name
-          ? `BidClaw — ${estimate.client_name}`
-          : `BidClaw Estimate — ${new Date().toLocaleDateString()}`,
-        client_name: estimate.client_name || '',
-        client_job_address_line1: addressLine1,
-        client_job_city: city,
-        client_job_state: state,
-        client_job_zip: zip,
-        client_email: '',
-        client_phone: '',
+        name: qcEstimateName,
+        first_name: estimate.first_name || '',
+        last_name: estimate.last_name || '',
+        company_name: estimate.company_name || null,
+        client_name: fullName,
+        client_job_address_line1: estimate.address_line || '',
+        client_job_city: estimate.city || '',
+        client_job_state: estimate.state || '',
+        client_job_zip: estimate.zip || '',
+        client_email: estimate.email || '',
+        client_phone: estimate.phone || '',
         project_description: estimate.project_description || '',
         work_areas: qcWorkAreas,
         line_items: [],

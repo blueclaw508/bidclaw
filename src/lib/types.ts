@@ -92,6 +92,19 @@ export interface LineItemData {
 export interface EstimateRecord {
   id: string
   user_id: string
+  // Structured client fields (new)
+  first_name: string | null
+  last_name: string | null
+  company_name: string | null
+  estimate_name: string | null
+  phone: string | null
+  email: string | null
+  // Structured address fields (new)
+  address_line: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  // Legacy fields (kept for backward compat)
   client_name: string | null
   project_name: string | null
   project_address: string | null

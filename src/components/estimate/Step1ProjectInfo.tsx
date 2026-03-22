@@ -174,8 +174,20 @@ export function Step1ProjectInfo({
   onJamieStart, onJamieSendMessage, onJamieBuildEstimate,
 }: Step1ProjectInfoProps) {
   const [showJamie, setShowJamie] = useState(false)
-  const [clientName, setClientName] = useState(estimate?.client_name ?? '')
-  const [projectAddress, setProjectAddress] = useState(estimate?.project_address ?? '')
+  // Structured client fields
+  const [firstName, setFirstName] = useState(estimate?.first_name ?? '')
+  const [lastName, setLastName] = useState(estimate?.last_name ?? '')
+  const [companyName, setCompanyName] = useState(estimate?.company_name ?? '')
+  const [estimateName, setEstimateName] = useState(estimate?.estimate_name ?? '')
+  const [phone, setPhone] = useState(estimate?.phone ?? '')
+  const [email, setEmail] = useState(estimate?.email ?? '')
+  // Structured address fields
+  const [addressLine, setAddressLine] = useState(estimate?.address_line ?? '')
+  const [city, setCity] = useState(estimate?.city ?? '')
+  const [addrState, setAddrState] = useState(estimate?.state ?? '')
+  const [zip, setZip] = useState(estimate?.zip ?? '')
+  // Legacy fallback for backward compat init
+  const [clientName] = useState(estimate?.client_name ?? '')
   const [projectDescription, setProjectDescription] = useState(estimate?.project_description ?? '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [dragActive, setDragActive] = useState(false)
@@ -236,23 +248,34 @@ export function Step1ProjectInfo({
   }, [])
 
   const handleSubmit = () => {
-    if (!clientName.trim()) return
+    if (!firstName.trim() || !lastName.trim()) return
 
     if (isRegenerate && !showRegenerateConfirm) {
       setShowRegenerateConfirm(true)
       return
     }
 
+    const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
     onGenerate({
-      client_name: clientName.trim(),
-      project_address: projectAddress.trim(),
+      client_name: fullName,
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+      company_name: companyName.trim() || null,
+      estimate_name: estimateName.trim() || null,
+      phone: phone.trim() || null,
+      email: email.trim() || null,
+      address_line: addressLine.trim(),
+      city: city.trim(),
+      state: addrState.trim(),
+      zip: zip.trim(),
+      project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
       project_description: projectDescription.trim(),
       files: uploadedFiles.map((f) => f.file),
     })
     setShowRegenerateConfirm(false)
   }
 
-  const canSubmit = clientName.trim().length > 0
+  const canSubmit = firstName.trim().length > 0 && lastName.trim().length > 0
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -286,30 +309,126 @@ export function Step1ProjectInfo({
           </div>
         )}
 
-        {/* Client Name */}
-        <div className="mb-5">
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">
-            Client Name <span className="text-red-500">*</span>
-          </label>
+        {/* Estimate Name */}
+        <div className="mb-4">
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">Estimate Name</label>
           <input
             type="text"
-            value={clientName}
-            onChange={(e) => setClientName(e.target.value)}
-            placeholder="e.g. Johnson Residence"
+            value={estimateName}
+            onChange={(e) => setEstimateName(e.target.value)}
+            placeholder="e.g. Johnson Patio & Walkway"
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
           />
         </div>
 
-        {/* Project Address */}
-        <div className="mb-5">
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">Project Address</label>
+        {/* First Name / Last Name */}
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              First Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="e.g. John"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Last Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              placeholder="e.g. Johnson"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+            />
+          </div>
+        </div>
+
+        {/* Company Name */}
+        <div className="mb-4">
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">Company Name (If Applicable)</label>
           <input
             type="text"
-            value={projectAddress}
-            onChange={(e) => setProjectAddress(e.target.value)}
-            placeholder="e.g. 123 Main St, Austin, TX 78701"
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            placeholder="e.g. Johnson Properties LLC"
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
           />
+        </div>
+
+        {/* Phone / Email */}
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Phone Number</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="e.g. (508) 555-1234"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Email Address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="e.g. john@example.com"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+            />
+          </div>
+        </div>
+
+        {/* Address */}
+        <div className="mb-4">
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">Address</label>
+          <input
+            type="text"
+            value={addressLine}
+            onChange={(e) => setAddressLine(e.target.value)}
+            placeholder="e.g. 123 Main St"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+          />
+        </div>
+
+        {/* City / State / Zip */}
+        <div className="mb-5 grid grid-cols-[2fr_1fr_1fr] gap-3">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">City</label>
+            <input
+              type="text"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="e.g. Austin"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">State</label>
+            <input
+              type="text"
+              value={addrState}
+              onChange={(e) => setAddrState(e.target.value)}
+              placeholder="e.g. TX"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Zip</label>
+            <input
+              type="text"
+              value={zip}
+              onChange={(e) => setZip(e.target.value)}
+              placeholder="e.g. 78701"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+            />
+          </div>
         </div>
 
         {/* Project Description */}
