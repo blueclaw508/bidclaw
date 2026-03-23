@@ -104,8 +104,8 @@ export function JamieChatPanel({
             >
               {/* ── CHANGE 3: Mini avatar in message bubble ── */}
               {msg.role === 'jamie' && (
-                <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-[#1e40af]">
-                  <JamieAvatar size={36} />
+                <div className="mb-2 flex items-center gap-2.5 text-sm font-bold text-[#1e40af]">
+                  <JamieAvatar size={48} />
                   Jamie
                 </div>
               )}

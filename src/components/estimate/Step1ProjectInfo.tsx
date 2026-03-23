@@ -140,11 +140,11 @@ function FilePreview({ file, onRemove, onMeasure }: { file: UploadedFile; onRemo
       {canMeasure && (
         <button
           onClick={onMeasure}
-          className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-[#1e40af]/10 px-3 py-1.5 text-sm font-semibold text-[#1e40af] hover:bg-[#2563EB] hover:text-white transition-colors border border-[#1e40af]/20"
+          className="flex-shrink-0 inline-flex items-center gap-2 rounded-lg bg-[#1e40af] px-5 py-2.5 text-base font-bold text-white hover:bg-[#2563EB] hover:brightness-110 active:scale-95 transition-all duration-100 shadow-md cursor-pointer"
           title="Open measurement tool"
         >
-          <Ruler size={18} />
-          Measure from Plan
+          <Ruler size={22} />
+          📐 Measure from Plan
         </button>
       )}
       <button

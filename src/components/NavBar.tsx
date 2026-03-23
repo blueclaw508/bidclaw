@@ -47,11 +47,11 @@ export default function NavBar({ currentTab, onTabChange }: NavBarProps) {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-[#0c1428]/20 bg-gradient-to-r from-[#0c1428] via-[#1e3a8a] to-[#0c1428] shadow-md">
-      <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between px-4">
+      <div className="mx-auto flex h-20 max-w-screen-2xl items-center justify-between px-4">
         {/* Left: Logo */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <img src="/bidclaw-logo-sm.png" alt="BidClaw" className="h-10 w-10 rounded object-contain" />
-          <span className="text-xl font-bold text-white hidden sm:inline tracking-tight">
+        <div className="flex items-center gap-3 shrink-0">
+          <img src="/bidclaw-logo-sm.png" alt="BidClaw" className="h-14 w-14 rounded object-contain" />
+          <span className="text-2xl font-bold text-white hidden sm:inline tracking-tight">
             BidClaw
           </span>
         </div>

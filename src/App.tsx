@@ -689,12 +689,9 @@ function AppContent() {
           <div className="sticky top-20">
             <img
               src="/jamie-avatar.png"
-              alt="Jamie — Estimating Agent"
-              className="w-56 rounded-2xl opacity-85 shadow-lg"
+              alt="Jamie"
+              className="w-72 rounded-2xl opacity-90 shadow-xl"
             />
-            <p className="mt-3 text-center text-xs font-semibold text-slate-500 tracking-wide uppercase">
-              Estimating Agent
-            </p>
           </div>
         </aside>
 
