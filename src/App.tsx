@@ -40,20 +40,36 @@ import { Loader2, Cloud, Check, Lock, Clock } from 'lucide-react'
 
 type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'kyn-numbers' | 'about-kyn' | 'estimates'
 
+// localStorage keys — outside component so they never change reference
+const LS_ESTIMATE_ID = 'bidclaw_active_estimate_id'
+const lsJamieKey = (id: string) => 'bidclaw_jamie_' + id
+
 function AppContent() {
   const { user, companyProfile, hasQCAccount, canAccessBidClaw, bidclawAccessLevel, trialDaysLeft, subscriptionTier, loading: authLoading } = useAuth()
   const [currentTab, setCurrentTab] = useState<Tab>('estimates')
-  const [activeEstimateId, setActiveEstimateId] = useState<string | null>(null)
+  const [activeEstimateId, setActiveEstimateId] = useState<string | null>(() => {
+    try { return localStorage.getItem(LS_ESTIMATE_ID) } catch { return null }
+  })
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [jamieErrorOpen, setJamieErrorOpen] = useState(false)
   const [jamieErrorType, setJamieErrorType] = useState<JamieErrorType>('snag')
   const lastRetryAction = useRef<(() => void) | null>(null)
+  // Tracks which estimateId has already had its Jamie state restored in this session
+  const jamieRestored = useRef<string | null>(null)
 
   const showJamieError = useCallback((errorMsg: string, retryAction?: () => void) => {
     setJamieErrorType(classifyJamieError(errorMsg))
     lastRetryAction.current = retryAction ?? null
     setJamieErrorOpen(true)
   }, [])
+
+  // ── Layer 1: persist activeEstimateId so tab-switch never returns user to dashboard ──
+  useEffect(() => {
+    try {
+      if (activeEstimateId) localStorage.setItem(LS_ESTIMATE_ID, activeEstimateId)
+      else localStorage.removeItem(LS_ESTIMATE_ID)
+    } catch {}
+  }, [activeEstimateId])
 
   const {
     estimate, loading: estLoading, saving, aiLoading, aiMessage,
@@ -83,6 +99,14 @@ function AppContent() {
   }, [user])
 
   useEffect(() => { fetchKynRates() }, [fetchKynRates])
+
+  // ── Layer 1: clear stale localStorage if the estimate no longer exists ──
+  useEffect(() => {
+    if (!estLoading && !estimate && activeEstimateId) {
+      try { localStorage.removeItem(LS_ESTIMATE_ID) } catch {}
+      setActiveEstimateId(null)
+    }
+  }, [estLoading, estimate, activeEstimateId])
 
   // Compute unpriced new catalog items (items with catalog_match_type=new_created and no unit_cost)
   const unpricedItemNames: string[] = []
@@ -115,6 +139,65 @@ function AppContent() {
     client_name: string; project_address: string; project_description: string; files: File[]
   } | null>(null)
   const [manualWorkAreaMode, setManualWorkAreaMode] = useState(false)
+
+  // ── Layer 2: restore Jamie state once per estimate when it first loads ──
+  useEffect(() => {
+    if (!estimate || estimate.id === jamieRestored.current) return
+    jamieRestored.current = estimate.id
+    try {
+      const raw = localStorage.getItem(lsJamieKey(estimate.id))
+      if (!raw) return
+      const saved = JSON.parse(raw)
+      if (saved.jamieMessages?.length) setJamieMessages(saved.jamieMessages)
+      if (saved.jamieBuilt) setJamieBuilt(saved.jamieBuilt)
+      if (saved.jamieScopes && Object.keys(saved.jamieScopes).length) setJamieScopes(saved.jamieScopes)
+      if (saved.jamieSummary) setJamieSummary(saved.jamieSummary)
+      if (saved.jamieAnalysis) setJamieAnalysis(saved.jamieAnalysis)
+      if (saved.pendingGapQuestions && Object.keys(saved.pendingGapQuestions).length) setPendingGapQuestions(saved.pendingGapQuestions)
+      if (saved.showGapStep) setShowGapStep(saved.showGapStep)
+      if (saved.showWorkAreaChoice) setShowWorkAreaChoice(saved.showWorkAreaChoice)
+      if (saved.manualWorkAreaMode) setManualWorkAreaMode(saved.manualWorkAreaMode)
+    } catch {}
+  }, [estimate])
+
+  // ── Layer 2: write Jamie state to localStorage on every change ──
+  useEffect(() => {
+    if (!activeEstimateId) return
+    try {
+      localStorage.setItem(lsJamieKey(activeEstimateId), JSON.stringify({
+        jamieMessages,
+        jamieBuilt,
+        jamieScopes,
+        jamieSummary,
+        jamieAnalysis,
+        pendingGapQuestions,
+        showGapStep,
+        showWorkAreaChoice,
+        manualWorkAreaMode,
+      }))
+    } catch {}
+  }, [activeEstimateId, jamieMessages, jamieBuilt, jamieScopes, jamieSummary,
+      jamieAnalysis, pendingGapQuestions, showGapStep, showWorkAreaChoice, manualWorkAreaMode])
+
+  // ── Layer 3: intentional reset — clears localStorage, returns to dashboard ──
+  const resetEstimateState = useCallback(() => {
+    try {
+      if (activeEstimateId) localStorage.removeItem(lsJamieKey(activeEstimateId))
+      localStorage.removeItem(LS_ESTIMATE_ID)
+    } catch {}
+    setActiveEstimateId(null)
+    setJamieMessages([])
+    setJamieBuilt(false)
+    setJamieScopes({})
+    setJamieSummary(null)
+    setJamieAnalysis(null)
+    setShowGapStep(false)
+    setPendingGapQuestions({})
+    setGapAnswers({})
+    setShowWorkAreaChoice(false)
+    setPendingFormData(null)
+    setManualWorkAreaMode(false)
+  }, [activeEstimateId])
 
   // Jamie: start intake
   const handleJamieStart = useCallback(() => {
@@ -519,7 +602,7 @@ function AppContent() {
           <div className="flex items-center gap-3">
             {saving && <span className="flex items-center gap-1 text-xs text-gray-400"><Cloud size={14} /> Saving...</span>}
             {!saving && <span className="flex items-center gap-1 text-xs text-green-600"><Check size={14} /> Saved</span>}
-            <button onClick={() => { setActiveEstimateId(null); setJamieMessages([]); setJamieBuilt(false); setJamieScopes({}); setJamieSummary(null); setJamieAnalysis(null); setShowGapStep(false); setPendingGapQuestions({}); setGapAnswers({}); setShowWorkAreaChoice(false); setPendingFormData(null); setManualWorkAreaMode(false) }}
+            <button onClick={resetEstimateState}
               className="text-sm text-gray-500 hover:text-gray-900">Exit</button>
           </div>
         </div>
@@ -653,7 +736,7 @@ function AppContent() {
               kynRates={kynRatesState}
               onEdit={() => updateEstimate({ workflow_step: 3 })}
               onSend={sendToQuickCalc}
-              onNewEstimate={() => { setActiveEstimateId(null); setCurrentTab('estimates'); setJamieMessages([]); setJamieBuilt(false); setJamieScopes({}); setJamieSummary(null); setJamieAnalysis(null); setShowGapStep(false); setPendingGapQuestions({}); setGapAnswers({}); setShowWorkAreaChoice(false); setPendingFormData(null); setManualWorkAreaMode(false) }}
+              onNewEstimate={() => { resetEstimateState(); setCurrentTab('estimates') }}
               jamieSummary={jamieSummary}
               jamieSummaryLoading={jamieSummaryLoading}
               onJamieGenerateSummary={handleJamieGenerateSummary}

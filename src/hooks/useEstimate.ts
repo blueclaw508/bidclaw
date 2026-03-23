@@ -25,6 +25,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
   const [aiLoading, setAiLoading] = useState(false)
   const [aiMessage, setAiMessage] = useState('')
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSaveRef = useRef<Partial<EstimateRecord> | null>(null)
 
   useEffect(() => {
     if (!estimateId || !user) { setLoading(false); return }
@@ -49,15 +50,35 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     setSaving(false)
   }, [estimateId])
 
-  // Debounced save — for non-critical updates (UI-only fields).
+  // Debounced save — accumulates all updates within the 500ms window so rapid
+  // field changes never overwrite each other.
   const autoSave = useCallback(async (updates: Partial<EstimateRecord>) => {
     if (!estimateId) return
+    pendingSaveRef.current = { ...(pendingSaveRef.current ?? {}), ...updates }
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
+      const accumulated = pendingSaveRef.current
+      if (!accumulated) return
+      pendingSaveRef.current = null
       setSaving(true)
-      await supabase.from('estimates').update(updates).eq('id', estimateId)
+      await supabase.from('estimates').update(accumulated).eq('id', estimateId)
       setSaving(false)
     }, 500)
+  }, [estimateId])
+
+  // Flush any pending debounced save immediately when the user switches tabs.
+  // This prevents data loss when the tab goes hidden mid-AI-call.
+  useEffect(() => {
+    const flush = () => {
+      if (document.hidden && pendingSaveRef.current && estimateId) {
+        if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+        const data = pendingSaveRef.current
+        pendingSaveRef.current = null
+        supabase.from('estimates').update(data).eq('id', estimateId)
+      }
+    }
+    document.addEventListener('visibilitychange', flush)
+    return () => document.removeEventListener('visibilitychange', flush)
   }, [estimateId])
 
   // Update React state + save to Supabase. immediate=true bypasses debounce.
