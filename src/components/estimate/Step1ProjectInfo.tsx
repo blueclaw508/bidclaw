@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
 import type { EstimateRecord } from '@/lib/types'
@@ -41,6 +41,7 @@ interface Step1ProjectInfoProps {
   }) => void
   onBack?: () => void
   generating?: boolean
+  onFieldChange?: (updates: Partial<EstimateRecord>) => void
   // Jamie props
   jamieMessages?: JamieMessage[]
   jamieLoading?: boolean
@@ -179,7 +180,7 @@ async function rasterizePdfPage1(file: File): Promise<string> {
 }
 
 export function Step1ProjectInfo({
-  estimate, onGenerate, onBack, generating,
+  estimate, onGenerate, onBack, generating, onFieldChange,
   jamieMessages, jamieLoading, jamieBuildingEstimate,
   onJamieStart, onJamieSendMessage, onJamieBuildEstimate,
 }: Step1ProjectInfoProps) {
@@ -204,6 +205,33 @@ export function Step1ProjectInfo({
   const [measurements, setMeasurements] = useState<Measurement[]>([])
   const [measureImageUrl, setMeasureImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Debounced autosave — persists Step 1 form fields to Supabase 500ms after last keystroke
+  useEffect(() => {
+    if (!onFieldChange || !estimate) return
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = setTimeout(() => {
+      const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
+      onFieldChange({
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        company_name: companyName.trim() || null,
+        estimate_name: estimateName.trim() || null,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        address_line: addressLine.trim(),
+        city: city.trim(),
+        state: addrState.trim(),
+        zip: zip.trim(),
+        client_name: fullName,
+        project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+        project_description: projectDescription.trim(),
+      })
+    }, 500)
+    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
 
   const isRegenerate = estimate !== null && (estimate.work_areas?.length ?? 0) > 0
 

@@ -423,12 +423,11 @@ function AppContent() {
           project_address: data.project_address,
           project_description: data.project_description,
           plan_file_urls: urls,
-        })
+          workflow_step: 2,
+        }, true)
         // Store form data and show the Jamie work area choice card
         setPendingFormData(data)
         setShowWorkAreaChoice(true)
-        // Move to step 2 so the choice card renders
-        updateEstimate({ workflow_step: 2 })
       } catch {
         showJamieError('Jamie hit a snag — couldn\'t process your project files. Try again.')
       }
@@ -458,7 +457,7 @@ function AppContent() {
         complexity: 'Moderate' as const,
         approved: false,
       }))
-      updateEstimate({ work_areas: manualWAs, workflow_step: 2, approval_status: 'draft' })
+      updateEstimate({ work_areas: manualWAs, workflow_step: 2, approval_status: 'draft' }, true)
       setShowWorkAreaChoice(false)
     }
 
@@ -542,6 +541,7 @@ function AppContent() {
               onGenerate={handleGenerate}
               onBack={() => setActiveEstimateId(null)}
               generating={aiLoading}
+              onFieldChange={(updates) => updateEstimate(updates)}
               jamieMessages={jamieMessages}
               jamieLoading={jamieLoading}
               jamieBuildingEstimate={jamieBuildingEstimate}

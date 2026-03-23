@@ -41,6 +41,15 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     load()
   }, [estimateId, user])
 
+  // Immediate save — no debounce. Use for critical data (work areas, line items, workflow step).
+  const immediateSave = useCallback(async (updates: Partial<EstimateRecord>) => {
+    if (!estimateId) return
+    setSaving(true)
+    await supabase.from('estimates').update(updates).eq('id', estimateId)
+    setSaving(false)
+  }, [estimateId])
+
+  // Debounced save — for non-critical updates (UI-only fields).
   const autoSave = useCallback(async (updates: Partial<EstimateRecord>) => {
     if (!estimateId) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -48,17 +57,19 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       setSaving(true)
       await supabase.from('estimates').update(updates).eq('id', estimateId)
       setSaving(false)
-    }, 2000)
+    }, 500)
   }, [estimateId])
 
-  const updateEstimate = useCallback((updates: Partial<EstimateRecord>) => {
+  // Update React state + save to Supabase. immediate=true bypasses debounce.
+  const updateEstimate = useCallback((updates: Partial<EstimateRecord>, immediate = false) => {
     setEstimate((prev) => {
       if (!prev) return prev
       const next = { ...prev, ...updates }
-      autoSave(updates)
+      if (immediate) immediateSave(updates)
+      else autoSave(updates)
       return next
     })
-  }, [autoSave])
+  }, [autoSave, immediateSave])
 
   const createEstimate = useCallback(async (data: {
     client_name: string
@@ -124,7 +135,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
           gapQuestions[wa.id] = wa.gap_questions
         }
       }
-      updateEstimate({ work_areas: workAreas, gap_questions: gapQuestions, workflow_step: 2, approval_status: 'draft' })
+      updateEstimate({ work_areas: workAreas, gap_questions: gapQuestions, workflow_step: 2, approval_status: 'draft' }, true)
       return { workAreas, gapQuestions }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Jamie analysis failed'
@@ -175,7 +186,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       const gapQuestions: Record<string, string[]> = {}
       const newCatalogItems: string[] = []
 
-      // Transition to Step 3 immediately so the user sees progress
+      // Transition to Step 3 immediately so the user sees progress — save immediately
       updateEstimate({
         line_items: lineItems,
         scope_descriptions: scopeDescriptions,
@@ -183,7 +194,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         new_catalog_items_created: newCatalogItems,
         workflow_step: 3,
         approval_status: 'work_areas_approved',
-      })
+      }, true)
 
       // Progress callback — updates the loading message and incrementally adds each completed work area
       const handleProgress = async (progress: Pass2Progress) => {
@@ -204,13 +215,13 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
             return { ...li, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
           })
 
-          // Incrementally update estimate so completed work areas render immediately
+          // Incrementally update estimate so completed work areas render immediately — save immediately
           updateEstimate({
             line_items: { ...lineItems },
             scope_descriptions: { ...scopeDescriptions },
             gap_questions: { ...gapQuestions },
             new_catalog_items_created: [...newCatalogItems],
-          })
+          }, true)
         }
       }
 
@@ -232,13 +243,13 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       setAiMessage('Estimate ready for review')
       await new Promise((r) => setTimeout(r, 500))
 
-      // Final update with all results
+      // Final update with all results — save immediately
       updateEstimate({
         line_items: lineItems,
         scope_descriptions: scopeDescriptions,
         gap_questions: gapQuestions,
         new_catalog_items_created: newCatalogItems,
-      })
+      }, true)
 
       return { lineItems, scopeDescriptions, gapQuestions }
     } catch (err) {
