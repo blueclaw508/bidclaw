@@ -116,8 +116,6 @@ export function LineItemRow({ item, onUpdate, onRemove, catalogItems }: LineItem
 
   const isNew = item.catalog_match_type === 'new_created'
   const isMatched = item.catalog_match_type === 'matched' || item.catalog_match_type === 'fuzzy_matched'
-  const unitCost = item.unit_cost ?? null
-  const lineTotal = unitCost != null && item.quantity > 0 ? item.quantity * unitCost : null
 
   return (
     <div className="group border-b border-slate-100 last:border-b-0">
@@ -219,24 +217,6 @@ export function LineItemRow({ item, onUpdate, onRemove, catalogItems }: LineItem
           ))}
         </select>
 
-        {/* Unit Cost */}
-        <div className="hidden sm:block w-20 text-right text-sm text-slate-500 tabular-nums">
-          {unitCost != null ? (
-            <span>${unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          ) : isNew ? (
-            <span className="text-[10px] font-medium text-yellow-600">Needs Price</span>
-          ) : (
-            <span className="text-slate-300">—</span>
-          )}
-        </div>
-
-        {/* Line Total */}
-        <div className="hidden sm:block w-24 text-right text-sm font-medium tabular-nums">
-          {lineTotal != null ? (
-            <span className="text-slate-700">${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          ) : (
-            <span className="text-slate-300">—</span>
-          )}
         </div>
 
         {/* Description toggle */}

@@ -89,11 +89,6 @@ function WorkAreaSection({
   const newItemCount = items.filter((i) => i.catalog_match_type === 'new_created').length
   const laborItems = items.filter((i) => i.category === 'Labor')
   const totalManHours = laborItems.reduce((sum, i) => sum + (i.quantity || 0), 0)
-  const unpricedCount = items.filter((i) => i.unit_cost == null).length
-  const workAreaTotal = items.reduce((sum, i) => {
-    const cost = i.unit_cost ?? 0
-    return sum + (i.quantity * cost)
-  }, 0)
 
   return (
     <div
@@ -149,8 +144,6 @@ function WorkAreaSection({
             <div className="w-20 text-center">Qty</div>
             <div className="w-20 text-center">Unit</div>
             <div className="hidden sm:block w-32 text-center">Category</div>
-            <div className="hidden sm:block w-20 text-right">Unit Cost</div>
-            <div className="hidden sm:block w-24 text-right">Total</div>
             <div className="w-6" />
             <div className="w-6" />
           </div>
@@ -166,20 +159,14 @@ function WorkAreaSection({
             />
           ))}
 
-          {/* Work Area Subtotal */}
-          {hasItems && (
-            <div className="hidden sm:flex items-center gap-2 border-t border-slate-200 bg-slate-50/50 px-3 py-2.5">
+          {/* Work Area Labor Hours subtotal */}
+          {hasItems && totalManHours > 0 && (
+            <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50/50 px-3 py-2.5">
               <div className="min-w-0 flex-1 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Work Area Total
-                {unpricedCount > 0 && (
-                  <span className="ml-2 text-[10px] font-medium text-yellow-600 normal-case tracking-normal">
-                    ({unpricedCount} item{unpricedCount !== 1 ? 's' : ''} unpriced)
-                  </span>
-                )}
+                Labor Hours
               </div>
-              <div className="w-20" />
-              <div className="w-24 text-right text-sm font-bold tabular-nums text-slate-700">
-                ${workAreaTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <div className="text-sm font-bold tabular-nums text-slate-700">
+                {totalManHours.toFixed(1)} MH
               </div>
               <div className="w-6" />
               <div className="w-6" />

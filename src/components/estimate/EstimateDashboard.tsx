@@ -253,7 +253,7 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold text-blue-900">
-                      {[est.first_name, est.last_name].filter(Boolean).join(' ') || est.client_name || 'Untitled Estimate'}
+                      {est.estimate_name || [est.first_name, est.last_name].filter(Boolean).join(' ') || est.client_name || 'Untitled Estimate'}
                     </p>
                     <p className="truncate text-sm text-slate-500">
                       {est.project_address || 'No address'}

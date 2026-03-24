@@ -120,6 +120,13 @@ SCOPE FORMAT (mandatory):
 • [Lines 4+] Step-by-step crew instructions, one bullet per step.
 • [Last line] "Disposal Fees Included." only if demolition/removal is in scope.
 
+BRAND-NAME PRODUCT AWARENESS:
+When a work area specifies a brand name (Techo Bloc, Belgard, Unilock, EP Henry, Cambridge, Nicolock, CST, Rinox, etc.):
+- Use the CORRECT materials and methods for that specific product system. Do NOT substitute generic alternatives.
+- If it is a manufactured segmental retaining wall system, use: wall blocks (by the brand), cap units, geogrid, gravel base, drainage aggregate, landscape fabric. NOT CMU block, mortar, or poured concrete methods.
+- If it is a manufactured paver system, use: that brand's pavers, edge restraints, polymeric sand, compacted gravel base. NOT generic "concrete pavers."
+- Always name the specific product in the line item (e.g., "Techo Bloc Mini Creta Wall Block" not "CMU Block").
+
 RULES:
 - Written in third person imperative ("Install..." not "We will install...")
 - No asterisks (*) — bullets (•) only

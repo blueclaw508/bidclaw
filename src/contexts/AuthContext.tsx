@@ -152,7 +152,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, s) => {
+    } = supabase.auth.onAuthStateChange((event, s) => {
+      // TOKEN_REFRESHED fires on every tab refocus — do NOT update user/session
+      // state for token refreshes because it creates a new object reference that
+      // triggers downstream useEffect re-runs and can wipe estimate state.
+      if (event === 'TOKEN_REFRESHED') return
+
       setSession(s)
       setUser(s?.user ?? null)
       if (s?.user) {

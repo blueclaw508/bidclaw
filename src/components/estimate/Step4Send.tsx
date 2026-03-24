@@ -18,7 +18,7 @@ import {
   User,
   Lock,
   X,
-  DollarSign,
+  Package,
   Clock,
   Table,
 } from 'lucide-react'
@@ -123,7 +123,6 @@ export function Step4Send({
   const [sent, setSent] = useState(false)
   const [showTrialModal, setShowTrialModal] = useState(false)
 
-  const hasUnpricedItems = unpricedItemNames.length > 0
   const totalLineItems = Object.values(lineItems).reduce((sum, items) => sum + items.length, 0)
 
   // ── Pre-send estimate summary (quantities only — no pricing) ──
@@ -141,7 +140,6 @@ export function Step4Send({
   }, [lineItems])
 
   const handleSend = async () => {
-    if (hasUnpricedItems) return
     if (isTrial) {
       setShowTrialModal(true)
       return
@@ -279,50 +277,13 @@ export function Step4Send({
             </div>
           </div>
 
-          {/* Unpriced items blocker */}
-          {hasUnpricedItems && (
-            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-              <div className="flex items-start gap-3">
-                <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-red-500" />
-                <div>
-                  <p className="text-sm font-semibold text-red-800">
-                    Price these new items before sending
-                  </p>
-                  <p className="mt-1 text-xs text-red-700">
-                    {unpricedItemNames.length} item{unpricedItemNames.length !== 1 ? 's' : ''} need pricing in your catalog:
-                  </p>
-                  <ul className="mt-1.5 space-y-0.5">
-                    {unpricedItemNames.slice(0, 8).map((name) => (
-                      <li key={name} className="flex items-center gap-1.5 text-xs text-red-700">
-                        <DollarSign size={10} className="text-red-400" />
-                        {name}
-                      </li>
-                    ))}
-                    {unpricedItemNames.length > 8 && (
-                      <li className="text-xs text-red-500 italic">
-                        ...and {unpricedItemNames.length - 8} more
-                      </li>
-                    )}
-                  </ul>
-                  <button
-                    onClick={onEdit}
-                    className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 transition-colors"
-                  >
-                    <PenLine size={12} />
-                    Go Back to Price Items
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* New catalog items warning (for items that ARE priced but are new) */}
-          {!hasUnpricedItems && newCatalogItemCount > 0 && (
-            <div className="mb-6 flex items-center gap-3 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
-              <AlertTriangle size={16} className="flex-shrink-0 text-yellow-600" />
-              <p className="text-sm text-yellow-800">
+          {/* New catalog items info */}
+          {newCatalogItemCount > 0 && (
+            <div className="mb-6 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+              <Package size={16} className="flex-shrink-0 text-blue-600" />
+              <p className="text-sm text-blue-800">
                 <span className="font-semibold">{newCatalogItemCount} new catalog item{newCatalogItemCount !== 1 ? 's' : ''}</span>{' '}
-                were added to your catalog during this estimate.
+                added during this estimate.
               </p>
             </div>
           )}
@@ -362,12 +323,10 @@ export function Step4Send({
 
               <button
                 onClick={handleSend}
-                disabled={sending || hasUnpricedItems}
+                disabled={sending}
                 className={`inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white transition-colors disabled:opacity-70 disabled:cursor-not-allowed ${
                   isTrial
                     ? 'bg-amber-500 hover:bg-amber-600'
-                    : hasUnpricedItems
-                    ? 'bg-slate-400'
                     : 'bg-[#2563EB] hover:bg-blue-600'
                 }`}
               >
@@ -375,11 +334,6 @@ export function Step4Send({
                   <>
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                     Sending...
-                  </>
-                ) : hasUnpricedItems ? (
-                  <>
-                    <AlertTriangle size={16} />
-                    PRICE ITEMS FIRST
                   </>
                 ) : isTrial ? (
                   <>

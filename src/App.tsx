@@ -89,17 +89,6 @@ function AppContent() {
     }
   }, [estNotFound, activeEstimateId])
 
-  // Compute unpriced new catalog items (items with catalog_match_type=new_created and no unit_cost)
-  const unpricedItemNames: string[] = []
-  for (const items of Object.values(lineItems)) {
-    for (const li of items) {
-      if (li.catalog_match_type === 'new_created' && (li.unit_cost === null || li.unit_cost === undefined || li.unit_cost === 0)) {
-        if (!unpricedItemNames.includes(li.name)) {
-          unpricedItemNames.push(li.name)
-        }
-      }
-    }
-  }
 
   // ── Jamie State ──
   const [jamieMessages, setJamieMessages] = useState<JamieMessage[]>([])
@@ -693,7 +682,7 @@ function AppContent() {
               workAreas={workAreas}
               lineItems={lineItems}
               newCatalogItemCount={newCatalogItems.length}
-              unpricedItemNames={unpricedItemNames}
+              unpricedItemNames={[]}
               onEdit={() => updateEstimate({ workflow_step: 3 })}
               onSend={sendToQuickCalc}
               onNewEstimate={() => { resetEstimateState(); setCurrentTab('estimates') }}

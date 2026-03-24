@@ -27,9 +27,12 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingSaveRef = useRef<Partial<EstimateRecord> | null>(null)
 
+  // Use user.id as dependency (stable string) instead of the user object
+  // to prevent re-fetches when Supabase returns a new object reference
+  const userId = user?.id
   useEffect(() => {
     setNotFound(false)
-    if (!estimateId || !user) { setLoading(false); return }
+    if (!estimateId || !userId) { setLoading(false); return }
     setLoading(true)
     const load = async () => {
       const { data, error } = await supabase
@@ -47,7 +50,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       setLoading(false)
     }
     load()
-  }, [estimateId, user])
+  }, [estimateId, userId])
 
   // Immediate save — no debounce. Use for critical data (work areas, line items, workflow step).
   const immediateSave = useCallback(async (updates: Partial<EstimateRecord>) => {

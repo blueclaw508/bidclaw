@@ -282,15 +282,7 @@ export function jamieAnalyzeEstimate(
         })
       }
 
-      // Warning: missing material cost (what you pay) on material line items
-      if (li.category === 'Materials' && (li.unit_cost === null || li.unit_cost === undefined || li.unit_cost <= 0)) {
-        warnings.push({
-          line_item_name: li.name,
-          work_area: wa.name,
-          status: 'warning',
-          message: `Missing material cost (what you pay) on "${li.name}".`,
-        })
-      }
+      // Pricing warnings removed — BidClaw handles quantities only
     }
   }
 
