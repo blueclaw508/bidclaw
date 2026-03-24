@@ -104,10 +104,6 @@ function SummaryWorkArea({
   )
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value)
-}
-
 export function Step4Send({
   estimate,
   workAreas,
@@ -275,13 +271,13 @@ export function Step4Send({
             </div>
           </div>
 
-          {/* ── Pre-send financial summary ── */}
+          {/* ── Pre-send estimate summary (quantities only — pricing is done in QuickCalc) ── */}
           <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50/50 p-4">
             <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-blue-900">
               <TrendingUp size={16} />
-              Estimated Financials
+              Estimate Summary
             </h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Labor Hours</p>
                 <p className="text-lg font-bold text-blue-900 tabular-nums">
@@ -296,32 +292,7 @@ export function Step4Send({
                   <span className="ml-1 text-xs font-normal text-slate-400">days</span>
                 </p>
               </div>
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
-                  Labor Sell
-                  <span className="ml-1 text-slate-300">@ ${kynRates.retail_labor_rate}/hr</span>
-                </p>
-                <p className="text-lg font-bold text-blue-900 tabular-nums">{formatCurrency(financials.laborSell)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Material Cost</p>
-                <p className="text-sm font-semibold text-slate-700 tabular-nums">{formatCurrency(financials.materialCost)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
-                  Material Sell
-                  <span className="ml-1 text-slate-300">+{kynRates.material_markup}%</span>
-                </p>
-                <p className="text-sm font-semibold text-slate-700 tabular-nums">{formatCurrency(financials.materialSell)}</p>
-              </div>
-              <div className="col-span-2 sm:col-span-1 border-t border-blue-200 pt-2 mt-1">
-                <p className="text-[10px] font-medium uppercase tracking-wider text-blue-600">Est. Sell Price</p>
-                <p className="text-xl font-bold text-blue-900 tabular-nums">{formatCurrency(financials.totalSell)}</p>
-              </div>
             </div>
-            <p className="mt-2 text-[10px] text-slate-400">
-              These are estimates based on your KYN rates. Final pricing is calculated in QuickCalc.
-            </p>
           </div>
 
           {/* Unpriced items blocker */}

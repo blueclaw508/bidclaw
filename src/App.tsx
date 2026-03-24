@@ -69,10 +69,13 @@ function AppContent() {
       if (activeEstimateId) localStorage.setItem(LS_ESTIMATE_ID, activeEstimateId)
       else localStorage.removeItem(LS_ESTIMATE_ID)
     } catch {}
+    // Reset the Jamie-restored guard so state CAN be re-restored if the
+    // component remounts with the same estimateId (e.g. after a tab switch)
+    jamieRestored.current = null
   }, [activeEstimateId])
 
   const {
-    estimate, loading: estLoading, saving, aiLoading, aiMessage,
+    estimate, loading: estLoading, saving, aiLoading, aiMessage, notFound: estNotFound,
     updateEstimate, createEstimate, uploadFiles,
     runAiPass1, runAiPass2, sendToQuickCalc,
   } = useEstimate(activeEstimateId, showJamieError)
@@ -100,13 +103,13 @@ function AppContent() {
 
   useEffect(() => { fetchKynRates() }, [fetchKynRates])
 
-  // ── Layer 1: clear stale localStorage if the estimate no longer exists ──
+  // ── Layer 1: clear stale localStorage only when DB confirmed estimate is gone ──
   useEffect(() => {
-    if (!estLoading && !estimate && activeEstimateId) {
+    if (estNotFound && activeEstimateId) {
       try { localStorage.removeItem(LS_ESTIMATE_ID) } catch {}
       setActiveEstimateId(null)
     }
-  }, [estLoading, estimate, activeEstimateId])
+  }, [estNotFound, activeEstimateId])
 
   // Compute unpriced new catalog items (items with catalog_match_type=new_created and no unit_cost)
   const unpricedItemNames: string[] = []

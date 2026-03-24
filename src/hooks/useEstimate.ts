@@ -24,18 +24,27 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
   const [saving, setSaving] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiMessage, setAiMessage] = useState('')
+  // True after we fetched and the estimate was not found in DB (real 404)
+  const [notFound, setNotFound] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingSaveRef = useRef<Partial<EstimateRecord> | null>(null)
 
   useEffect(() => {
+    setNotFound(false)
     if (!estimateId || !user) { setLoading(false); return }
+    setLoading(true)
     const load = async () => {
       const { data, error } = await supabase
         .from('estimates')
         .select('*')
         .eq('id', estimateId)
         .single()
-      if (error) { toast.error('Jamie hit a snag — couldn\'t load this estimate. Try refreshing the page.'); setLoading(false); return }
+      if (error) {
+        toast.error('Jamie hit a snag — couldn\'t load this estimate. Try refreshing the page.')
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
       setEstimate(data as EstimateRecord)
       setLoading(false)
     }
@@ -304,10 +313,56 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
 
       const retailLaborRate = kynData?.retail_labor_rate ?? KYN_RATE_DEFAULTS.retail_labor_rate
 
-      const catalogItems = existingCatalog ?? []
-      const catalogByNameType = new Map<string, any>()
+      // Mutable catalog list so newly-created items are visible to later lookups
+      const catalogItems: any[] = existingCatalog ?? []
+      // ID index for direct hard-link via catalog_item_id already on line item
+      const catalogById = new Map<string, any>()
       for (const item of catalogItems) {
-        catalogByNameType.set(`${(item.name || '').toLowerCase()}::${item.type}`, item)
+        catalogById.set(item.id, item)
+      }
+
+      // ── Normalize helper: lowercase, trim, strip trailing 's' ──
+      function normalizeName(s: string): string {
+        return s.toLowerCase().trim().replace(/s$/, '')
+      }
+
+      // ── 5-layer catalog lookup (never re-creates if a match exists) ──
+      function findInCatalog(
+        existingId: string | undefined,
+        name: string,
+        qcType: string,
+      ): any | null {
+        // Layer 1: hard link via catalog_item_id set during estimate build
+        if (existingId) {
+          const hit = catalogById.get(existingId)
+          if (hit) return hit
+        }
+        const nameLower = name.toLowerCase().trim()
+        // Layer 2: exact name + same type
+        const exactSameType = catalogItems.find(
+          (c) => c.name.toLowerCase().trim() === nameLower && c.type === qcType
+        )
+        if (exactSameType) return exactSameType
+        // Layer 3: exact name, any type
+        const exactAnyType = catalogItems.find(
+          (c) => c.name.toLowerCase().trim() === nameLower
+        )
+        if (exactAnyType) return exactAnyType
+        // Layer 4: normalized match (strip trailing 's')
+        const nameNorm = normalizeName(name)
+        if (nameNorm.length >= 3) {
+          const normMatch = catalogItems.find((c) => normalizeName(c.name) === nameNorm)
+          if (normMatch) return normMatch
+        }
+        // Layer 5: substring match in either direction (min 4 chars to avoid noise)
+        if (nameNorm.length >= 4) {
+          const subMatch = catalogItems.find((c) => {
+            const cn = normalizeName(c.name)
+            return cn.length >= 4 && (cn.includes(nameNorm) || nameNorm.includes(cn))
+          })
+          if (subMatch) return subMatch
+        }
+        return null
       }
 
       const newCatalogItems: { id: string; name: string; type: string }[] = []
@@ -331,30 +386,35 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
 
         for (const li of bcItems) {
           const qcType = categoryToType[li.category] || 'other'
-          const lookupKey = `${li.name.toLowerCase()}::${qcType}`
-          let catalogItem = catalogByNameType.get(lookupKey)
+          let catalogItem = findInCatalog(li.catalog_item_id, li.name, qcType)
+          let catalogMatchType: 'matched' | 'new_created' = 'matched'
 
-          // If not found, create new catalog item at $0
+          // No match found — create new catalog item flagged for pricing
+          // unit_cost intentionally null: pricing lives in QC catalog, never from AI
           if (!catalogItem) {
+            catalogMatchType = 'new_created'
             const newId = crypto.randomUUID()
-            const newItem = {
+            const newItem: any = {
               id: newId,
               user_id: user.id,
               type: qcType,
               name: li.name,
               labor_type_id: null,
-              unit_cost: qcType === 'material' ? 0 : null,
+              unit_cost: null,
               equipment_rate_id: null,
-              sub_cost: qcType === 'subcontractor' ? 0 : null,
-              default_amount: qcType === 'other' ? 0 : null,
+              sub_cost: null,
+              default_amount: null,
+              needs_pricing: true,
+              source: 'bidclaw_auto',
             }
             await supabase.from('kyn_catalog_items').insert(newItem)
             catalogItem = newItem
-            catalogByNameType.set(lookupKey, newItem)
+            catalogById.set(newId, newItem)
+            catalogItems.push(newItem)
             newCatalogItems.push({ id: newId, name: li.name, type: qcType })
           }
 
-          // Get rate from catalog item — labor uses the KYN retail labor rate
+          // Rate always comes from QC catalog — never from AI-generated line item data
           let rate = 0
           if (qcType === 'labor') rate = retailLaborRate
           else if (qcType === 'material') rate = catalogItem.unit_cost ?? 0
@@ -364,7 +424,6 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
 
           const amount = li.quantity * rate
 
-          // Track subtotals
           if (qcType === 'labor') waLabor += amount
           else if (qcType === 'material') waMaterial += amount
           else if (qcType === 'subcontractor') waSub += amount
@@ -380,6 +439,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
             rate: rate,
             amount: amount,
             isAmountOverridden: false,
+            catalogMatchType,
           })
         }
 
@@ -392,7 +452,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         qcWorkAreas.push({
           id: crypto.randomUUID(),
           name: wa.name,
-          description: wa.description || '',
+          description: (estimate.scope_descriptions?.[wa.id]) || wa.description || '',
           enabled: true,
           lineItems: qcLineItems,
           laborSubtotal: waLabor,
@@ -456,7 +516,12 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       } : prev)
 
       // ── Show result ──
-      toast.success('Estimate sent to QuickCalc!')
+      const newCount = newCatalogItems.length
+      if (newCount > 0) {
+        toast.success(`Estimate sent to QuickCalc — ${newCount} new item${newCount !== 1 ? 's' : ''} need pricing in your catalog.`)
+      } else {
+        toast.success('Estimate sent to QuickCalc!')
+      }
       return true
     } catch (err) {
       toast.error('Jamie hit a snag — couldn\'t send to QuickCalc. Try again.')
@@ -465,7 +530,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
   }, [estimate, user])
 
   return {
-    estimate, loading, saving, aiLoading, aiMessage,
+    estimate, loading, saving, aiLoading, aiMessage, notFound,
     updateEstimate, createEstimate, uploadFiles,
     runAiPass1, runAiPass2, sendToQuickCalc,
   }
