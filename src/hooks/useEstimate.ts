@@ -83,7 +83,10 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
       const data = pendingSaveRef.current
       pendingSaveRef.current = null
+      console.log('[useEstimate] FLUSH pending save — keys:', Object.keys(data), 'estimate_name:', (data as any).estimate_name)
       supabase.from('estimates').update(data).eq('id', estimateId)
+    } else {
+      console.log('[useEstimate] FLUSH called but nothing pending. estimateId:', estimateId, 'pendingRef:', !!pendingSaveRef.current)
     }
   }, [estimateId])
 

@@ -121,6 +121,11 @@ export function Step4Send({
   const [sent, setSent] = useState(false)
   const [showTrialModal, setShowTrialModal] = useState(false)
 
+  // DEBUG: log what Step4Send actually receives
+  console.log('[Step4Send] lineItems keys:', Object.keys(lineItems), 'workAreas:', workAreas.length)
+  console.log('[Step4Send] lineItems counts per WA:', Object.entries(lineItems).map(([k, v]) => `${k}: ${v.length}`))
+  console.log('[Step4Send] estimate.line_items:', estimate.line_items ? Object.keys(estimate.line_items) : 'null/undefined')
+
   const totalLineItems = Object.values(lineItems).reduce((sum, items) => sum + items.length, 0)
 
   // ── Pre-send estimate summary (quantities only — no pricing) ──

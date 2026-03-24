@@ -244,7 +244,11 @@ export function Step1ProjectInfo({
       if (autosaveTimer.current && onFieldChange && estimate) {
         clearTimeout(autosaveTimer.current)
         autosaveTimer.current = null
-        onFieldChange(buildFormData())
+        const data = buildFormData()
+        console.log('[Step1] UNMOUNT FLUSH — estimate_name:', data.estimate_name, 'client_name:', data.client_name)
+        onFieldChange(data)
+      } else {
+        console.log('[Step1] UNMOUNT — no pending timer or missing deps. timer:', !!autosaveTimer.current, 'onFieldChange:', !!onFieldChange, 'estimate:', !!estimate)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
