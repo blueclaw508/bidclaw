@@ -106,14 +106,11 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
   }, [flushPendingSave])
 
   // Update React state + save to Supabase. immediate=true bypasses debounce.
+  // IMPORTANT: save call is OUTSIDE setEstimate so it fires even during unmount.
   const updateEstimate = useCallback((updates: Partial<EstimateRecord>, immediate = false) => {
-    setEstimate((prev) => {
-      if (!prev) return prev
-      const next = { ...prev, ...updates }
-      if (immediate) immediateSave(updates)
-      else autoSave(updates)
-      return next
-    })
+    setEstimate((prev) => prev ? { ...prev, ...updates } : prev)
+    if (immediate) immediateSave(updates)
+    else autoSave(updates)
   }, [autoSave, immediateSave])
 
   const createEstimate = useCallback(async (data: {
