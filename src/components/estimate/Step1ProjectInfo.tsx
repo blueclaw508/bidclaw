@@ -207,31 +207,48 @@ export function Step1ProjectInfo({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Build the current form data for saving
+  const buildFormData = useCallback(() => {
+    const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
+    return {
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+      company_name: companyName.trim() || null,
+      estimate_name: estimateName.trim() || null,
+      phone: phone.trim() || null,
+      email: email.trim() || null,
+      address_line: addressLine.trim(),
+      city: city.trim(),
+      state: addrState.trim(),
+      zip: zip.trim(),
+      client_name: fullName,
+      project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+      project_description: projectDescription.trim(),
+    }
+  }, [firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
+
   // Debounced autosave — persists Step 1 form fields to Supabase 500ms after last keystroke
   useEffect(() => {
     if (!onFieldChange || !estimate) return
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
     autosaveTimer.current = setTimeout(() => {
-      const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
-      onFieldChange({
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        company_name: companyName.trim() || null,
-        estimate_name: estimateName.trim() || null,
-        phone: phone.trim() || null,
-        email: email.trim() || null,
-        address_line: addressLine.trim(),
-        city: city.trim(),
-        state: addrState.trim(),
-        zip: zip.trim(),
-        client_name: fullName,
-        project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
-        project_description: projectDescription.trim(),
-      })
+      onFieldChange(buildFormData())
     }, 500)
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
+
+  // Flush pending autosave immediately when Step 1 unmounts (user navigated away)
+  useEffect(() => {
+    return () => {
+      if (autosaveTimer.current && onFieldChange && estimate) {
+        clearTimeout(autosaveTimer.current)
+        autosaveTimer.current = null
+        onFieldChange(buildFormData())
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const isRegenerate = estimate !== null && (estimate.work_areas?.length ?? 0) > 0
 

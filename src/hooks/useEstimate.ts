@@ -76,20 +76,26 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     }, 500)
   }, [estimateId])
 
-  // Flush any pending debounced save immediately when the user switches tabs.
-  // This prevents data loss when the tab goes hidden mid-AI-call.
-  useEffect(() => {
-    const flush = () => {
-      if (document.hidden && pendingSaveRef.current && estimateId) {
-        if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
-        const data = pendingSaveRef.current
-        pendingSaveRef.current = null
-        supabase.from('estimates').update(data).eq('id', estimateId)
-      }
+  // Flush any pending debounced save immediately when the user switches tabs
+  // OR navigates away from this estimate (estimateId changes / component unmounts).
+  const flushPendingSave = useCallback(() => {
+    if (pendingSaveRef.current && estimateId) {
+      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+      const data = pendingSaveRef.current
+      pendingSaveRef.current = null
+      supabase.from('estimates').update(data).eq('id', estimateId)
     }
-    document.addEventListener('visibilitychange', flush)
-    return () => document.removeEventListener('visibilitychange', flush)
   }, [estimateId])
+
+  useEffect(() => {
+    const flush = () => { if (document.hidden) flushPendingSave() }
+    document.addEventListener('visibilitychange', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', flush)
+      // Flush on unmount or estimateId change (user navigated away)
+      flushPendingSave()
+    }
+  }, [flushPendingSave])
 
   // Update React state + save to Supabase. immediate=true bypasses debounce.
   const updateEstimate = useCallback((updates: Partial<EstimateRecord>, immediate = false) => {
