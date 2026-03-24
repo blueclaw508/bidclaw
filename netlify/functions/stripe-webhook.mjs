@@ -105,14 +105,69 @@ export default async (req) => {
     }
   }
 
-  // Handle subscription cancellation/deletion
+  // Handle subscription cancellation — downgrade user back to 'pro' tier
+  // (They still have their QuickCalc Pro sub; they just lose BidClaw access)
   if (event.type === 'customer.subscription.deleted') {
     const subscription = event.data.object
+    const customerId = subscription.customer
     const customerEmail = subscription.customer_email
 
-    // For cancellations, we'd need to look up the user — log for now
-    console.log(`Subscription cancelled for customer: ${customerEmail || subscription.customer}`)
-    // TODO: downgrade user back to 'pro' or 'free' tier
+    console.log(`BidClaw subscription cancelled for customer: ${customerEmail || customerId}`)
+
+    // Look up the user by their stripe_customer_id in bidclaw_access
+    const lookupRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/bidclaw_access?stripe_customer_id=eq.${customerId}&select=user_id`,
+      {
+        headers: {
+          'apikey': SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        },
+      }
+    )
+
+    if (lookupRes.ok) {
+      const rows = await lookupRes.json()
+      if (rows.length > 0) {
+        const userId = rows[0].user_id
+
+        // Downgrade subscription_tier from 'bidclaw' back to 'pro'
+        const downgradeRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/kyn_user_settings?user_id=eq.${userId}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+              'Prefer': 'return=minimal',
+            },
+            body: JSON.stringify({ subscription_tier: 'pro' }),
+          }
+        )
+
+        if (!downgradeRes.ok) {
+          const errText = await downgradeRes.text()
+          console.error(`Failed to downgrade user ${userId}: ${downgradeRes.status} ${errText}`)
+        } else {
+          console.log(`Downgraded user ${userId} from bidclaw to pro tier`)
+        }
+
+        // Clear bidclaw_access paid status
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/bidclaw_access?user_id=eq.${userId}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+              'Prefer': 'return=minimal',
+            },
+            body: JSON.stringify({ paid: false }),
+          }
+        )
+      }
+    }
   }
 
   return new Response('OK', { status: 200 })
