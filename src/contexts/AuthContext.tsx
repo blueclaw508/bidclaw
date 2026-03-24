@@ -77,6 +77,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else if (email && FREE_ACCESS_EMAILS.includes(email)) {
       tier = 'bidclaw'
     }
+
+    // Fallback: if DB says free but user may have paid via Stripe,
+    // ask QuickCalc's manage-subscription edge function (checks Stripe directly).
+    if (tier === 'free' && email && !FREE_ACCESS_EMAILS.includes(email)) {
+      try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+        const res = await fetch(`${supabaseUrl}/functions/v1/manage-subscription`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: supabaseKey,
+          },
+          body: JSON.stringify({ action: 'check-usage', userId, email }),
+        })
+        if (res.ok) {
+          const usage = await res.json()
+          if (usage.isPro) {
+            tier = 'pro'
+            // Back-fill the DB so future loads are instant
+            await supabase
+              .from('kyn_user_settings')
+              .update({ subscription_tier: 'pro' })
+              .eq('user_id', userId)
+          }
+        }
+      } catch {
+        // Stripe check failed — keep tier as 'free'; user can retry on next load
+      }
+    }
+
     setSubscriptionTier(tier)
 
     // Fetch BidClaw access row
