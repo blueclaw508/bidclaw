@@ -398,15 +398,16 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
             newCatalogItems.push({ id: newId, name: li.name, type: qcType })
           }
 
-          // Rate comes from QC catalog — BidClaw sends quantities only, QuickCalc applies pricing
-          let rate = 0
-          if (qcType === 'labor') rate = 0  // QuickCalc applies retail labor rate
+          // Rate: null for labor (QuickCalc applies its own retail labor rate).
+          // Other categories use catalog pricing from QC's own catalog.
+          let rate: number | null = null
+          if (qcType === 'labor') rate = null  // QuickCalc must apply its stored retail labor rate
           else if (qcType === 'material') rate = catalogItem.unit_cost ?? 0
           else if (qcType === 'subcontractor') rate = catalogItem.sub_cost ?? 0
           else if (qcType === 'equipment') rate = catalogItem.unit_cost ?? 0
           else if (qcType === 'other') rate = catalogItem.default_amount ?? 0
 
-          const amount = li.quantity * rate
+          const amount = rate != null ? li.quantity * rate : 0
 
           if (qcType === 'labor') waLabor += amount
           else if (qcType === 'material') waMaterial += amount
