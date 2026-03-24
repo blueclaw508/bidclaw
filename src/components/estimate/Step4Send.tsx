@@ -108,7 +108,7 @@ export function Step4Send({
   workAreas,
   lineItems,
   newCatalogItemCount,
-  unpricedItemNames,
+  unpricedItemNames: _unpricedItemNames,
   onEdit,
   onSend,
   onNewEstimate,
