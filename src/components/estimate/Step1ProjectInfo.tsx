@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
 import type { EstimateRecord } from '@/lib/types'
+import { supabase } from '@/lib/supabase'
 import type { JamieMessage } from '@/lib/jamie'
 import { JamieChatPanel } from './JamieChatPanel'
 import { PlanMeasure } from './PlanMeasure'
@@ -206,10 +207,12 @@ export function Step1ProjectInfo({
   const [measureImageUrl, setMeasureImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Ref to hold latest form data so the unmount flush always has current values
+  // Refs for unmount flush — avoids ALL stale closure issues
   const latestFormData = useRef<Record<string, unknown>>({})
+  const estimateIdRef = useRef<string | null>(estimate?.id ?? null)
 
-  // Keep the ref in sync with current form values
+  // Keep refs in sync with current values
+  useEffect(() => { estimateIdRef.current = estimate?.id ?? null }, [estimate?.id])
   useEffect(() => {
     const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
     latestFormData.current = {
@@ -234,25 +237,27 @@ export function Step1ProjectInfo({
     if (!onFieldChange || !estimate) return
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
     autosaveTimer.current = setTimeout(() => {
-      console.log('[Step1] autosave firing — estimate_name:', latestFormData.current.estimate_name)
       onFieldChange(latestFormData.current)
     }, 500)
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
 
-  // Flush pending autosave immediately when Step 1 unmounts (user navigated away)
-  // Uses latestFormData ref so it always has the most recent values (no stale closure)
+  // On unmount: save DIRECTLY to Supabase using refs — no closures, no callbacks, no React state
   useEffect(() => {
     return () => {
       if (autosaveTimer.current) {
         clearTimeout(autosaveTimer.current)
         autosaveTimer.current = null
       }
-      // Always flush current form data on unmount — ensures name/address persist
-      if (onFieldChange && estimate) {
-        console.log('[Step1] UNMOUNT FLUSH — estimate_name:', latestFormData.current.estimate_name, 'client_name:', latestFormData.current.client_name)
-        onFieldChange(latestFormData.current)
+      const id = estimateIdRef.current
+      const data = latestFormData.current
+      if (id && Object.keys(data).length > 0) {
+        console.log('[Step1] UNMOUNT — direct save to Supabase. id:', id, 'estimate_name:', data.estimate_name)
+        supabase.from('estimates').update(data).eq('id', id).then(({ error }) => {
+          if (error) console.error('[Step1] UNMOUNT save FAILED:', error.message)
+          else console.log('[Step1] UNMOUNT save SUCCESS')
+        })
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
