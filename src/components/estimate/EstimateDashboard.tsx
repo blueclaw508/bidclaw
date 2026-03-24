@@ -111,18 +111,8 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
       .from('estimates')
       .insert({
         user_id: user.id,
-        first_name: est.first_name,
-        last_name: est.last_name,
-        company_name: est.company_name,
-        estimate_name: est.estimate_name,
-        phone: est.phone,
-        email: est.email,
-        address_line: est.address_line,
-        city: est.city,
-        state: est.state,
-        zip: est.zip,
         client_name: est.client_name ? `${est.client_name} (Copy)` : 'Untitled (Copy)',
-        project_name: est.project_name,
+        project_name: est.project_name ? `${est.project_name} (Copy)` : null,
         project_address: est.project_address,
         project_description: est.project_description,
         plan_file_urls: est.plan_file_urls,
@@ -154,12 +144,9 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
     if (statusFilter !== 'all' && e.approval_status !== statusFilter) return false
     if (search) {
       const q = search.toLowerCase()
-      const displayName = [e.first_name, e.last_name].filter(Boolean).join(' ') || e.client_name || ''
       return (
-        displayName.toLowerCase().includes(q) ||
-        (e.company_name?.toLowerCase().includes(q) ?? false) ||
-        (e.estimate_name?.toLowerCase().includes(q) ?? false) ||
-        (e.address_line?.toLowerCase().includes(q) ?? false) ||
+        (e.project_name?.toLowerCase().includes(q) ?? false) ||
+        (e.client_name?.toLowerCase().includes(q) ?? false) ||
         (e.project_address?.toLowerCase().includes(q) ?? false)
       )
     }
@@ -253,7 +240,7 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold text-blue-900">
-                      {est.estimate_name || [est.first_name, est.last_name].filter(Boolean).join(' ') || est.client_name || 'Untitled Estimate'}
+                      {est.project_name || est.client_name || 'Untitled Estimate'}
                     </p>
                     <p className="truncate text-sm text-slate-500">
                       {est.project_address || 'No address'}

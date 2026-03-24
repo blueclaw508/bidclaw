@@ -443,25 +443,17 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       const now = new Date().toISOString()
       const qcEstimateId = crypto.randomUUID()
 
-      // ── Build structured name and address for QuickCalc ──
-      const fullName = [estimate.first_name, estimate.last_name].filter(Boolean).join(' ') || estimate.client_name || ''
-      const qcEstimateName = estimate.estimate_name || (fullName ? `BidClaw — ${fullName}` : `BidClaw Estimate — ${new Date().toLocaleDateString()}`)
+      // ── Build name for QuickCalc from recognized columns ──
+      const clientName = estimate.client_name || ''
+      const qcEstimateName = estimate.project_name || (clientName ? `BidClaw — ${clientName}` : `BidClaw Estimate — ${new Date().toLocaleDateString()}`)
 
       // ── Insert into kyn_estimates ──
       const { error: insertError } = await supabase.from('kyn_estimates').insert({
         id: qcEstimateId,
         user_id: user.id,
         name: qcEstimateName,
-        first_name: estimate.first_name || '',
-        last_name: estimate.last_name || '',
-        company_name: estimate.company_name || null,
-        client_name: fullName,
-        client_job_address_line1: estimate.address_line || '',
-        client_job_city: estimate.city || '',
-        client_job_state: estimate.state || '',
-        client_job_zip: estimate.zip || '',
-        client_email: estimate.email || '',
-        client_phone: estimate.phone || '',
+        client_name: clientName,
+        client_job_address_line1: estimate.project_address || '',
         project_description: estimate.project_description || '',
         work_areas: qcWorkAreas,
         line_items: [],

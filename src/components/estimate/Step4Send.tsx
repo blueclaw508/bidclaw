@@ -222,7 +222,7 @@ export function Step4Send({
               <User size={16} className="mt-0.5 flex-shrink-0 text-slate-400" />
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Client</p>
-                <p className="text-sm font-medium text-blue-900">{[estimate.first_name, estimate.last_name].filter(Boolean).join(' ') || estimate.client_name || 'Not specified'}</p>
+                <p className="text-sm font-medium text-blue-900">{estimate.client_name || 'Not specified'}</p>
               </div>
             </div>
             <div className="flex items-start gap-3">

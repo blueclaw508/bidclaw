@@ -26,16 +26,7 @@ interface Step1ProjectInfoProps {
   estimate: EstimateRecord | null
   onGenerate: (data: {
     client_name: string
-    first_name: string
-    last_name: string
-    company_name: string | null
-    estimate_name: string | null
-    phone: string | null
-    email: string | null
-    address_line: string
-    city: string
-    state: string
-    zip: string
+    project_name: string | null
     project_address: string
     project_description: string
     files: File[]
@@ -186,19 +177,44 @@ export function Step1ProjectInfo({
   onJamieStart, onJamieSendMessage, onJamieBuildEstimate,
 }: Step1ProjectInfoProps) {
   const [showJamie, setShowJamie] = useState(false)
-  // Structured client fields
-  const [firstName, setFirstName] = useState(estimate?.first_name ?? '')
-  const [lastName, setLastName] = useState(estimate?.last_name ?? '')
-  const [companyName, setCompanyName] = useState(estimate?.company_name ?? '')
-  const [estimateName, setEstimateName] = useState(estimate?.estimate_name ?? '')
-  const [phone, setPhone] = useState(estimate?.phone ?? '')
-  const [email, setEmail] = useState(estimate?.email ?? '')
-  // Structured address fields
-  const [addressLine, setAddressLine] = useState(estimate?.address_line ?? '')
-  const [city, setCity] = useState(estimate?.city ?? '')
-  const [addrState, setAddrState] = useState(estimate?.state ?? '')
-  const [zip, setZip] = useState(estimate?.zip ?? '')
-  // Legacy client_name is now computed from firstName + lastName
+  // Form fields — initialized from recognized DB columns
+  const [firstName, setFirstName] = useState(() => {
+    // Parse first name from client_name ("John Smith" → "John", "John Smith — Acme" → "John")
+    const cn = (estimate?.client_name ?? '').split(' — ')[0]
+    return cn.split(' ')[0] || ''
+  })
+  const [lastName, setLastName] = useState(() => {
+    const cn = (estimate?.client_name ?? '').split(' — ')[0]
+    const parts = cn.split(' ')
+    return parts.length > 1 ? parts.slice(1).join(' ') : ''
+  })
+  const [companyName, setCompanyName] = useState(() => {
+    const parts = (estimate?.client_name ?? '').split(' — ')
+    return parts.length > 1 ? parts[1] : ''
+  })
+  const [estimateName, setEstimateName] = useState(estimate?.project_name ?? '')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  // Address: parse from project_address ("123 Main, Boston, MA 02101")
+  const [addressLine, setAddressLine] = useState(() => {
+    const parts = (estimate?.project_address ?? '').split(', ')
+    return parts[0] || ''
+  })
+  const [city, setCity] = useState(() => {
+    const parts = (estimate?.project_address ?? '').split(', ')
+    return parts[1] || ''
+  })
+  const [addrState, setAddrState] = useState(() => {
+    const parts = (estimate?.project_address ?? '').split(', ')
+    const stZip = parts[2] || ''
+    return stZip.split(' ')[0] || ''
+  })
+  const [zip, setZip] = useState(() => {
+    const parts = (estimate?.project_address ?? '').split(', ')
+    const stZip = parts[2] || ''
+    const pieces = stZip.split(' ')
+    return pieces.length > 1 ? pieces.slice(1).join(' ') : ''
+  })
   const [projectDescription, setProjectDescription] = useState(estimate?.project_description ?? '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [dragActive, setDragActive] = useState(false)
@@ -208,34 +224,38 @@ export function Step1ProjectInfo({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Build current form data for saving
-  const buildFormData = () => {
+  // Build save payload using ONLY columns PostgREST recognizes.
+  // Structured fields are composed into the recognized columns.
+  const buildSavePayload = () => {
     const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
+    const companyStr = companyName.trim()
+    const clientName = companyStr ? `${fullName} — ${companyStr}` : fullName
+    const contactParts: string[] = []
+    if (phone.trim()) contactParts.push(`Phone: ${phone.trim()}`)
+    if (email.trim()) contactParts.push(`Email: ${email.trim()}`)
+    const contactLine = contactParts.length > 0 ? contactParts.join(' | ') : ''
+    const descRaw = projectDescription.trim()
+    // Prepend contact info to project_description if present
+    const fullDesc = contactLine ? `${contactLine}\n\n${descRaw}` : descRaw
+
     return {
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      company_name: companyName.trim() || null,
-      estimate_name: estimateName.trim() || null,
-      phone: phone.trim() || null,
-      email: email.trim() || null,
-      address_line: addressLine.trim(),
-      city: city.trim(),
-      state: addrState.trim(),
-      zip: zip.trim(),
-      client_name: fullName,
-      project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
-      project_description: projectDescription.trim(),
+      project_name: estimateName.trim() || null,
+      client_name: clientName || null,
+      project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null,
+      project_description: fullDesc || null,
     }
   }
 
-  // Save directly to Supabase — no callbacks, no React state, no debounce chain
+  // Save directly to Supabase — only recognized columns
   const saveToDb = useCallback(async () => {
     if (!estimate?.id) return
-    const data = buildFormData()
-    const { error } = await supabase.from('estimates').update(data).eq('id', estimate.id)
+    const payload = buildSavePayload()
+    console.log('[Step1] saving to DB:', payload)
+    const { error } = await supabase.from('estimates').update(payload).eq('id', estimate.id)
     if (error) console.error('[Step1] save FAILED:', error.message)
+    else console.log('[Step1] save SUCCESS')
     // Also update React state so parent components see the changes
-    if (onFieldChange) onFieldChange(data)
+    if (onFieldChange) onFieldChange(payload)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estimate?.id, firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
 
@@ -310,21 +330,12 @@ export function Step1ProjectInfo({
       return
     }
 
-    const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
+    const payload = buildSavePayload()
     onGenerate({
-      client_name: fullName,
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      company_name: companyName.trim() || null,
-      estimate_name: estimateName.trim() || null,
-      phone: phone.trim() || null,
-      email: email.trim() || null,
-      address_line: addressLine.trim(),
-      city: city.trim(),
-      state: addrState.trim(),
-      zip: zip.trim(),
-      project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
-      project_description: projectDescription.trim(),
+      ...payload,
+      client_name: payload.client_name || '',
+      project_address: payload.project_address || '',
+      project_description: payload.project_description || '',
       files: uploadedFiles.map((f) => f.file),
     })
     setShowRegenerateConfirm(false)
@@ -646,21 +657,12 @@ export function Step1ProjectInfo({
                 </button>
                 <button
                   onClick={() => {
-                    const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
+                    const payload = buildSavePayload()
                     onGenerate({
-                      client_name: fullName,
-                      first_name: firstName.trim(),
-                      last_name: lastName.trim(),
-                      company_name: companyName.trim() || null,
-                      estimate_name: estimateName.trim() || null,
-                      phone: phone.trim() || null,
-                      email: email.trim() || null,
-                      address_line: addressLine.trim(),
-                      city: city.trim(),
-                      state: addrState.trim(),
-                      zip: zip.trim(),
-                      project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
-                      project_description: projectDescription.trim(),
+                      ...payload,
+                      client_name: payload.client_name || '',
+                      project_address: payload.project_address || '',
+                      project_description: payload.project_description || '',
                       files: uploadedFiles.map((f) => f.file),
                     })
                     setShowRegenerateConfirm(false)

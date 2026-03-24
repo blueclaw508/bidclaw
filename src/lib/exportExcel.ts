@@ -11,8 +11,8 @@ export function exportEstimateToExcel(
   const rows: (string | number | null)[][] = []
 
   // ── Header section ──
-  const clientName = [estimate.first_name, estimate.last_name].filter(Boolean).join(' ') || estimate.client_name || ''
-  const estimateName = estimate.estimate_name || (clientName ? `BidClaw — ${clientName}` : 'BidClaw Estimate')
+  const clientName = estimate.client_name || ''
+  const estimateName = estimate.project_name || (clientName ? `BidClaw — ${clientName}` : 'BidClaw Estimate')
 
   rows.push([estimateName])
   rows.push([])

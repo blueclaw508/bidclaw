@@ -433,26 +433,14 @@ function AppContent() {
     const step = estimate.workflow_step
 
     const handleGenerate = async (data: {
-      client_name: string; first_name: string; last_name: string;
-      company_name: string | null; estimate_name: string | null;
-      phone: string | null; email: string | null;
-      address_line: string; city: string; state: string; zip: string;
+      client_name: string; project_name?: string | null;
       project_address: string; project_description: string; files: File[]
     }) => {
       try {
         const urls = data.files.length > 0 ? await uploadFiles(data.files) : estimate.plan_file_urls
         updateEstimate({
           client_name: data.client_name,
-          first_name: data.first_name,
-          last_name: data.last_name,
-          company_name: data.company_name,
-          estimate_name: data.estimate_name,
-          phone: data.phone,
-          email: data.email,
-          address_line: data.address_line,
-          city: data.city,
-          state: data.state,
-          zip: data.zip,
+          project_name: data.project_name ?? null,
           project_address: data.project_address,
           project_description: data.project_description,
           plan_file_urls: urls,
@@ -585,7 +573,7 @@ function AppContent() {
           ) : step === 2 && showWorkAreaChoice ? (
             <JamieWorkAreaChoice
               contractorFirstName={companyProfile?.userName?.split(' ')[0] ?? ''}
-              clientName={[estimate.first_name, estimate.last_name].filter(Boolean).join(' ') || estimate.client_name || ''}
+              clientName={estimate.client_name || ''}
               onPullFromPlan={handlePullFromPlan}
               onManualSubmit={handleManualWorkAreas}
               loading={aiLoading}
