@@ -3,7 +3,6 @@ import {
   Building2,
   BookOpen,
   Gauge,
-  DollarSign,
   Info,
   ClipboardList,
   Menu,
@@ -18,7 +17,6 @@ type TabValue =
   | "company-info"
   | "item-catalog"
   | "production-rates"
-  | "kyn-numbers"
   | "about-kyn"
   | "estimates";
 
@@ -31,7 +29,6 @@ const tabs: { value: TabValue; label: string; icon: React.ElementType }[] = [
   { value: "company-info", label: "Company Info", icon: Building2 },
   { value: "item-catalog", label: "Item Catalog", icon: BookOpen },
   { value: "production-rates", label: "Production Rates", icon: Gauge },
-  { value: "kyn-numbers", label: "My Numbers", icon: DollarSign },
   { value: "about-kyn", label: "About KYN", icon: Info },
 ];
 

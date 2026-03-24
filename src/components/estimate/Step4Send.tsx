@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { EstimateRecord, WorkAreaData, LineItemData } from '@/lib/types'
-import type { KYNRates } from '@/lib/jamiePrompt'
-import { KYN_RATE_DEFAULTS } from '@/lib/jamiePrompt'
+import { exportEstimateToExcel } from '@/lib/exportExcel'
 import { ProgressIndicator } from './Step1ProjectInfo'
 import { JamieEstimateSummary } from './JamieInsights'
 import {
@@ -20,7 +19,8 @@ import {
   Lock,
   X,
   DollarSign,
-  TrendingUp,
+  Clock,
+  Table,
 } from 'lucide-react'
 
 interface Step4SendProps {
@@ -29,7 +29,6 @@ interface Step4SendProps {
   lineItems: Record<string, LineItemData[]>
   newCatalogItemCount: number
   unpricedItemNames: string[]
-  kynRates: KYNRates
   onEdit: () => void
   onSend: () => void
   onNewEstimate: () => void
@@ -110,7 +109,6 @@ export function Step4Send({
   lineItems,
   newCatalogItemCount,
   unpricedItemNames,
-  kynRates,
   onEdit,
   onSend,
   onNewEstimate,
@@ -128,41 +126,19 @@ export function Step4Send({
   const hasUnpricedItems = unpricedItemNames.length > 0
   const totalLineItems = Object.values(lineItems).reduce((sum, items) => sum + items.length, 0)
 
-  // ── Pre-send financial summary ──
+  // ── Pre-send estimate summary (quantities only — no pricing) ──
   const financials = useMemo(() => {
-    const rates = kynRates ?? KYN_RATE_DEFAULTS
     let totalManHours = 0
-    let materialCost = 0
-    let subCost = 0
-    let equipmentCost = 0
-    let otherCost = 0
-
     for (const items of Object.values(lineItems)) {
       for (const li of items) {
         if (li.category === 'Labor') {
           totalManHours += li.quantity || 0
-        } else if (li.category === 'Materials') {
-          materialCost += (li.quantity || 0) * (li.unit_cost || 0)
-        } else if (li.category === 'Subcontractor') {
-          subCost += (li.quantity || 0) * (li.unit_cost || 0)
-        } else if (li.category === 'Equipment') {
-          equipmentCost += (li.quantity || 0) * (li.unit_cost || 0)
-        } else {
-          otherCost += (li.quantity || 0) * (li.unit_cost || 0)
         }
       }
     }
-
-    const laborSell = totalManHours * rates.retail_labor_rate
-    const materialSell = materialCost * (1 + rates.material_markup / 100)
-    const subSell = subCost * (1 + rates.sub_markup / 100)
-    const equipmentSell = equipmentCost * (1 + rates.equipment_markup / 100)
-    const totalCost = materialCost + subCost + equipmentCost + otherCost
-    const totalSell = laborSell + materialSell + subSell + equipmentSell + otherCost
     const crewDays = totalManHours > 0 ? Math.ceil(totalManHours / 27) : 0
-
-    return { totalManHours, crewDays, totalCost, totalSell, laborSell, materialCost, materialSell }
-  }, [lineItems, kynRates])
+    return { totalManHours, crewDays }
+  }, [lineItems])
 
   const handleSend = async () => {
     if (hasUnpricedItems) return
@@ -271,13 +247,13 @@ export function Step4Send({
             </div>
           </div>
 
-          {/* ── Pre-send estimate summary (quantities only — pricing is done in QuickCalc) ── */}
+          {/* ── Pre-send estimate summary (quantities only — no pricing) ── */}
           <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50/50 p-4">
             <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-blue-900">
-              <TrendingUp size={16} />
+              <Clock size={16} />
               Estimate Summary
             </h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Labor Hours</p>
                 <p className="text-lg font-bold text-blue-900 tabular-nums">
@@ -291,6 +267,14 @@ export function Step4Send({
                   {financials.crewDays}
                   <span className="ml-1 text-xs font-normal text-slate-400">days</span>
                 </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Work Areas</p>
+                <p className="text-lg font-bold text-blue-900 tabular-nums">{workAreas.length}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Line Items</p>
+                <p className="text-lg font-bold text-blue-900 tabular-nums">{totalLineItems}</p>
               </div>
             </div>
           </div>
@@ -367,39 +351,49 @@ export function Step4Send({
               Edit Estimate
             </button>
 
-            <button
-              onClick={handleSend}
-              disabled={sending || hasUnpricedItems}
-              className={`inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white transition-colors disabled:opacity-70 disabled:cursor-not-allowed ${
-                isTrial
-                  ? 'bg-amber-500 hover:bg-amber-600'
-                  : hasUnpricedItems
-                  ? 'bg-slate-400'
-                  : 'bg-[#2563EB] hover:bg-blue-600'
-              }`}
-            >
-              {sending ? (
-                <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Sending...
-                </>
-              ) : hasUnpricedItems ? (
-                <>
-                  <AlertTriangle size={16} />
-                  PRICE ITEMS FIRST
-                </>
-              ) : isTrial ? (
-                <>
-                  <Lock size={16} />
-                  SEND TO QUICKCALC
-                </>
-              ) : (
-                <>
-                  <Send size={18} />
-                  SEND TO QUICKCALC
-                </>
-              )}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => exportEstimateToExcel(estimate, workAreas, lineItems)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <Table size={16} />
+                EXPORT TO EXCEL
+              </button>
+
+              <button
+                onClick={handleSend}
+                disabled={sending || hasUnpricedItems}
+                className={`inline-flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold text-white transition-colors disabled:opacity-70 disabled:cursor-not-allowed ${
+                  isTrial
+                    ? 'bg-amber-500 hover:bg-amber-600'
+                    : hasUnpricedItems
+                    ? 'bg-slate-400'
+                    : 'bg-[#2563EB] hover:bg-blue-600'
+                }`}
+              >
+                {sending ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Sending...
+                  </>
+                ) : hasUnpricedItems ? (
+                  <>
+                    <AlertTriangle size={16} />
+                    PRICE ITEMS FIRST
+                  </>
+                ) : isTrial ? (
+                  <>
+                    <Lock size={16} />
+                    SEND TO QUICKCALC
+                  </>
+                ) : (
+                  <>
+                    <Send size={18} />
+                    SEND TO QUICKCALC
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

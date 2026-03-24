@@ -12,7 +12,6 @@ import CompanyInfo from '@/components/settings/CompanyInfo'
 import ItemCatalog from '@/components/settings/ItemCatalog'
 import ProductionRates from '@/components/settings/ProductionRates'
 import AboutKYN from '@/components/settings/AboutKYN'
-import MyKYNNumbers from '@/components/settings/MyKYNNumbers'
 import { EstimateDashboard } from '@/components/estimate/EstimateDashboard'
 import { Step1ProjectInfo } from '@/components/estimate/Step1ProjectInfo'
 import { Step2WorkAreas } from '@/components/estimate/Step2WorkAreas'
@@ -33,12 +32,10 @@ import {
   jamieGenerateSummary,
   jamieAnalyzeEstimate,
 } from '@/lib/jamie'
-import { KYN_RATE_DEFAULTS } from '@/lib/jamiePrompt'
-import type { KYNRates } from '@/lib/jamiePrompt'
 import { matchAllLineItems } from '@/lib/catalogMatcher'
 import { Loader2, Cloud, Check, Lock, Clock } from 'lucide-react'
 
-type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'kyn-numbers' | 'about-kyn' | 'estimates'
+type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'about-kyn' | 'estimates'
 
 // localStorage keys — outside component so they never change reference
 const LS_ESTIMATE_ID = 'bidclaw_active_estimate_id'
@@ -83,25 +80,6 @@ function AppContent() {
   const workAreas: WorkAreaData[] = estimate?.work_areas ?? []
   const lineItems: Record<string, LineItemData[]> = estimate?.line_items ?? {}
   const newCatalogItems: string[] = estimate?.new_catalog_items_created ?? []
-
-  // KYN rates for pre-send summary
-  const [kynRatesState, setKynRatesState] = useState<KYNRates>({ ...KYN_RATE_DEFAULTS })
-
-  // Fetch KYN rates when estimate is loaded
-  const fetchKynRates = useCallback(async () => {
-    if (!user) return
-    const { data } = await supabase.from('bidclaw_kyn_rates').select('*').eq('user_id', user.id).maybeSingle()
-    if (data) {
-      setKynRatesState({
-        retail_labor_rate: data.retail_labor_rate ?? KYN_RATE_DEFAULTS.retail_labor_rate,
-        material_markup: data.material_markup ?? KYN_RATE_DEFAULTS.material_markup,
-        sub_markup: data.sub_markup ?? KYN_RATE_DEFAULTS.sub_markup,
-        equipment_markup: data.equipment_markup ?? KYN_RATE_DEFAULTS.equipment_markup,
-      })
-    }
-  }, [user])
-
-  useEffect(() => { fetchKynRates() }, [fetchKynRates])
 
   // ── Layer 1: clear stale localStorage only when DB confirmed estimate is gone ──
   useEffect(() => {
@@ -238,21 +216,12 @@ function AppContent() {
     setJamieBuildingEstimate(true)
     try {
       // Fetch user's catalog, production rates, and KYN rates
-      const [{ data: catalogData }, { data: ratesData }, { data: kynData }] = await Promise.all([
+      const [{ data: catalogData }, { data: ratesData }] = await Promise.all([
         supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
         supabase.from('production_rates').select('*').eq('user_id', user.id),
-        supabase.from('bidclaw_kyn_rates').select('*').eq('user_id', user.id).maybeSingle(),
       ])
       const userCatalog = (catalogData ?? []) as CatalogItem[]
       const productionRates = (ratesData ?? []) as ProductionRate[]
-      const kynRates: KYNRates = kynData
-        ? {
-            retail_labor_rate: kynData.retail_labor_rate ?? KYN_RATE_DEFAULTS.retail_labor_rate,
-            material_markup: kynData.material_markup ?? KYN_RATE_DEFAULTS.material_markup,
-            sub_markup: kynData.sub_markup ?? KYN_RATE_DEFAULTS.sub_markup,
-            equipment_markup: kynData.equipment_markup ?? KYN_RATE_DEFAULTS.equipment_markup,
-          }
-        : { ...KYN_RATE_DEFAULTS }
 
       const intakeContext = buildIntakeContext(jamieMessages)
       const result = await jamieBuildEstimate(
@@ -261,7 +230,6 @@ function AppContent() {
         estimate.project_address ?? '',
         userCatalog,
         productionRates,
-        kynRates
       )
 
       // Match line items to catalog
@@ -306,29 +274,19 @@ function AppContent() {
     if (!wa || !user) return
     setJamieScopeLoading(waId)
     try {
-      // Fetch catalog, rates, and KYN rates for unified prompt
-      const [{ data: catalogData }, { data: ratesData }, { data: kynData }] = await Promise.all([
+      // Fetch catalog and production rates for unified prompt
+      const [{ data: catalogData }, { data: ratesData }] = await Promise.all([
         supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
         supabase.from('production_rates').select('*').eq('user_id', user.id),
-        supabase.from('bidclaw_kyn_rates').select('*').eq('user_id', user.id).maybeSingle(),
       ])
       const userCatalog = (catalogData ?? []) as CatalogItem[]
       const productionRates = (ratesData ?? []) as ProductionRate[]
-      const kynRates: KYNRates = kynData
-        ? {
-            retail_labor_rate: kynData.retail_labor_rate ?? KYN_RATE_DEFAULTS.retail_labor_rate,
-            material_markup: kynData.material_markup ?? KYN_RATE_DEFAULTS.material_markup,
-            sub_markup: kynData.sub_markup ?? KYN_RATE_DEFAULTS.sub_markup,
-            equipment_markup: kynData.equipment_markup ?? KYN_RATE_DEFAULTS.equipment_markup,
-          }
-        : { ...KYN_RATE_DEFAULTS }
 
       const result = await jamieWriteScope(
         wa.name,
         lineItems[waId] ?? [],
         userCatalog,
         productionRates,
-        kynRates,
         estimate?.project_description ?? undefined,
         (estimate?.plan_file_urls?.length ?? 0) > 0,
       )
@@ -736,7 +694,6 @@ function AppContent() {
               lineItems={lineItems}
               newCatalogItemCount={newCatalogItems.length}
               unpricedItemNames={unpricedItemNames}
-              kynRates={kynRatesState}
               onEdit={() => updateEstimate({ workflow_step: 3 })}
               onSend={sendToQuickCalc}
               onNewEstimate={() => { resetEstimateState(); setCurrentTab('estimates') }}
@@ -786,7 +743,6 @@ function AppContent() {
             {currentTab === 'company-info' && <CompanyInfo />}
             {currentTab === 'item-catalog' && <ItemCatalog />}
             {currentTab === 'production-rates' && <ProductionRates />}
-            {currentTab === 'kyn-numbers' && <MyKYNNumbers />}
             {currentTab === 'about-kyn' && <AboutKYN />}
             {currentTab === 'estimates' && (
               <EstimateDashboard

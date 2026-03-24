@@ -1,24 +1,8 @@
 // Jamie System Prompt — Unified module for all Jamie API calls
 // Contains: Prime Directive, 5-step methodology, KYN Kit Library rates,
-// contractor KYN rates injection, and scope format rules.
+// and scope format rules. NO pricing data — all pricing lives in QuickCalc.
 
 import type { CatalogItem, ProductionRate } from '@/lib/types'
-
-// ── KYN Rates (contractor-specific pricing context) ──
-
-export interface KYNRates {
-  retail_labor_rate: number    // $/hr — what every labor hour is billed at
-  material_markup: number      // e.g. 50 = 50%
-  sub_markup: number           // e.g. 25 = 25%
-  equipment_markup: number     // e.g. 35 = 35%
-}
-
-export const KYN_RATE_DEFAULTS: KYNRates = {
-  retail_labor_rate: 85,
-  material_markup: 50,
-  sub_markup: 25,
-  equipment_markup: 35,
-}
 
 // ── Kit Library Production Rates (injected into every estimate prompt) ──
 
@@ -73,14 +57,6 @@ FULL CREW DAY = 27 man hours (3 crew × 9 hrs). Round UP to 27 if within 20% (i.
 
 // ── The Unified System Prompt (Prime Directive enforced) ──
 
-function buildKYNRatesBlock(rates: KYNRates): string {
-  return `CONTRACTOR'S KYN RATES (use these — do not invent your own):
-- Retail Labor Rate: $${rates.retail_labor_rate}/hr — this is what every labor hour is billed at
-- Material Markup: ${rates.material_markup}% — applied to all material costs
-- Sub Markup: ${rates.sub_markup}% — applied to all subcontractor costs
-- Equipment Markup: ${rates.equipment_markup}% — applied to equipment hourly costs`
-}
-
 function buildCatalogBlock(catalog: CatalogItem[]): string {
   if (catalog.length === 0) return 'The contractor has no catalog items yet.'
   const names = catalog.map((i) => `${i.name} (${i.type})`).join(', ')
@@ -100,10 +76,9 @@ function buildProductionRatesBlock(rates: ProductionRate[]): string {
 export function buildUnifiedEstimatePrompt(opts: {
   catalog: CatalogItem[]
   productionRates: ProductionRate[]
-  kynRates: KYNRates
   workAreaContext?: string
 }): string {
-  const { catalog, productionRates, kynRates } = opts
+  const { catalog, productionRates } = opts
 
   return `You are Jamie, BidClaw's estimating agent. You follow the KYN (Know Your Numbers) framework.
 
@@ -116,8 +91,6 @@ BidClaw is a quantity and scope tool ONLY. It collects:
 - Equipment items and hours (no rates)
 - Labor man hours (no rates, no burden)
 BidClaw NEVER calculates or discusses: labor burden, overhead, profit margin, markups, retail labor rate, RPR, or any pricing totals. All of that lives in QuickCalc.
-
-${buildKYNRatesBlock(kynRates)}
 
 ${buildCatalogBlock(catalog)}
 

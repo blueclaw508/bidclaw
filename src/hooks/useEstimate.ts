@@ -13,8 +13,6 @@ import { runPass1, runPass2 } from '@/lib/anthropic'
 import type { Pass2Progress } from '@/lib/anthropic'
 import { matchAllLineItems } from '@/lib/catalogMatcher'
 import { searchMaterialAssemblies, formatSearchResultsForPrompt } from '@/lib/webSearch'
-import { KYN_RATE_DEFAULTS } from '@/lib/jamiePrompt'
-import type { KYNRates } from '@/lib/jamiePrompt'
 import type { ProductionRate } from '@/lib/types'
 
 export function useEstimate(estimateId: string | null, onJamieError?: (msg: string, retry?: () => void) => void) {
@@ -187,22 +185,13 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     setAiLoading(true)
     setAiMessage('Analyzing work areas...')
     try {
-      // Fetch catalog, production rates, and KYN rates in parallel
-      const [{ data: catalog }, { data: ratesData }, { data: kynData }] = await Promise.all([
+      // Fetch catalog and production rates in parallel
+      const [{ data: catalog }, { data: ratesData }] = await Promise.all([
         supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
         supabase.from('production_rates').select('*').eq('user_id', user.id),
-        supabase.from('bidclaw_kyn_rates').select('*').eq('user_id', user.id).maybeSingle(),
       ])
       const userCatalog = (catalog ?? []) as CatalogItem[]
       const productionRates = (ratesData ?? []) as ProductionRate[]
-      const kynRates: KYNRates = kynData
-        ? {
-            retail_labor_rate: kynData.retail_labor_rate ?? KYN_RATE_DEFAULTS.retail_labor_rate,
-            material_markup: kynData.material_markup ?? KYN_RATE_DEFAULTS.material_markup,
-            sub_markup: kynData.sub_markup ?? KYN_RATE_DEFAULTS.sub_markup,
-            equipment_markup: kynData.equipment_markup ?? KYN_RATE_DEFAULTS.equipment_markup,
-          }
-        : { ...KYN_RATE_DEFAULTS }
 
       // Web Search Layer — fire material assembly searches
       setAiMessage('Researching material assemblies...')
@@ -263,7 +252,6 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         estimate.project_description ?? '',
         userCatalog,
         productionRates,
-        kynRates,
         gapAnswers,
         searchContext,
         handleProgress,
@@ -305,13 +293,9 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         'Disposal': 'other',
       }
 
-      // ── Fetch user's existing QC catalog + KYN rates ──
-      const [{ data: existingCatalog }, { data: kynData }] = await Promise.all([
-        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
-        supabase.from('bidclaw_kyn_rates').select('*').eq('user_id', user.id).maybeSingle(),
-      ])
-
-      const retailLaborRate = kynData?.retail_labor_rate ?? KYN_RATE_DEFAULTS.retail_labor_rate
+      // ── Fetch user's existing QC catalog ──
+      const { data: existingCatalog } = await supabase
+        .from('kyn_catalog_items').select('*').eq('user_id', user.id)
 
       // Mutable catalog list so newly-created items are visible to later lookups
       const catalogItems: any[] = existingCatalog ?? []
@@ -414,9 +398,9 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
             newCatalogItems.push({ id: newId, name: li.name, type: qcType })
           }
 
-          // Rate always comes from QC catalog — never from AI-generated line item data
+          // Rate comes from QC catalog — BidClaw sends quantities only, QuickCalc applies pricing
           let rate = 0
-          if (qcType === 'labor') rate = retailLaborRate
+          if (qcType === 'labor') rate = 0  // QuickCalc applies retail labor rate
           else if (qcType === 'material') rate = catalogItem.unit_cost ?? 0
           else if (qcType === 'subcontractor') rate = catalogItem.sub_cost ?? 0
           else if (qcType === 'equipment') rate = catalogItem.unit_cost ?? 0

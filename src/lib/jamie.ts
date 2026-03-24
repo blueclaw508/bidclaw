@@ -3,7 +3,6 @@
 
 import { callAI } from '@/lib/supabase'
 import { buildUnifiedEstimatePrompt, crossValidateScopeAndItems } from '@/lib/jamiePrompt'
-import type { KYNRates } from '@/lib/jamiePrompt'
 import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate } from '@/lib/types'
 
 // ── Jamie Conversational System Prompt (intake, review, summary — NOT estimate generation) ──
@@ -74,12 +73,10 @@ export async function jamieBuildEstimate(
   projectAddress: string,
   userCatalog: CatalogItem[],
   productionRates: ProductionRate[],
-  kynRates: KYNRates
 ): Promise<JamieBuildResult> {
   const basePrompt = buildUnifiedEstimatePrompt({
     catalog: userCatalog,
     productionRates,
-    kynRates,
   })
 
   const { data, error } = await callAI<JamieBuildResult>({
@@ -143,14 +140,12 @@ export async function jamieWriteScope(
   lineItems: LineItemData[],
   userCatalog: CatalogItem[],
   productionRates: ProductionRate[],
-  kynRates: KYNRates,
   projectDescription?: string,
   planUploaded?: boolean
 ): Promise<JamieScopeResult> {
   const basePrompt = buildUnifiedEstimatePrompt({
     catalog: userCatalog,
     productionRates,
-    kynRates,
   })
 
   const itemsSummary = lineItems.map((li) => `${li.name}: ${li.quantity} ${li.unit} (${li.category})`).join('\n')

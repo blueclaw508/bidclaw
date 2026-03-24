@@ -1,7 +1,6 @@
 import { callAI } from '@/lib/supabase'
 import { processPlanFile } from '@/lib/planProcessor'
 import { buildUnifiedEstimatePrompt, crossValidateScopeAndItems } from '@/lib/jamiePrompt'
-import type { KYNRates } from '@/lib/jamiePrompt'
 import type { AiPass1Response, AiPass2Response, CatalogItem, ProductionRate } from '@/lib/types'
 
 const PASS1_SYSTEM = `You are Jamie, a landscape and masonry estimating assistant trained in the Know Your Numbers (KYN) methodology by Blue Claw Group.
@@ -165,7 +164,6 @@ export async function runPass2(
   projectDescription: string,
   userCatalog: CatalogItem[],
   productionRates: ProductionRate[],
-  kynRates: KYNRates,
   gapAnswers?: Record<string, string>,
   webSearchContext?: string,
   onProgress?: (progress: Pass2Progress) => void,
@@ -174,7 +172,6 @@ export async function runPass2(
   const basePrompt = buildUnifiedEstimatePrompt({
     catalog: userCatalog,
     productionRates,
-    kynRates,
   })
 
   const searchBlock = webSearchContext ? `\n\n${webSearchContext}\n` : ''
