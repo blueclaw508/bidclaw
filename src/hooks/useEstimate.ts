@@ -71,7 +71,9 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       if (!accumulated) return
       pendingSaveRef.current = null
       setSaving(true)
-      await supabase.from('estimates').update(accumulated).eq('id', estimateId)
+      const { error } = await supabase.from('estimates').update(accumulated).eq('id', estimateId)
+      if (error) console.error('[useEstimate] autoSave FAILED:', error.message, 'keys:', Object.keys(accumulated))
+      else console.log('[useEstimate] autoSave SUCCESS — keys:', Object.keys(accumulated))
       setSaving(false)
     }, 500)
   }, [estimateId])
@@ -84,7 +86,10 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       const data = pendingSaveRef.current
       pendingSaveRef.current = null
       console.log('[useEstimate] FLUSH pending save — keys:', Object.keys(data), 'estimate_name:', (data as any).estimate_name)
-      supabase.from('estimates').update(data).eq('id', estimateId)
+      supabase.from('estimates').update(data).eq('id', estimateId).then(({ error }) => {
+        if (error) console.error('[useEstimate] FLUSH save FAILED:', error.message, error.code)
+        else console.log('[useEstimate] FLUSH save SUCCESS')
+      })
     } else {
       console.log('[useEstimate] FLUSH called but nothing pending. estimateId:', estimateId, 'pendingRef:', !!pendingSaveRef.current)
     }
