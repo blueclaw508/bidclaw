@@ -35,7 +35,7 @@ export function exportEstimateToExcel(
     rows.push([])
 
     // Jamie scope description (full bulleted version)
-    const scopeDesc = estimate.scope_descriptions?.[wa.id]
+    const scopeDesc = wa.scope_description
     if (scopeDesc) {
       // Split bullets into separate rows for readability
       const bullets = scopeDesc.split('\n').filter((line: string) => line.trim())

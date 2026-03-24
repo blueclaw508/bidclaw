@@ -128,6 +128,16 @@ function AppContent() {
       if (saved.showWorkAreaChoice) setShowWorkAreaChoice(saved.showWorkAreaChoice)
       if (saved.manualWorkAreaMode) setManualWorkAreaMode(saved.manualWorkAreaMode)
     } catch {}
+    // Also restore scopes from work_areas (DB-persisted)
+    if (estimate.work_areas) {
+      const dbScopes: Record<string, string> = {}
+      for (const wa of estimate.work_areas) {
+        if (wa.scope_description) dbScopes[wa.id] = wa.scope_description
+      }
+      if (Object.keys(dbScopes).length > 0) {
+        setJamieScopes(prev => ({ ...dbScopes, ...prev }))
+      }
+    }
   }, [estimate])
 
   // ── Layer 2: write Jamie state to localStorage on every change ──
@@ -281,10 +291,17 @@ function AppContent() {
       )
       // Update both scope AND line items (Prime Directive enforcement)
       setJamieScopes((prev) => ({ ...prev, [waId]: result.scope_description }))
+      // Embed scope into work_areas for DB persistence
+      const updatedWorkAreas = workAreas.map(w =>
+        w.id === waId ? { ...w, scope_description: result.scope_description } : w
+      )
       if (result.line_items && result.line_items.length > 0) {
         updateEstimate({
+          work_areas: updatedWorkAreas,
           line_items: { ...lineItems, [waId]: result.line_items },
         })
+      } else {
+        updateEstimate({ work_areas: updatedWorkAreas })
       }
     } catch (err) {
       showJamieError(

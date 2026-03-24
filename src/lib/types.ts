@@ -72,6 +72,9 @@ export interface WorkAreaData {
   crew_size?: number
   crew_hours_per_day?: number
   line_items?: LineItemData[]
+  // Embedded scope and gap questions (saved inside work_areas JSON column)
+  scope_description?: string
+  gap_questions?: string[]
 }
 
 export type LineItemCategory = 'Materials' | 'Labor' | 'Equipment' | 'Subcontractor' | 'Disposal'
@@ -100,8 +103,6 @@ export interface EstimateRecord {
   workflow_step: number
   work_areas: WorkAreaData[] | null
   line_items: Record<string, LineItemData[]> | null
-  scope_descriptions: Record<string, string> | null
-  gap_questions: Record<string, string[]> | null
   new_catalog_items_created: string[] | null
   approval_status: ApprovalStatus
   sent_to_quickcalc_at: string | null

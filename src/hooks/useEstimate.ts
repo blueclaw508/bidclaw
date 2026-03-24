@@ -52,11 +52,32 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     load()
   }, [estimateId, userId])
 
+  // ── PostgREST-recognized columns ONLY ──
+  // Any column not in this list gets silently stripped before saving.
+  // This prevents 400 errors from columns PostgREST's schema cache doesn't know about.
+  const SAFE_COLUMNS = new Set([
+    'client_name', 'project_name', 'project_address', 'project_description',
+    'plan_file_urls', 'workflow_step', 'work_areas', 'line_items',
+    'new_catalog_items_created', 'approval_status', 'sent_to_quickcalc_at',
+  ])
+
+  function stripUnsafe(updates: Partial<EstimateRecord>): Record<string, unknown> {
+    const safe: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(updates)) {
+      if (SAFE_COLUMNS.has(key)) safe[key] = value
+    }
+    return safe
+  }
+
   // Immediate save — no debounce. Use for critical data (work areas, line items, workflow step).
   const immediateSave = useCallback(async (updates: Partial<EstimateRecord>) => {
     if (!estimateId) return
+    const safe = stripUnsafe(updates)
+    if (Object.keys(safe).length === 0) return
     setSaving(true)
-    await supabase.from('estimates').update(updates).eq('id', estimateId)
+    const { error } = await supabase.from('estimates').update(safe).eq('id', estimateId)
+    if (error) console.error('[useEstimate] immediateSave FAILED:', error.message, 'keys:', Object.keys(safe))
+    else console.log('[useEstimate] immediateSave SUCCESS — keys:', Object.keys(safe))
     setSaving(false)
   }, [estimateId])
 
@@ -70,10 +91,12 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       const accumulated = pendingSaveRef.current
       if (!accumulated) return
       pendingSaveRef.current = null
+      const safe = stripUnsafe(accumulated)
+      if (Object.keys(safe).length === 0) return
       setSaving(true)
-      const { error } = await supabase.from('estimates').update(accumulated).eq('id', estimateId)
-      if (error) console.error('[useEstimate] autoSave FAILED:', error.message, 'keys:', Object.keys(accumulated))
-      else console.log('[useEstimate] autoSave SUCCESS — keys:', Object.keys(accumulated))
+      const { error } = await supabase.from('estimates').update(safe).eq('id', estimateId)
+      if (error) console.error('[useEstimate] autoSave FAILED:', error.message, 'keys:', Object.keys(safe))
+      else console.log('[useEstimate] autoSave SUCCESS — keys:', Object.keys(safe))
       setSaving(false)
     }, 500)
   }, [estimateId])
@@ -146,15 +169,17 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         id: wa.id, name: wa.name, description: wa.description,
         complexity: wa.complexity, approved: false,
       }))
-      // Extract gap questions from Pass1 response
+      // Embed gap questions into work_areas
+      const enrichedWorkAreas = workAreas.map(wa => {
+        const origWa = result.work_areas.find(w => w.id === wa.id)
+        return { ...wa, gap_questions: origWa?.gap_questions ?? [] }
+      })
+      updateEstimate({ work_areas: enrichedWorkAreas, workflow_step: 2, approval_status: 'draft' }, true)
       const gapQuestions: Record<string, string[]> = {}
-      for (const wa of result.work_areas) {
-        if (wa.gap_questions && wa.gap_questions.length > 0) {
-          gapQuestions[wa.id] = wa.gap_questions
-        }
+      for (const wa of enrichedWorkAreas) {
+        if (wa.gap_questions && wa.gap_questions.length > 0) gapQuestions[wa.id] = wa.gap_questions
       }
-      updateEstimate({ work_areas: workAreas, gap_questions: gapQuestions, workflow_step: 2, approval_status: 'draft' }, true)
-      return { workAreas, gapQuestions }
+      return { workAreas: enrichedWorkAreas, gapQuestions }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Jamie analysis failed'
       if (onJamieError) onJamieError(msg, runAiPass1)
@@ -198,8 +223,6 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       // Transition to Step 3 immediately so the user sees progress — save immediately
       updateEstimate({
         line_items: lineItems,
-        scope_descriptions: scopeDescriptions,
-        gap_questions: gapQuestions,
         new_catalog_items_created: newCatalogItems,
         workflow_step: 3,
         approval_status: 'work_areas_approved',
@@ -224,11 +247,17 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
             return { ...li, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
           })
 
+          // Embed scope_descriptions and gap_questions into work_areas for safe saving
+          const enrichedWorkAreas = approvedWorkAreas.map(wa => ({
+            ...wa,
+            scope_description: scopeDescriptions[wa.id] || wa.description,
+            gap_questions: gapQuestions[wa.id] || [],
+          }))
+
           // Incrementally update estimate so completed work areas render immediately — save immediately
           updateEstimate({
+            work_areas: enrichedWorkAreas,
             line_items: { ...lineItems },
-            scope_descriptions: { ...scopeDescriptions },
-            gap_questions: { ...gapQuestions },
             new_catalog_items_created: [...newCatalogItems],
           }, true)
         }
@@ -251,11 +280,15 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       setAiMessage('Estimate ready for review')
       await new Promise((r) => setTimeout(r, 500))
 
-      // Final update with all results — save immediately
+      // Final update — embed scope/gap into work_areas for safe saving
+      const finalWorkAreas = approvedWorkAreas.map(wa => ({
+        ...wa,
+        scope_description: scopeDescriptions[wa.id] || wa.description,
+        gap_questions: gapQuestions[wa.id] || [],
+      }))
       updateEstimate({
+        work_areas: finalWorkAreas,
         line_items: lineItems,
-        scope_descriptions: scopeDescriptions,
-        gap_questions: gapQuestions,
         new_catalog_items_created: newCatalogItems,
       }, true)
 
@@ -427,7 +460,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         qcWorkAreas.push({
           id: crypto.randomUUID(),
           name: wa.name,
-          description: (estimate.scope_descriptions?.[wa.id]) || wa.description || '',
+          description: wa.scope_description || wa.description || '',
           enabled: true,
           lineItems: qcLineItems,
           laborSubtotal: waLabor,
