@@ -659,9 +659,6 @@ function AppContent() {
               jamieAnalysis={jamieAnalysis}
               jamieAnalysisLoading={jamieAnalysisLoading}
               onJamieAnalyze={handleJamieAnalyze}
-              onNewItemPriceSaved={(catalogItemId, price) => {
-                console.log(`[Catalog] Saved price $${price} for item ${catalogItemId}`)
-              }}
               onAddMismatchItem={(waId, itemName) => {
                 const newItem: LineItemData = {
                   id: 'li_' + Date.now(),
@@ -682,7 +679,6 @@ function AppContent() {
               workAreas={workAreas}
               lineItems={lineItems}
               newCatalogItemCount={newCatalogItems.length}
-              unpricedItemNames={[]}
               onEdit={() => updateEstimate({ workflow_step: 3 })}
               onSend={sendToQuickCalc}
               onNewEstimate={() => { resetEstimateState(); setCurrentTab('estimates') }}

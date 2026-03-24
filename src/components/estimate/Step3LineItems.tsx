@@ -46,7 +46,6 @@ interface Step3LineItemsProps {
   jamieAnalysis?: JamieAnalysisResult | null
   jamieAnalysisLoading?: boolean
   onJamieAnalyze?: () => void
-  onNewItemPriceSaved?: (catalogItemId: string, price: number) => void
   onAddMismatchItem?: (workAreaId: string, itemName: string) => void
 }
 
@@ -283,7 +282,6 @@ export function Step3LineItems({
   jamieAnalysis,
   jamieAnalysisLoading,
   onJamieAnalyze,
-  onNewItemPriceSaved,
   onAddMismatchItem,
 }: Step3LineItemsProps) {
   const [showBackConfirm, setShowBackConfirm] = useState(false)
@@ -412,18 +410,12 @@ export function Step3LineItems({
                   )
                 })()}
                 {/* Inline new catalog item pricing prompts */}
-                {newItems.length > 0 && onNewItemPriceSaved && (
+                {newItems.length > 0 && (
                   <div className="space-y-2 pl-2">
                     {newItems.map((li) => (
                       <NewCatalogItemPrompt
                         key={li.catalog_item_id!}
-                        catalogItemId={li.catalog_item_id!}
                         itemName={li.name}
-                        itemType={li.category === 'Materials' ? 'material'
-                          : li.category === 'Subcontractor' ? 'subcontractor'
-                          : li.category === 'Equipment' ? 'equipment'
-                          : 'other'}
-                        onPriceSaved={onNewItemPriceSaved}
                       />
                     ))}
                   </div>

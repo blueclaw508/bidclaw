@@ -28,7 +28,6 @@ interface Step4SendProps {
   workAreas: WorkAreaData[]
   lineItems: Record<string, LineItemData[]>
   newCatalogItemCount: number
-  unpricedItemNames: string[]
   onEdit: () => void
   onSend: () => void
   onNewEstimate: () => void
@@ -108,7 +107,6 @@ export function Step4Send({
   workAreas,
   lineItems,
   newCatalogItemCount,
-  unpricedItemNames: _unpricedItemNames,
   onEdit,
   onSend,
   onNewEstimate,

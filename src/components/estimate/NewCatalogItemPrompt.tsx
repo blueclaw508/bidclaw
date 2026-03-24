@@ -4,10 +4,7 @@
 import { Package } from 'lucide-react'
 
 interface NewCatalogItemPromptProps {
-  catalogItemId: string
   itemName: string
-  itemType: string
-  onPriceSaved: (catalogItemId: string, price: number) => void
 }
 
 export function NewCatalogItemPrompt({
