@@ -217,8 +217,6 @@ export function LineItemRow({ item, onUpdate, onRemove, catalogItems }: LineItem
           ))}
         </select>
 
-        </div>
-
         {/* Description toggle */}
         <button
           onClick={() => setDescExpanded(!descExpanded)}
