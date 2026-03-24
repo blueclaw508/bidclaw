@@ -207,15 +207,11 @@ export function Step1ProjectInfo({
   const [measureImageUrl, setMeasureImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Refs for unmount flush — avoids ALL stale closure issues
-  const latestFormData = useRef<Record<string, unknown>>({})
-  const estimateIdRef = useRef<string | null>(estimate?.id ?? null)
 
-  // Keep refs in sync with current values
-  useEffect(() => { estimateIdRef.current = estimate?.id ?? null }, [estimate?.id])
-  useEffect(() => {
+  // Build current form data for saving
+  const buildFormData = () => {
     const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
-    latestFormData.current = {
+    return {
       first_name: firstName.trim(),
       last_name: lastName.trim(),
       company_name: companyName.trim() || null,
@@ -230,38 +226,30 @@ export function Step1ProjectInfo({
       project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
       project_description: projectDescription.trim(),
     }
-  }, [firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
+  }
 
-  // Debounced autosave — persists Step 1 form fields to Supabase 500ms after last keystroke
+  // Save directly to Supabase — no callbacks, no React state, no debounce chain
+  const saveToDb = useCallback(async () => {
+    if (!estimate?.id) return
+    const data = buildFormData()
+    const { error } = await supabase.from('estimates').update(data).eq('id', estimate.id)
+    if (error) console.error('[Step1] save FAILED:', error.message)
+    // Also update React state so parent components see the changes
+    if (onFieldChange) onFieldChange(data)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estimate?.id, firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
+
+  // Continuous autosave — saves to Supabase 1 second after every change.
+  // Data is in the DB BEFORE the user clicks anything. No unmount logic needed.
   useEffect(() => {
-    if (!onFieldChange || !estimate) return
+    if (!estimate?.id) return
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
     autosaveTimer.current = setTimeout(() => {
-      onFieldChange(latestFormData.current)
-    }, 500)
+      saveToDb()
+    }, 1000)
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
-
-  // On unmount: save DIRECTLY to Supabase using refs — no closures, no callbacks, no React state
-  useEffect(() => {
-    return () => {
-      if (autosaveTimer.current) {
-        clearTimeout(autosaveTimer.current)
-        autosaveTimer.current = null
-      }
-      const id = estimateIdRef.current
-      const data = latestFormData.current
-      if (id && Object.keys(data).length > 0) {
-        console.log('[Step1] UNMOUNT — direct save to Supabase. id:', id, 'estimate_name:', data.estimate_name)
-        supabase.from('estimates').update(data).eq('id', id).then(({ error }) => {
-          if (error) console.error('[Step1] UNMOUNT save FAILED:', error.message)
-          else console.log('[Step1] UNMOUNT save SUCCESS')
-        })
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const isRegenerate = estimate !== null && (estimate.work_areas?.length ?? 0) > 0
 
@@ -597,7 +585,11 @@ export function Step1ProjectInfo({
         <div className="flex items-center justify-between border-t border-slate-100 pt-5">
           {onBack ? (
             <button
-              onClick={onBack}
+              onClick={async () => {
+                // Save synchronously BEFORE navigating — data hits DB first
+                await saveToDb()
+                onBack?.()
+              }}
               className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
             >
               <ArrowLeft size={16} />

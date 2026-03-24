@@ -78,32 +78,8 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     }, 500)
   }, [estimateId])
 
-  // Flush any pending debounced save immediately when the user switches tabs
-  // OR navigates away from this estimate (estimateId changes / component unmounts).
-  const flushPendingSave = useCallback(() => {
-    if (pendingSaveRef.current && estimateId) {
-      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
-      const data = pendingSaveRef.current
-      pendingSaveRef.current = null
-      console.log('[useEstimate] FLUSH pending save — keys:', Object.keys(data), 'estimate_name:', (data as any).estimate_name)
-      supabase.from('estimates').update(data).eq('id', estimateId).then(({ error }) => {
-        if (error) console.error('[useEstimate] FLUSH save FAILED:', error.message, error.code)
-        else console.log('[useEstimate] FLUSH save SUCCESS')
-      })
-    } else {
-      console.log('[useEstimate] FLUSH called but nothing pending. estimateId:', estimateId, 'pendingRef:', !!pendingSaveRef.current)
-    }
-  }, [estimateId])
-
-  useEffect(() => {
-    const flush = () => { if (document.hidden) flushPendingSave() }
-    document.addEventListener('visibilitychange', flush)
-    return () => {
-      document.removeEventListener('visibilitychange', flush)
-      // Flush on unmount or estimateId change (user navigated away)
-      flushPendingSave()
-    }
-  }, [flushPendingSave])
+  // No unmount-based flush — saves happen continuously (debounced) while
+  // the user is on the page, and synchronously before any navigation.
 
   // Update React state + save to Supabase. immediate=true bypasses debounce.
   // IMPORTANT: save call is OUTSIDE setEstimate so it fires even during unmount.
