@@ -206,11 +206,13 @@ export function Step1ProjectInfo({
   const [measureImageUrl, setMeasureImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Ref to hold latest form data so the unmount flush always has current values
+  const latestFormData = useRef<Record<string, unknown>>({})
 
-  // Build the current form data for saving
-  const buildFormData = useCallback(() => {
+  // Keep the ref in sync with current form values
+  useEffect(() => {
     const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ')
-    return {
+    latestFormData.current = {
       first_name: firstName.trim(),
       last_name: lastName.trim(),
       company_name: companyName.trim() || null,
@@ -232,23 +234,25 @@ export function Step1ProjectInfo({
     if (!onFieldChange || !estimate) return
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
     autosaveTimer.current = setTimeout(() => {
-      onFieldChange(buildFormData())
+      console.log('[Step1] autosave firing — estimate_name:', latestFormData.current.estimate_name)
+      onFieldChange(latestFormData.current)
     }, 500)
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstName, lastName, companyName, estimateName, phone, email, addressLine, city, addrState, zip, projectDescription])
 
   // Flush pending autosave immediately when Step 1 unmounts (user navigated away)
+  // Uses latestFormData ref so it always has the most recent values (no stale closure)
   useEffect(() => {
     return () => {
-      if (autosaveTimer.current && onFieldChange && estimate) {
+      if (autosaveTimer.current) {
         clearTimeout(autosaveTimer.current)
         autosaveTimer.current = null
-        const data = buildFormData()
-        console.log('[Step1] UNMOUNT FLUSH — estimate_name:', data.estimate_name, 'client_name:', data.client_name)
-        onFieldChange(data)
-      } else {
-        console.log('[Step1] UNMOUNT — no pending timer or missing deps. timer:', !!autosaveTimer.current, 'onFieldChange:', !!onFieldChange, 'estimate:', !!estimate)
+      }
+      // Always flush current form data on unmount — ensures name/address persist
+      if (onFieldChange && estimate) {
+        console.log('[Step1] UNMOUNT FLUSH — estimate_name:', latestFormData.current.estimate_name, 'client_name:', latestFormData.current.client_name)
+        onFieldChange(latestFormData.current)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
