@@ -57,7 +57,8 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
   // This prevents 400 errors from columns PostgREST's schema cache doesn't know about.
   const SAFE_COLUMNS = new Set([
     'client_name', 'project_name', 'project_address', 'project_description',
-    'plan_file_urls', 'workflow_step', 'work_areas', 'line_items',
+    'plan_file_urls', 'plan_measurements', 'plan_scale',
+    'workflow_step', 'work_areas', 'line_items',
     'new_catalog_items_created', 'approval_status', 'sent_to_quickcalc_at',
   ])
 
