@@ -1,6 +1,7 @@
-// Click-to-Measure Plan Tool — Tier 1
+// Click-to-Measure Plan Tool — Tier 2
 // Canvas overlay for measuring areas and distances on uploaded plan images
-// Supports: scale calibration, rectangle, polygon, and linear tools
+// Supports: scale calibration, rectangle, polygon (freehand area), and multi-point linear tools
+// Touch support for iPad/tablet with pan/draw mode toggle
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
@@ -15,6 +16,9 @@ import {
   RotateCcw,
   Check,
   Move,
+  Undo2,
+  Hand,
+  Pencil,
 } from 'lucide-react'
 
 // ── Types ──
@@ -44,7 +48,9 @@ type Tool = 'pan' | 'scale' | 'rectangle' | 'polygon' | 'linear'
 interface PlanMeasureProps {
   imageUrl: string
   measurements: Measurement[]
+  scale?: ScaleCalibration | null
   onMeasurementsChange: (measurements: Measurement[]) => void
+  onScaleChange?: (scale: ScaleCalibration | null) => void
   onClose: () => void
 }
 
@@ -65,16 +71,24 @@ function polygonArea(pts: MeasurePoint[]): number {
   return Math.abs(area) / 2
 }
 
+/** Sum of all segment lengths in a polyline */
+function polylineLength(pts: MeasurePoint[]): number {
+  let total = 0
+  for (let i = 1; i < pts.length; i++) {
+    total += distance(pts[i - 1], pts[i])
+  }
+  return total
+}
+
 // ── Component ──
 
-export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onClose }: PlanMeasureProps) {
+export function PlanMeasure({ imageUrl, measurements, scale: initialScale, onMeasurementsChange, onScaleChange, onClose }: PlanMeasureProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
 
   const [tool, setTool] = useState<Tool>('pan')
-  const [scale, setScale] = useState<ScaleCalibration | null>(null)
-  const [_scaleInput, _setScaleInput] = useState('')
+  const [scale, setScale] = useState<ScaleCalibration | null>(initialScale ?? null)
   const [scalePoints, setScalePoints] = useState<MeasurePoint[]>([])
 
   const [currentPoints, setCurrentPoints] = useState<MeasurePoint[]>([])
@@ -90,6 +104,17 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
 
   const [imgLoaded, setImgLoaded] = useState(false)
+
+  // Touch: draw vs pan mode toggle for mobile
+  const [touchMode, setTouchMode] = useState<'draw' | 'pan'>('pan')
+  // Touch pinch state
+  const lastTouchDist = useRef<number | null>(null)
+  const lastTouchCenter = useRef<MeasurePoint | null>(null)
+
+  // Propagate scale changes to parent
+  useEffect(() => {
+    onScaleChange?.(scale)
+  }, [scale])
 
   // Load image
   useEffect(() => {
@@ -164,7 +189,7 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
 
     // Draw completed measurements
     for (const m of measurements) {
-      drawMeasurement(ctx, m, false)
+      drawMeasurement(ctx, m)
     }
 
     // Draw current in-progress points
@@ -178,7 +203,7 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
     }
   }, [imgLoaded, offset, zoom, measurements, currentPoints, mousePos, scalePoints, tool])
 
-  function drawMeasurement(ctx: CanvasRenderingContext2D, m: Measurement, _highlight: boolean) {
+  function drawMeasurement(ctx: CanvasRenderingContext2D, m: Measurement) {
     const pts = m.points.map(imageToScreen)
     ctx.strokeStyle = '#2563EB'
     ctx.fillStyle = 'rgba(37, 99, 235, 0.1)'
@@ -195,10 +220,11 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
       ctx.closePath()
       ctx.fill()
       ctx.stroke()
-    } else if (m.type === 'linear' && pts.length === 2) {
+    } else if (m.type === 'linear' && pts.length >= 2) {
+      // Multi-point polyline
       ctx.beginPath()
       ctx.moveTo(pts[0].x, pts[0].y)
-      ctx.lineTo(pts[1].x, pts[1].y)
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
       ctx.stroke()
     }
 
@@ -246,10 +272,12 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
       if (pts.length >= 3) ctx.closePath()
       ctx.fill()
       ctx.stroke()
-    } else if (tool === 'linear' && pts.length === 1 && mouse) {
+    } else if (tool === 'linear') {
+      // Multi-point polyline in progress
       ctx.beginPath()
       ctx.moveTo(pts[0].x, pts[0].y)
-      ctx.lineTo(mouse.x, mouse.y)
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
+      if (mouse) ctx.lineTo(mouse.x, mouse.y)
       ctx.stroke()
     }
 
@@ -269,11 +297,27 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
     // Live dimension preview
     if (scale && mouse && pts.length > 0) {
       const lastPt = pts[pts.length - 1]
-      if (tool === 'linear' || tool === 'rectangle') {
-        const pxDist = distance(
-          currentPoints[currentPoints.length - 1],
-          mousePos!,
-        )
+      if (tool === 'linear') {
+        // Show current segment length + cumulative total
+        const segPx = distance(currentPoints[currentPoints.length - 1], mousePos!)
+        const segFt = pixelsToFeet(segPx)
+        const totalPx = polylineLength(currentPoints) + segPx
+        const totalFt = pixelsToFeet(totalPx)
+        const midX = (lastPt.x + mouse.x) / 2
+        const midY = (lastPt.y + mouse.y) / 2
+        ctx.font = 'bold 11px Inter, system-ui, sans-serif'
+        const segText = `${segFt.toFixed(1)} ft`
+        const totalText = currentPoints.length > 1 ? ` (total: ${totalFt.toFixed(1)} ft)` : ''
+        const text = segText + totalText
+        const tw = ctx.measureText(text).width
+        ctx.fillStyle = 'rgba(0,0,0,0.7)'
+        ctx.fillRect(midX - tw / 2 - 3, midY - 16, tw + 6, 16)
+        ctx.fillStyle = '#fff'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(text, midX, midY - 8)
+      } else if (tool === 'rectangle') {
+        const pxDist = distance(currentPoints[currentPoints.length - 1], mousePos!)
         const ft = pixelsToFeet(pxDist)
         const midX = (lastPt.x + mouse.x) / 2
         const midY = (lastPt.y + mouse.y) / 2
@@ -340,6 +384,27 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
     return () => window.removeEventListener('resize', resize)
   }, [draw])
 
+  // ── Finalization helpers ──
+
+  function finalizePolygon() {
+    if (currentPoints.length < 3 || !scale) return
+    const areaPx = polygonArea(currentPoints)
+    const scaleFactor = (scale.realDistance / scale.pixelDistance) ** 2
+    const sf = areaPx * scaleFactor
+    setPendingMeasurement({ type: 'polygon', points: [...currentPoints], value: sf, unit: 'SF' })
+    setShowLabelModal(true)
+    setCurrentPoints([])
+  }
+
+  function finalizeLinear() {
+    if (currentPoints.length < 2 || !scale) return
+    const totalPx = polylineLength(currentPoints)
+    const lf = pixelsToFeet(totalPx)
+    setPendingMeasurement({ type: 'linear', points: [...currentPoints], value: lf, unit: 'LF' })
+    setShowLabelModal(true)
+    setCurrentPoints([])
+  }
+
   // ── Event Handlers ──
 
   function handleCanvasClick(e: React.MouseEvent) {
@@ -350,7 +415,6 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
       const newPts = [...scalePoints, pt]
       setScalePoints(newPts)
       if (newPts.length === 2) {
-        // Ask for real distance
         const pxDist = distance(newPts[0], newPts[1])
         const input = prompt('Enter the real-world distance between these two points (in feet):')
         if (input) {
@@ -382,31 +446,40 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
         setCurrentPoints([])
       }
     } else if (tool === 'linear') {
-      const newPts = [...currentPoints, pt]
-      setCurrentPoints(newPts)
-      if (newPts.length === 2) {
-        const lf = pixelsToFeet(distance(newPts[0], newPts[1]))
-        setPendingMeasurement({ type: 'linear', points: newPts, value: lf, unit: 'LF' })
-        setShowLabelModal(true)
-        setCurrentPoints([])
-      }
+      // Multi-point polyline — each click adds a segment
+      setCurrentPoints([...currentPoints, pt])
     } else if (tool === 'polygon') {
       // Check if clicking near first point to close
       if (currentPoints.length >= 3) {
         const firstScreen = imageToScreen(currentPoints[0])
         const clickScreen = { x: e.clientX - (canvasRef.current?.getBoundingClientRect().left ?? 0), y: e.clientY - (canvasRef.current?.getBoundingClientRect().top ?? 0) }
         if (distance(firstScreen, clickScreen) < 15) {
-          // Close polygon
-          const areaPx = polygonArea(currentPoints)
-          const scaleFactor = scale ? (scale.realDistance / scale.pixelDistance) ** 2 : 1
-          const sf = areaPx * scaleFactor
-          setPendingMeasurement({ type: 'polygon', points: [...currentPoints], value: sf, unit: 'SF' })
-          setShowLabelModal(true)
-          setCurrentPoints([])
+          finalizePolygon()
           return
         }
       }
       setCurrentPoints([...currentPoints, pt])
+    }
+  }
+
+  function handleDoubleClick(e: React.MouseEvent) {
+    e.preventDefault()
+    if (tool === 'polygon' && currentPoints.length >= 3) {
+      finalizePolygon()
+    } else if (tool === 'linear' && currentPoints.length >= 2) {
+      finalizeLinear()
+    }
+  }
+
+  function handleContextMenu(e: React.MouseEvent) {
+    e.preventDefault()
+    // Right-click = undo last point
+    undoLastPoint()
+  }
+
+  function undoLastPoint() {
+    if (currentPoints.length > 0) {
+      setCurrentPoints(currentPoints.slice(0, -1))
     }
   }
 
@@ -453,6 +526,68 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
     setZoom(newZoom)
   }
 
+  // ── Touch Handlers ──
+
+  function handleTouchStart(e: React.TouchEvent) {
+    if (e.touches.length === 2) {
+      // Two-finger: start pinch/pan regardless of mode
+      const t1 = e.touches[0], t2 = e.touches[1]
+      lastTouchDist.current = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY)
+      lastTouchCenter.current = { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 }
+      e.preventDefault()
+    } else if (e.touches.length === 1) {
+      if (touchMode === 'pan' || tool === 'pan') {
+        setIsPanning(true)
+        setPanStart({ x: e.touches[0].clientX, y: e.touches[0].clientY })
+      }
+      // In draw mode, single tap handled by onClick via touch → click synthesis
+    }
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (e.touches.length === 2) {
+      // Pinch-to-zoom + two-finger pan
+      const t1 = e.touches[0], t2 = e.touches[1]
+      const newDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY)
+      const newCenter: MeasurePoint = { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 }
+
+      if (lastTouchDist.current !== null && lastTouchCenter.current !== null) {
+        const scaleFactor = newDist / lastTouchDist.current
+        const newZoom = Math.max(0.1, Math.min(5, zoom * scaleFactor))
+
+        const rect = canvasRef.current?.getBoundingClientRect()
+        if (rect) {
+          const mx = newCenter.x - rect.left
+          const my = newCenter.y - rect.top
+          setOffset({
+            x: mx - (mx - offset.x) * (newZoom / zoom) + (newCenter.x - lastTouchCenter.current.x),
+            y: my - (my - offset.y) * (newZoom / zoom) + (newCenter.y - lastTouchCenter.current.y),
+          })
+          setZoom(newZoom)
+        }
+      }
+
+      lastTouchDist.current = newDist
+      lastTouchCenter.current = newCenter
+      e.preventDefault()
+    } else if (e.touches.length === 1 && isPanning) {
+      const touch = e.touches[0]
+      setOffset({
+        x: offset.x + (touch.clientX - panStart.x),
+        y: offset.y + (touch.clientY - panStart.y),
+      })
+      setPanStart({ x: touch.clientX, y: touch.clientY })
+    }
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (e.touches.length === 0) {
+      setIsPanning(false)
+      lastTouchDist.current = null
+      lastTouchCenter.current = null
+    }
+  }
+
   function saveMeasurement() {
     if (!pendingMeasurement || !labelInput.trim()) return
     const m: Measurement = {
@@ -470,6 +605,13 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
     onMeasurementsChange(measurements.filter((m) => m.id !== id))
   }
 
+  function clearAllMeasurements() {
+    if (measurements.length === 0) return
+    if (confirm(`Clear all ${measurements.length} measurement${measurements.length !== 1 ? 's' : ''}?`)) {
+      onMeasurementsChange([])
+    }
+  }
+
   function resetView() {
     if (imgRef.current && containerRef.current) {
       const cw = containerRef.current.clientWidth
@@ -483,7 +625,7 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
     }
   }
 
-  const tools: { id: Tool; icon: typeof Ruler; label: string; shortcut: string }[] = [
+  const toolDefs: { id: Tool; icon: typeof Ruler; label: string; shortcut: string }[] = [
     { id: 'pan', icon: Move, label: 'Pan', shortcut: 'V' },
     { id: 'scale', icon: Ruler, label: 'Set Scale', shortcut: 'S' },
     { id: 'rectangle', icon: Square, label: 'Rectangle (SF)', shortcut: 'R' },
@@ -504,24 +646,27 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
       else if (key === 'escape') {
         setCurrentPoints([])
         setScalePoints([])
+      } else if (key === 'z' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        undoLastPoint()
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [showLabelModal])
+  }, [showLabelModal, currentPoints])
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900">
       {/* Top toolbar */}
-      <div className="flex items-center justify-between border-b border-slate-700 bg-slate-800 px-4 py-2">
+      <div className="flex items-center justify-between border-b border-slate-700 bg-slate-800 px-2 sm:px-4 py-2 overflow-x-auto">
         <div className="flex items-center gap-1">
-          {tools.map((t) => {
+          {toolDefs.map((t) => {
             const Icon = t.icon
             return (
               <button
                 key={t.id}
                 onClick={() => { setTool(t.id); setCurrentPoints([]); setScalePoints([]) }}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1 sm:gap-1.5 rounded-md px-2 sm:px-3 py-1.5 text-[10px] sm:text-xs font-medium transition-colors whitespace-nowrap ${
                   tool === t.id
                     ? 'bg-[#2563EB] text-white'
                     : 'text-slate-300 hover:bg-slate-700 hover:text-white'
@@ -529,35 +674,68 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
                 title={`${t.label} (${t.shortcut})`}
               >
                 <Icon size={14} />
-                {t.label}
+                <span className="hidden sm:inline">{t.label}</span>
               </button>
             )
           })}
+          <div className="mx-1 h-5 w-px bg-slate-700" />
+          {/* Undo button */}
+          <button
+            onClick={undoLastPoint}
+            disabled={currentPoints.length === 0}
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Undo last point (Ctrl+Z)"
+          >
+            <Undo2 size={14} />
+          </button>
+          {/* Clear all */}
+          <button
+            onClick={clearAllMeasurements}
+            disabled={measurements.length === 0}
+            className="rounded-md p-1.5 text-slate-400 hover:bg-red-700 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Clear all measurements"
+          >
+            <Trash2 size={14} />
+          </button>
+          {/* Touch mode toggle (visible on all screens, useful on tablets) */}
+          <div className="mx-1 h-5 w-px bg-slate-700" />
+          <button
+            onClick={() => setTouchMode(touchMode === 'pan' ? 'draw' : 'pan')}
+            className={`flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] sm:text-xs font-medium transition-colors ${
+              touchMode === 'draw'
+                ? 'bg-amber-600 text-white'
+                : 'text-slate-400 hover:bg-slate-700 hover:text-white'
+            }`}
+            title={`Touch mode: ${touchMode}. Tap to toggle.`}
+          >
+            {touchMode === 'draw' ? <Pencil size={14} /> : <Hand size={14} />}
+            <span className="hidden sm:inline">{touchMode === 'draw' ? 'Draw' : 'Pan'}</span>
+          </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {scale && (
-            <span className="rounded-md bg-emerald-900/50 px-2 py-1 text-[10px] font-medium text-emerald-300">
-              Scale: 1px = {(scale.realDistance / scale.pixelDistance).toFixed(4)} ft
+            <span className="hidden sm:inline rounded-md bg-emerald-900/50 px-2 py-1 text-[10px] font-medium text-emerald-300">
+              Scale set
             </span>
           )}
           <button onClick={() => setZoom(Math.min(5, zoom * 1.2))} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white">
             <ZoomIn size={16} />
           </button>
-          <span className="text-xs text-slate-400 w-12 text-center">{Math.round(zoom * 100)}%</span>
+          <span className="text-xs text-slate-400 w-10 text-center">{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom(Math.max(0.1, zoom / 1.2))} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white">
             <ZoomOut size={16} />
           </button>
           <button onClick={resetView} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white" title="Reset view">
             <RotateCcw size={16} />
           </button>
-          <div className="mx-2 h-6 w-px bg-slate-700" />
+          <div className="mx-1 h-6 w-px bg-slate-700" />
           <button
             onClick={onClose}
-            className="rounded-md bg-slate-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-600"
+            className="rounded-md bg-slate-700 px-2 sm:px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-600"
           >
             <X size={14} className="inline mr-1" />
-            Close
+            <span className="hidden sm:inline">Close</span>
           </button>
         </div>
       </div>
@@ -565,15 +743,20 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
       {/* Main area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Canvas */}
-        <div ref={containerRef} className="flex-1 overflow-hidden">
+        <div ref={containerRef} className="flex-1 overflow-hidden" style={{ touchAction: 'none' }}>
           <canvas
             ref={canvasRef}
             onClick={handleCanvasClick}
+            onDoubleClick={handleDoubleClick}
+            onContextMenu={handleContextMenu}
             onMouseMove={handleMouseMove}
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
             onWheel={handleWheel}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             className={`h-full w-full ${
               tool === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-crosshair'
             }`}
@@ -581,7 +764,7 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
         </div>
 
         {/* Measurements sidebar */}
-        <div className="w-64 border-l border-slate-700 bg-slate-800 overflow-y-auto">
+        <div className="w-48 sm:w-64 border-l border-slate-700 bg-slate-800 overflow-y-auto">
           <div className="p-3">
             <h3 className="mb-3 text-sm font-semibold text-white">Measurements</h3>
 
@@ -644,8 +827,8 @@ export function PlanMeasure({ imageUrl, measurements, onMeasurementsChange, onCl
           {tool === 'pan' && 'Click and drag to pan. Scroll to zoom.'}
           {tool === 'scale' && (scalePoints.length === 0 ? 'Click the first point of a known dimension.' : 'Click the second point.')}
           {tool === 'rectangle' && (currentPoints.length === 0 ? 'Click the first corner.' : 'Click the opposite corner.')}
-          {tool === 'polygon' && (currentPoints.length === 0 ? 'Click to start the polygon.' : `${currentPoints.length} points — click near the first point to close. Press Escape to cancel.`)}
-          {tool === 'linear' && (currentPoints.length === 0 ? 'Click the start point.' : 'Click the end point.')}
+          {tool === 'polygon' && (currentPoints.length === 0 ? 'Click to start the polygon.' : `${currentPoints.length} points — click near first point or double-click to close. Ctrl+Z to undo. Escape to cancel.`)}
+          {tool === 'linear' && (currentPoints.length === 0 ? 'Click the start point.' : `${currentPoints.length} points — click to add segments, double-click to finish. Ctrl+Z to undo.`)}
         </p>
       </div>
 

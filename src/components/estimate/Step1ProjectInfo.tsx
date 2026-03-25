@@ -219,7 +219,8 @@ export function Step1ProjectInfo({
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false)
-  const [measurements, setMeasurements] = useState<Measurement[]>([])
+  const [measurements, setMeasurements] = useState<Measurement[]>((estimate?.plan_measurements as Measurement[]) || [])
+  const [measureScale, setMeasureScale] = useState<import('./PlanMeasure').ScaleCalibration | null>((estimate?.plan_scale as any) || null)
   const [measureImageUrl, setMeasureImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -243,6 +244,8 @@ export function Step1ProjectInfo({
       client_name: clientName || null,
       project_address: [addressLine.trim(), city.trim(), [addrState.trim(), zip.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null,
       project_description: fullDesc || null,
+      plan_measurements: measurements.length > 0 ? measurements : null,
+      plan_scale: measureScale || null,
     }
   }
 
@@ -679,8 +682,10 @@ export function Step1ProjectInfo({
         <PlanMeasure
           imageUrl={measureImageUrl}
           measurements={measurements}
-          onMeasurementsChange={setMeasurements}
-          onClose={() => setMeasureImageUrl(null)}
+          scale={measureScale}
+          onMeasurementsChange={(m) => { setMeasurements(m) }}
+          onScaleChange={(s) => { setMeasureScale(s) }}
+          onClose={() => { setMeasureImageUrl(null); saveToDb() }}
         />
       )}
     </div>

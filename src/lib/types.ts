@@ -100,6 +100,8 @@ export interface EstimateRecord {
   project_address: string | null
   project_description: string | null
   plan_file_urls: string[]
+  plan_measurements: any[] | null  // Measurement[] from PlanMeasure
+  plan_scale: any | null           // ScaleCalibration from PlanMeasure
   workflow_step: number
   work_areas: WorkAreaData[] | null
   line_items: Record<string, LineItemData[]> | null
