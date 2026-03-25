@@ -220,9 +220,11 @@ For each line item include:
 - id: unique identifier (e.g. "li_1")
 - name: item name (match catalog names exactly where possible)
 - quantity: numeric quantity
-- unit: SF | LF | CY | SY | EA | LS | HR | Day | Allow
-- category: Materials | Labor | Equipment | Subcontractor | Disposal
+- unit: MUST match the item's category — Labor→"HR", Equipment→"HR", Materials→correct material unit (SF/LF/EA/Ton/CY/BAG), Allowance→"Allow"
+- category: MUST match the catalog item's stored type — Labor, Equipment, Materials, Subcontractor, Disposal, or Other. NEVER put a labor or equipment item in "Materials".
 - description: one precise sentence describing this line item's scope (crew-directive style)
+
+CRITICAL: "Install Labor - Stone Masons" is ALWAYS category "Labor", unit "HR". "Mini Skid Loader" is ALWAYS category "Equipment", unit "HR". "General Conditions" is ALWAYS category "Other", unit "Allow". Do NOT default everything to Materials/SF.
 
 ${PASS2_SINGLE_SUFFIX}`
 

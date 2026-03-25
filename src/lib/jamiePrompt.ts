@@ -298,23 +298,27 @@ Half day = 13-14 hours. Under 10 hrs = single crew member or minimum call.
 
 function buildCatalogBlock(catalog: CatalogItem[]): string {
   if (catalog.length === 0) return 'The contractor has no catalog items yet.'
-  const grouped: Record<string, string[]> = {}
-  for (const item of catalog) {
-    const cat = item.type || 'Other'
-    if (!grouped[cat]) grouped[cat] = []
-    grouped[cat].push(item.name)
-  }
-  const sections = Object.entries(grouped)
-    .map(([cat, items]) => `  ${cat}: ${items.join(', ')}`)
-    .join('\n')
-  return `CONTRACTOR'S ITEM CATALOG — MATCH THESE NAMES EXACTLY:
-${sections}
+  const lines = catalog.map((item) => `  "${item.name}" → category: ${item.type || 'Materials'}`)
+  return `CONTRACTOR'S ITEM CATALOG — MATCH NAMES AND CATEGORIES EXACTLY:
+${lines.join('\n')}
 
-CATALOG MATCHING RULES:
+CATALOG MATCHING RULES (CRITICAL — read carefully):
 1. ALWAYS match to existing catalog items when possible. Use the EXACT catalog name.
-2. Only create NEW items when no catalog match exists.
-3. When creating a new item, add it to the new_catalog_items array and explain why no catalog match was found.
-4. For labor items, match to the catalog's labor item names (e.g., "Install Labor - Stone Masons" not "Masonry Labor").`
+2. When you match a catalog item, use ITS STORED CATEGORY as the line item category. Do NOT override it.
+   - If the catalog says an item is "Labor" → category MUST be "Labor" and unit MUST be "HR"
+   - If the catalog says an item is "Equipment" → category MUST be "Equipment" and unit MUST be "HR"
+   - If the catalog says an item is "Subcontractor" → category MUST be "Subcontractor"
+   - If the catalog says an item is "Materials" → category is "Materials" and unit matches the material (SF, LF, EA, Ton, CY, etc.)
+   - If the catalog says an item is "Disposal" → category MUST be "Disposal"
+3. UNIT RULES BY CATEGORY:
+   - Labor items: ALWAYS unit "HR" (man hours)
+   - Equipment items: ALWAYS unit "HR" (machine hours)
+   - Materials: use the correct material unit (SF, LF, EA, Ton, CY, SY, BAG, etc.)
+   - Subcontractor: use the sub's billing unit (CY, EA, LS, etc.)
+   - General Conditions / Allowances: unit "Allow"
+4. Only create NEW items when no catalog match exists. Add to new_catalog_items array.
+5. For labor items, match to the catalog's labor item names (e.g., "Install Labor - Stone Masons" not "Masonry Labor").
+6. NEVER assign category "Materials" to a labor or equipment item. NEVER assign unit "SF" to a labor or equipment item.`
 }
 
 function buildProductionRatesBlock(rates: ProductionRate[]): string {
