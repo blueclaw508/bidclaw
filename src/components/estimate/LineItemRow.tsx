@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { LineItemData, LineItemUnit, LineItemCategory, CatalogItem } from '@/lib/types'
+import { categoryFromCatalogType, unitFromCategory } from '@/lib/catalogMatcher'
 import {
   Trash2,
   CheckCircle2,
@@ -74,7 +75,8 @@ export function LineItemRow({ item, onUpdate, onRemove, catalogItems }: LineItem
   const selectTypeaheadItem = (catalogItem: CatalogItem) => {
     setNameValue(catalogItem.name)
     setShowTypeahead(false)
-    onUpdate({ name: catalogItem.name, catalog_item_id: catalogItem.id, catalog_match_type: 'matched' })
+    const cat = categoryFromCatalogType(catalogItem.type)
+    onUpdate({ name: catalogItem.name, catalog_item_id: catalogItem.id, catalog_match_type: 'matched', category: cat, unit: unitFromCategory(cat, item.unit) as LineItemUnit })
     setEditingName(false)
   }
 

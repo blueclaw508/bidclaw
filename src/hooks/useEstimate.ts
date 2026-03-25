@@ -11,7 +11,7 @@ import type {
 } from '@/lib/types'
 import { runPass1, runPass2 } from '@/lib/anthropic'
 import type { Pass2Progress } from '@/lib/anthropic'
-import { matchAllLineItems } from '@/lib/catalogMatcher'
+import { matchAllLineItems, categoryFromCatalogType, unitFromCategory } from '@/lib/catalogMatcher'
 import { searchMaterialAssemblies, formatSearchResultsForPrompt } from '@/lib/webSearch'
 import type { ProductionRate } from '@/lib/types'
 
@@ -240,7 +240,10 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
           lineItems[completedWorkArea.id] = waItems.map((li) => {
             const match = matchResults.get(li.id)
             if (match?.matchType === 'new_created') newCatalogItems.push(match.catalogItem.id)
-            return { ...li, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
+            // Override category from catalog item's stored type — catalog is source of truth
+            const category = match ? categoryFromCatalogType(match.catalogItem.type) : li.category
+            const unit = match ? unitFromCategory(category, li.unit) : li.unit
+            return { ...li, category, unit, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
           })
 
           // Embed scope_descriptions and gap_questions into work_areas for safe saving

@@ -1,9 +1,31 @@
 import { supabase } from '@/lib/supabase'
-import type { CatalogItem, AiLineItem } from '@/lib/types'
+import type { CatalogItem, AiLineItem, LineItemCategory } from '@/lib/types'
 
 export interface CatalogMatchResult {
   catalogItem: CatalogItem
   matchType: 'matched' | 'fuzzy_matched' | 'new_created'
+}
+
+// Catalog type (lowercase from Supabase) → display category (title-case for UI)
+const TYPE_TO_CATEGORY: Record<string, LineItemCategory> = {
+  labor: 'Labor',
+  material: 'Materials',
+  equipment: 'Equipment',
+  subcontractor: 'Subcontractor',
+  disposal: 'Disposal',
+  other: 'Other',
+}
+
+/** Override Jamie's category with the catalog item's stored type. Catalog is source of truth. */
+export function categoryFromCatalogType(catalogType: string): LineItemCategory {
+  return TYPE_TO_CATEGORY[catalogType] ?? 'Materials'
+}
+
+/** Unit that matches the category: Labor/Equipment → HR */
+export function unitFromCategory(category: LineItemCategory, jamieUnit: string): string {
+  if (category === 'Labor' || category === 'Equipment') return 'HR'
+  if (category === 'Other') return 'Allow'
+  return jamieUnit
 }
 
 export async function matchOrCreateCatalogItem(

@@ -32,7 +32,7 @@ import {
   jamieGenerateSummary,
   jamieAnalyzeEstimate,
 } from '@/lib/jamie'
-import { matchAllLineItems } from '@/lib/catalogMatcher'
+import { matchAllLineItems, categoryFromCatalogType, unitFromCategory } from '@/lib/catalogMatcher'
 import { Loader2, Cloud, Check, Lock, Clock } from 'lucide-react'
 
 type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'about-kyn' | 'estimates'
@@ -241,7 +241,10 @@ function AppContent() {
         matchedLineItems[waId] = items.map((li) => {
           const match = matchResults.get(li.id)
           if (match?.matchType === 'new_created') newCatalogIds.push(match.catalogItem.id)
-          return { ...li, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
+          // Override category from catalog item's stored type — catalog is source of truth
+          const category = match ? categoryFromCatalogType(match.catalogItem.type) : li.category
+          const unit = match ? unitFromCategory(category, li.unit) : li.unit
+          return { ...li, category, unit, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
         })
       }
 
@@ -644,20 +647,14 @@ function AppContent() {
                 updateEstimate({ line_items: { ...lineItems, [waId]: [...(lineItems[waId] ?? []), newItem] } })
               }}
               onAddCatalogLineItem={(waId: string, ci: CatalogItem) => {
-                const categoryMap: Record<string, string> = {
-                  material: 'Materials', labor: 'Labor', equipment: 'Equipment',
-                  subcontractor: 'Subcontractor', disposal: 'Disposal', other: 'Other',
-                  // Legacy title-case keys (in case any catalog items still use them)
-                  Materials: 'Materials', Labor: 'Labor', Equipment: 'Equipment',
-                  Subcontractors: 'Subcontractor', Disposal: 'Disposal',
-                }
-                const unitMap: Record<string, string> = { labor: 'HR', equipment: 'HR', Labor: 'HR', Equipment: 'HR' }
+                const category = categoryFromCatalogType(ci.type)
+                const unit = unitFromCategory(category, 'EA')
                 const newItem: LineItemData = {
                   id: 'li_' + Date.now(),
                   name: ci.name,
                   quantity: 1,
-                  unit: (unitMap[ci.type] || 'EA') as LineItemData['unit'],
-                  category: (categoryMap[ci.type] || 'Materials') as LineItemData['category'],
+                  unit: unit as LineItemData['unit'],
+                  category,
                   description: '',
                   catalog_item_id: ci.id,
                   catalog_match_type: 'matched',

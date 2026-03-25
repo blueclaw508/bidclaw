@@ -77,7 +77,7 @@ export interface WorkAreaData {
   gap_questions?: string[]
 }
 
-export type LineItemCategory = 'Materials' | 'Labor' | 'Equipment' | 'Subcontractor' | 'Disposal'
+export type LineItemCategory = 'Materials' | 'Labor' | 'Equipment' | 'Subcontractor' | 'Disposal' | 'Other'
 export type LineItemUnit = 'SF' | 'LF' | 'CY' | 'SY' | 'EA' | 'LS' | 'HR' | 'Day' | 'Allow'
 
 export interface LineItemData {
