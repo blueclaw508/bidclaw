@@ -312,7 +312,7 @@ export function Step4Send({
 
             <div className="flex items-center gap-3">
               <button
-                onClick={() => exportEstimateToExcel(estimate, workAreas, lineItems)}
+                onClick={() => { exportEstimateToExcel(estimate, workAreas, lineItems).catch(console.error) }}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
               >
                 <Table size={16} />

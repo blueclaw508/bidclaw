@@ -1,6 +1,6 @@
 import { callAI } from '@/lib/supabase'
 import { processPlanFile } from '@/lib/planProcessor'
-import { buildUnifiedEstimatePrompt, crossValidateScopeAndItems } from '@/lib/jamiePrompt'
+import { buildUnifiedEstimatePrompt } from '@/lib/jamiePrompt'
 import type { AiPass1Response, AiPass2Response, CatalogItem, ProductionRate } from '@/lib/types'
 
 const PASS1_SYSTEM = `You are Jamie, a landscape and masonry estimating assistant trained in the Know Your Numbers (KYN) methodology by Blue Claw Group.
@@ -163,9 +163,22 @@ async function runPass2Single(
   // Ensure the id matches what we sent
   data.id = workArea.id
 
-  // Cross-validate
-  if (data.scope_description && data.line_items) {
-    crossValidateScopeAndItems(data.scope_description, data.line_items)
+  // Deduplicate line items: merge items with same name AND category
+  if (data.line_items && data.line_items.length > 0) {
+    const seen = new Map<string, number>()
+    const deduped: typeof data.line_items = []
+    for (const item of data.line_items) {
+      const key = `${item.name.toLowerCase()}|${item.category}`
+      const existingIdx = seen.get(key)
+      if (existingIdx !== undefined) {
+        deduped[existingIdx].quantity += item.quantity
+        console.log(`[Jamie Dedup] Merged duplicate "${item.name}" (${item.category}): combined qty = ${deduped[existingIdx].quantity}`)
+      } else {
+        seen.set(key, deduped.length)
+        deduped.push({ ...item })
+      }
+    }
+    data.line_items = deduped
   }
 
   return data

@@ -643,14 +643,29 @@ function AppContent() {
                 }
                 updateEstimate({ line_items: { ...lineItems, [waId]: [...(lineItems[waId] ?? []), newItem] } })
               }}
+              onAddCatalogLineItem={(waId: string, ci: CatalogItem) => {
+                const categoryMap: Record<string, string> = {
+                  Materials: 'Materials', Labor: 'Labor', Equipment: 'Equipment',
+                  Subcontractors: 'Subcontractor', Disposal: 'Disposal',
+                }
+                const unitMap: Record<string, string> = { Labor: 'HR', Equipment: 'HR' }
+                const newItem: LineItemData = {
+                  id: 'li_' + Date.now(),
+                  name: ci.name,
+                  quantity: 1,
+                  unit: (unitMap[ci.type] || 'EA') as LineItemData['unit'],
+                  category: (categoryMap[ci.type] || 'Materials') as LineItemData['category'],
+                  description: '',
+                  catalog_item_id: ci.id,
+                  catalog_match_type: 'matched',
+                }
+                updateEstimate({ line_items: { ...lineItems, [waId]: [...(lineItems[waId] ?? []), newItem] } })
+              }}
               onApproveWorkArea={(waId: string) => {
                 updateEstimate({ work_areas: workAreas.map((wa) => wa.id === waId ? { ...wa, approved: true } : wa) })
               }}
               onUnapproveWorkArea={(waId: string) => {
                 updateEstimate({ work_areas: workAreas.map((wa) => wa.id === waId ? { ...wa, approved: false } : wa) })
-              }}
-              onUpdateWorkArea={(waId: string, updates: Partial<WorkAreaData>) => {
-                updateEstimate({ work_areas: workAreas.map((wa) => wa.id === waId ? { ...wa, ...updates } : wa) })
               }}
               onSend={() => updateEstimate({ workflow_step: 4 })}
               onBack={() => updateEstimate({ workflow_step: 2 })}
@@ -664,19 +679,6 @@ function AppContent() {
               jamieAnalysis={jamieAnalysis}
               jamieAnalysisLoading={jamieAnalysisLoading}
               onJamieAnalyze={handleJamieAnalyze}
-              onAddMismatchItem={(waId, itemName) => {
-                const newItem: LineItemData = {
-                  id: 'li_' + Date.now(),
-                  name: itemName,
-                  quantity: 0,
-                  unit: 'EA',
-                  category: 'Materials',
-                  description: `Added from scope mismatch: ${itemName}`,
-                }
-                updateEstimate({
-                  line_items: { ...lineItems, [waId]: [...(lineItems[waId] ?? []), newItem] },
-                })
-              }}
             />
           ) : (
             <Step4Send

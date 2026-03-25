@@ -4,8 +4,6 @@ import type { JamieAnalysisResult } from '@/lib/jamie'
 import { ProgressIndicator } from './Step1ProjectInfo'
 import { LineItemRow } from './LineItemRow'
 import { NewCatalogItemPrompt } from './NewCatalogItemPrompt'
-import { ScopeMismatchWarning } from './ScopeMismatchWarning'
-import { crossValidateScopeAndItems } from '@/lib/jamiePrompt'
 import { JamieScopeWriter, JamieAnalysisPanel, JamieBuiltBanner } from './JamieInsights'
 // roundManHours imported from types is used inline via Math.ceil pattern
 import {
@@ -15,10 +13,7 @@ import {
   ChevronUp,
   CheckCircle2,
   PenLine,
-  AlertTriangle,
   Send,
-  Users,
-  RotateCcw,
 } from 'lucide-react'
 
 interface Step3LineItemsProps {
@@ -31,9 +26,9 @@ interface Step3LineItemsProps {
   onUpdateLineItem: (workAreaId: string, itemId: string, updates: Partial<LineItemData>) => void
   onRemoveLineItem: (workAreaId: string, itemId: string) => void
   onAddLineItem: (workAreaId: string) => void
+  onAddCatalogLineItem?: (workAreaId: string, catalogItem: CatalogItem) => void
   onApproveWorkArea: (workAreaId: string) => void
   onUnapproveWorkArea: (workAreaId: string) => void
-  onUpdateWorkArea?: (workAreaId: string, updates: Partial<WorkAreaData>) => void
   onSend: () => void
   onBack: () => void
   onBackToStep1: () => void
@@ -46,7 +41,6 @@ interface Step3LineItemsProps {
   jamieAnalysis?: JamieAnalysisResult | null
   jamieAnalysisLoading?: boolean
   onJamieAnalyze?: () => void
-  onAddMismatchItem?: (workAreaId: string, itemName: string) => void
 }
 
 interface WorkAreaSectionProps {
@@ -56,10 +50,9 @@ interface WorkAreaSectionProps {
   onUpdateItem: (itemId: string, updates: Partial<LineItemData>) => void
   onRemoveItem: (itemId: string) => void
   onAddItem: () => void
+  onAddCatalogItem?: (catalogItem: CatalogItem) => void
   onApprove: () => void
   onUnapprove: () => void
-  onUpdateWorkArea?: (updates: Partial<WorkAreaData>) => void
-  onRoundManHours?: () => void
   // Jamie scope
   jamieScope?: string | null
   jamieScopeLoading?: boolean
@@ -76,14 +69,15 @@ function WorkAreaSection({
   onAddItem,
   onApprove,
   onUnapprove,
-  onUpdateWorkArea,
-  onRoundManHours,
+  onAddCatalogItem,
   jamieScope,
   jamieScopeLoading,
   onJamieWriteScope,
   onJamieUpdateScope,
 }: WorkAreaSectionProps) {
   const [collapsed, setCollapsed] = useState(workArea.approved)
+  const [showCatalogPicker, setShowCatalogPicker] = useState(false)
+  const [catalogSearch, setCatalogSearch] = useState('')
   const hasItems = items.length > 0
   const newItemCount = items.filter((i) => i.catalog_match_type === 'new_created').length
   const laborItems = items.filter((i) => i.category === 'Labor')
@@ -184,62 +178,66 @@ function WorkAreaSection({
             </div>
           )}
 
-          {/* Crew Size & Man Hours */}
-          {onUpdateWorkArea && (
-            <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-3 py-3 bg-slate-50/50">
-              <Users size={14} className="text-slate-400" />
-              <div className="flex items-center gap-1.5">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Crew</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={workArea.crew_size ?? 3}
-                  onChange={(e) => onUpdateWorkArea({ crew_size: parseInt(e.target.value) || 3 })}
-                  className="w-14 rounded-md border border-slate-200 px-2 py-1 text-center text-xs focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB]"
-                />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Hrs/Day</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={16}
-                  step={0.5}
-                  value={workArea.crew_hours_per_day ?? 8}
-                  onChange={(e) => onUpdateWorkArea({ crew_hours_per_day: parseFloat(e.target.value) || 8 })}
-                  className="w-14 rounded-md border border-slate-200 px-2 py-1 text-center text-xs focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB]"
-                />
-              </div>
-              {totalManHours > 0 && (
-                <>
-                  <span className="text-xs text-slate-500">
-                    {totalManHours.toFixed(1)} MH
-                    {' · '}
-                    {((totalManHours / ((workArea.crew_size ?? 3) * (workArea.crew_hours_per_day ?? 8))) || 0).toFixed(1)} days
-                  </span>
-                  <button
-                    onClick={onRoundManHours}
-                    className="inline-flex items-center gap-1 rounded-md bg-[#2563EB] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-600 transition-colors"
-                    title="Round labor man hours to nearest crew-day increment"
-                  >
-                    <RotateCcw size={10} />
-                    Round
-                  </button>
-                </>
-              )}
-            </div>
-          )}
 
           {/* Add + Approve actions */}
           <div className="flex items-center justify-between border-t border-slate-100 px-3 py-3">
-            <button
-              onClick={onAddItem}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[#2563EB] hover:bg-blue-50 transition-colors"
-            >
-              <Plus size={14} />
-              Add Line Item
-            </button>
+            <div className="relative">
+              <div className="flex items-center gap-1.5">
+                {catalogItems && catalogItems.length > 0 && onAddCatalogItem && (
+                  <button
+                    onClick={() => { setShowCatalogPicker(!showCatalogPicker); setCatalogSearch('') }}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[#2563EB] hover:bg-blue-50 transition-colors"
+                  >
+                    <Plus size={14} />
+                    From Catalog
+                  </button>
+                )}
+                <button
+                  onClick={onAddItem}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 transition-colors"
+                >
+                  <Plus size={14} />
+                  Custom Item
+                </button>
+              </div>
+              {/* Catalog picker dropdown */}
+              {showCatalogPicker && catalogItems && onAddCatalogItem && (
+                <div className="absolute left-0 bottom-full z-30 mb-1 w-72 max-h-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                  <div className="p-2 border-b border-slate-100">
+                    <input
+                      type="text"
+                      value={catalogSearch}
+                      onChange={(e) => setCatalogSearch(e.target.value)}
+                      placeholder="Search catalog..."
+                      className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="overflow-y-auto max-h-48">
+                    {catalogItems
+                      .filter((ci) => !catalogSearch || ci.name.toLowerCase().includes(catalogSearch.toLowerCase()))
+                      .slice(0, 20)
+                      .map((ci) => (
+                        <button
+                          key={ci.id}
+                          onClick={() => {
+                            onAddCatalogItem(ci)
+                            setShowCatalogPicker(false)
+                            setCatalogSearch('')
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50 border-b border-slate-50 last:border-b-0"
+                        >
+                          <span className="truncate flex-1 text-slate-700">{ci.name}</span>
+                          <span className="flex-shrink-0 text-[10px] text-slate-400 uppercase">{ci.type}</span>
+                        </button>
+                      ))}
+                    {catalogItems.filter((ci) => !catalogSearch || ci.name.toLowerCase().includes(catalogSearch.toLowerCase())).length === 0 && (
+                      <p className="px-3 py-2 text-xs text-slate-400">No matches found</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {!workArea.approved && (
               <button
@@ -268,9 +266,9 @@ export function Step3LineItems({
   onUpdateLineItem,
   onRemoveLineItem,
   onAddLineItem,
+  onAddCatalogLineItem,
   onApproveWorkArea,
   onUnapproveWorkArea,
-  onUpdateWorkArea,
   onSend,
   onBack,
   onBackToStep1,
@@ -282,11 +280,7 @@ export function Step3LineItems({
   jamieAnalysis,
   jamieAnalysisLoading,
   onJamieAnalyze,
-  onAddMismatchItem,
 }: Step3LineItemsProps) {
-  const [showBackConfirm, setShowBackConfirm] = useState(false)
-  const [showBackToStep1Confirm, setShowBackToStep1Confirm] = useState(false)
-
   const approvedCount = workAreas.filter((wa) => wa.approved).length
   const totalCount = workAreas.length
   const allApproved = approvedCount === totalCount && totalCount > 0
@@ -375,40 +369,14 @@ export function Step3LineItems({
                   onUpdateItem={(itemId, updates) => onUpdateLineItem(wa.id, itemId, updates)}
                   onRemoveItem={(itemId) => onRemoveLineItem(wa.id, itemId)}
                   onAddItem={() => onAddLineItem(wa.id)}
+                  onAddCatalogItem={onAddCatalogLineItem ? (ci) => onAddCatalogLineItem(wa.id, ci) : undefined}
                   onApprove={() => onApproveWorkArea(wa.id)}
                   onUnapprove={() => onUnapproveWorkArea(wa.id)}
-                  onUpdateWorkArea={onUpdateWorkArea ? (updates) => onUpdateWorkArea(wa.id, updates) : undefined}
-                  onRoundManHours={onUpdateWorkArea ? () => {
-                    const crewSize = wa.crew_size ?? 3
-                    const hrsPerDay = wa.crew_hours_per_day ?? 8
-                    const crewDay = crewSize * hrsPerDay
-                    if (crewDay <= 0) return
-                    for (const item of waItems) {
-                      if (item.category === 'Labor' && item.quantity > 0) {
-                        const rounded = Math.ceil(item.quantity / crewDay) * crewDay
-                        if (rounded !== item.quantity) {
-                          onUpdateLineItem(wa.id, item.id, { quantity: rounded })
-                        }
-                      }
-                    }
-                  } : undefined}
                   jamieScope={jamieScopes?.[wa.id]}
                   jamieScopeLoading={jamieScopeLoading === wa.id}
                   onJamieWriteScope={onJamieWriteScope ? () => onJamieWriteScope(wa.id) : undefined}
                   onJamieUpdateScope={onJamieUpdateScope ? (scope: string) => onJamieUpdateScope(wa.id, scope) : undefined}
                 />
-                {/* Scope/line-item mismatch warnings */}
-                {!loading && jamieScopes?.[wa.id] && waItems.length > 0 && onAddMismatchItem && (() => {
-                  const warnings = crossValidateScopeAndItems(jamieScopes[wa.id], waItems)
-                  if (warnings.length === 0) return null
-                  return (
-                    <ScopeMismatchWarning
-                      warnings={warnings}
-                      workAreaId={wa.id}
-                      onAddLineItem={onAddMismatchItem}
-                    />
-                  )
-                })()}
                 {/* Inline new catalog item pricing prompts */}
                 {newItems.length > 0 && (
                   <div className="space-y-2 pl-2">
@@ -444,14 +412,14 @@ export function Step3LineItems({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex gap-2">
                 <button
-                  onClick={() => setShowBackConfirm(true)}
+                  onClick={onBack}
                   className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
                 >
                   <ArrowLeft size={16} />
                   Back to Work Areas
                 </button>
                 <button
-                  onClick={() => setShowBackToStep1Confirm(true)}
+                  onClick={onBackToStep1}
                   className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-medium text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
                 >
                   Back to Project Info
@@ -471,74 +439,6 @@ export function Step3LineItems({
         )}
       </div>
 
-      {/* Back to Work Areas confirmation */}
-      {showBackConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100">
-                <AlertTriangle size={20} className="text-yellow-600" />
-              </div>
-              <h3 className="text-lg font-bold text-blue-900">Go Back to Work Areas?</h3>
-            </div>
-            <p className="mb-6 text-sm text-slate-600">
-              Going back will discard all line items and approval progress. Are you sure?
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowBackConfirm(false)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-              >
-                Stay Here
-              </button>
-              <button
-                onClick={() => {
-                  setShowBackConfirm(false)
-                  onBack()
-                }}
-                className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600"
-              >
-                Go Back
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Back to Step 1 confirmation */}
-      {showBackToStep1Confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100">
-                <AlertTriangle size={20} className="text-yellow-600" />
-              </div>
-              <h3 className="text-lg font-bold text-blue-900">Go Back to Project Info?</h3>
-            </div>
-            <p className="mb-6 text-sm text-slate-600">
-              Going back to Step 1 will discard all work areas, line items, and approval progress.
-              Are you sure?
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowBackToStep1Confirm(false)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-              >
-                Stay Here
-              </button>
-              <button
-                onClick={() => {
-                  setShowBackToStep1Confirm(false)
-                  onBackToStep1()
-                }}
-                className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600"
-              >
-                Go Back
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

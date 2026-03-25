@@ -387,6 +387,16 @@ Equipment Operation:
   Heavy grading, site clearing → "Install Labor - Equipment Operator"
 If the contractor's catalog has a different labor item name for the same trade, match to the closest catalog item. NEVER default to "Landscape Labor" for masonry, stone, or hardscape work.
 
+WASTE FACTORS — apply automatically to these material categories:
+- Stone/pavers/tile: +10% waste (cutting losses)
+- Sod: +10% waste (trimming and edges)
+- Gravel/sand/soil: +5% waste (compaction and spillage)
+- Polymeric sand: +10% waste
+- Landscape fabric: +15% waste (overlaps)
+- Lumber/fencing: +10% waste
+Do NOT apply waste to: Labor hours, Equipment hours, Allowances, Delivery, General Conditions.
+When including waste, note it in the scope description: "400 SF bluestone (includes 10% waste — 364 SF net + 36 SF waste)"
+
 STEP 1 — MATERIAL TAKEOFF
 List every physical material going into this work. Do not skip consumables, fasteners, adhesives, base materials, or waste factors. Every material is a line item.
 
@@ -429,49 +439,8 @@ RULES:
 - No salesy language — pure scope description
 - Precise enough that a crew could execute from this document alone
 
+DEDUPLICATION RULE: NEVER create duplicate line items within the same work area. Each unique item should appear exactly ONCE with its total quantity. If a task requires 12 hours of Landscape Labor, create ONE line: "Install Labor - Landscapers | 12 | HR | Labor" — NOT two lines of 6 hours each.
+
 OUTPUT RULE: Return ONLY valid JSON matching the structure specified. No preamble. No markdown fences. No explanation text. If your response cannot be parsed as JSON it is wrong. Start your response with { and end with }.`
 }
 
-// ── Scope/Line Item Cross-Validator ──
-
-/**
- * Cross-validate that scope_description and line_items are aligned.
- * Returns an array of mismatch warnings (empty = clean).
- * Logs mismatches to console for debugging.
- */
-export function crossValidateScopeAndItems(
-  scopeDescription: string,
-  lineItems: { name: string; category: string }[]
-): string[] {
-  const warnings: string[] = []
-  const scopeLower = scopeDescription.toLowerCase()
-
-  // Extract material/equipment line item names (skip Labor and General Conditions)
-  const materialItems = lineItems.filter(
-    (li) => li.category === 'Materials' || li.category === 'Equipment' || li.category === 'Subcontractor'
-  )
-
-  for (const item of materialItems) {
-    // Extract key nouns from the item name (skip common words)
-    const nameWords = item.name
-      .toLowerCase()
-      .split(/[\s\-\/]+/)
-      .filter((w) => w.length > 3)
-      .filter((w) => !['install', 'supply', 'provide', 'labor', 'general', 'conditions', 'hours', 'crew'].includes(w))
-
-    // Check if at least one significant word appears in the scope
-    const hasMatch = nameWords.some((word) => scopeLower.includes(word))
-
-    if (!hasMatch && nameWords.length > 0) {
-      const warning = `Line item "${item.name}" (${item.category}) not mentioned in scope description`
-      warnings.push(warning)
-      console.warn(`[Jamie Cross-Validator] ${warning}`)
-    }
-  }
-
-  if (warnings.length > 0) {
-    console.warn(`[Jamie Cross-Validator] ${warnings.length} mismatch(es) detected between scope and line items`)
-  }
-
-  return warnings
-}

@@ -179,17 +179,32 @@ export function LineItemRow({ item, onUpdate, onRemove, catalogItems }: LineItem
           )}
         </div>
 
-        {/* Quantity */}
-        <input
-          type="number"
-          value={qtyValue}
-          onChange={(e) => setQtyValue(e.target.value)}
-          onBlur={saveQuantity}
-          onKeyDown={(e) => e.key === 'Enter' && saveQuantity()}
-          min={0}
-          step="any"
-          className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-center text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
-        />
+        {/* Quantity with round-up */}
+        <div className="flex items-center gap-0.5">
+          <input
+            type="number"
+            value={qtyValue}
+            onChange={(e) => setQtyValue(e.target.value)}
+            onBlur={saveQuantity}
+            onKeyDown={(e) => e.key === 'Enter' && saveQuantity()}
+            min={0}
+            step="any"
+            className="w-[4.5rem] rounded border border-slate-200 bg-white px-2 py-1 text-center text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+          />
+          {item.quantity > 0 && item.quantity !== Math.ceil(item.quantity) && (
+            <button
+              onClick={() => {
+                const rounded = Math.ceil(item.quantity)
+                setQtyValue(String(rounded))
+                onUpdate({ quantity: rounded })
+              }}
+              className="flex-shrink-0 rounded p-0.5 text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 transition-colors"
+              title={`Round up to ${Math.ceil(item.quantity)}`}
+            >
+              <span className="text-xs font-bold leading-none">▲</span>
+            </button>
+          )}
+        </div>
 
         {/* Unit dropdown */}
         <select

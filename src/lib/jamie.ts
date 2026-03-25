@@ -2,7 +2,7 @@
 // Powered by Anthropic Claude, trained in KYN methodology
 
 import { callAI } from '@/lib/supabase'
-import { buildUnifiedEstimatePrompt, crossValidateScopeAndItems } from '@/lib/jamiePrompt'
+import { buildUnifiedEstimatePrompt } from '@/lib/jamiePrompt'
 import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate } from '@/lib/types'
 
 // ── Jamie Conversational System Prompt (intake, review, summary — NOT estimate generation) ──
@@ -118,14 +118,6 @@ Return ONLY valid JSON:
 
   if (error || !data) throw new Error(error ?? 'Jamie could not build the estimate')
 
-  // Cross-validate scope/line-item alignment
-  for (const [waId, scope] of Object.entries(data.scope_descriptions ?? {})) {
-    const items = data.line_items[waId]
-    if (scope && items) {
-      crossValidateScopeAndItems(scope, items)
-    }
-  }
-
   return data
 }
 
@@ -180,9 +172,6 @@ Return ONLY valid JSON:
   })
 
   if (error || !data) throw new Error(error ?? 'Jamie could not write scope')
-
-  // Cross-validate
-  crossValidateScopeAndItems(data.scope_description, data.line_items)
 
   return {
     scope_description: data.scope_description,
