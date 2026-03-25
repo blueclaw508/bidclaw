@@ -324,12 +324,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         catalogById.set(item.id, item)
       }
 
-      // ── Normalize helper: lowercase, trim, strip trailing 's' ──
-      function normalizeName(s: string): string {
-        return s.toLowerCase().trim().replace(/s$/, '')
-      }
-
-      // ── 5-layer catalog lookup (never re-creates if a match exists) ──
+      // ── 3-layer catalog lookup (never re-creates if a match exists) ──
       function findInCatalog(
         existingId: string | undefined,
         name: string,
@@ -338,34 +333,42 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         // Layer 1: hard link via catalog_item_id set during estimate build
         if (existingId) {
           const hit = catalogById.get(existingId)
-          if (hit) return hit
+          if (hit) {
+            console.log(`[QC Match] "${name}" → Layer 1 (hard link) → "${hit.name}" (${hit.type}) unit_cost=${hit.unit_cost} sub_cost=${hit.sub_cost}`)
+            return hit
+          }
         }
         const nameLower = name.toLowerCase().trim()
         // Layer 2: exact name + same type
         const exactSameType = catalogItems.find(
           (c) => c.name.toLowerCase().trim() === nameLower && c.type === qcType
         )
-        if (exactSameType) return exactSameType
+        if (exactSameType) {
+          console.log(`[QC Match] "${name}" → Layer 2 (exact+type) → "${exactSameType.name}" (${exactSameType.type}) unit_cost=${exactSameType.unit_cost}`)
+          return exactSameType
+        }
         // Layer 3: exact name, any type
         const exactAnyType = catalogItems.find(
           (c) => c.name.toLowerCase().trim() === nameLower
         )
-        if (exactAnyType) return exactAnyType
-        // Layer 4: normalized match (strip trailing 's')
-        const nameNorm = normalizeName(name)
-        if (nameNorm.length >= 3) {
-          const normMatch = catalogItems.find((c) => normalizeName(c.name) === nameNorm)
-          if (normMatch) return normMatch
+        if (exactAnyType) {
+          console.log(`[QC Match] "${name}" → Layer 3 (exact, any type) → "${exactAnyType.name}" (${exactAnyType.type}) unit_cost=${exactAnyType.unit_cost}`)
+          return exactAnyType
         }
-        // Layer 5: substring match in either direction (min 4 chars to avoid noise)
-        if (nameNorm.length >= 4) {
-          const subMatch = catalogItems.find((c) => {
-            const cn = normalizeName(c.name)
-            return cn.length >= 4 && (cn.includes(nameNorm) || nameNorm.includes(cn))
-          })
-          if (subMatch) return subMatch
-        }
+        // Layers 4-5 (normalized/substring) REMOVED — too aggressive, caused
+        // wrong matches (e.g., "Sod - Over 4000 SF" matching "Sod - Pallet Charge"
+        // with a different unit_cost). Strict name matching only.
+        console.log(`[QC Match] "${name}" → NO MATCH → will create new at $0`)
         return null
+      }
+
+      // Fetch user settings for equipment rates and labor types
+      const { data: userSettingsData } = await supabase
+        .from('kyn_user_settings').select('settings_data').eq('user_id', user.id).maybeSingle()
+      const userSettings = userSettingsData?.settings_data || {}
+      const equipmentRatesMap = new Map<string, number>()
+      for (const er of (userSettings.equipmentRates || []) as any[]) {
+        if (er.id && er.hourlyRate) equipmentRatesMap.set(er.id, er.hourlyRate)
       }
 
       const newCatalogItems: { id: string; name: string; type: string }[] = []
@@ -420,13 +423,23 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
           // Rate: null for labor (QuickCalc applies its own retail labor rate).
           // Other categories use catalog pricing from QC's own catalog.
           let rate: number | null = null
-          if (qcType === 'labor') rate = null  // QuickCalc must apply its stored retail labor rate
-          else if (qcType === 'material') rate = catalogItem.unit_cost ?? 0
-          else if (qcType === 'subcontractor') rate = catalogItem.sub_cost ?? 0
-          else if (qcType === 'equipment') rate = catalogItem.unit_cost ?? 0
-          else if (qcType === 'other') rate = catalogItem.default_amount ?? 0
+          if (qcType === 'labor') {
+            rate = null  // QuickCalc must apply its stored retail labor rate
+          } else if (qcType === 'material') {
+            rate = catalogItem.unit_cost ?? 0
+          } else if (qcType === 'subcontractor') {
+            rate = catalogItem.sub_cost ?? 0
+          } else if (qcType === 'equipment') {
+            // Equipment rates live in settings.equipmentRates, NOT unit_cost
+            rate = catalogItem.equipment_rate_id
+              ? (equipmentRatesMap.get(catalogItem.equipment_rate_id) ?? 0)
+              : 0
+          } else if (qcType === 'other') {
+            rate = catalogItem.default_amount ?? 0
+          }
 
           const amount = rate != null ? li.quantity * rate : 0
+          console.log(`[QC Send] "${li.name}" | type=${qcType} | qty=${li.quantity} | rate=${rate} | amount=${amount} | match=${catalogMatchType}`)
 
           if (qcType === 'labor') waLabor += amount
           else if (qcType === 'material') waMaterial += amount
