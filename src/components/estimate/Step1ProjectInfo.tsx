@@ -250,10 +250,7 @@ export function Step1ProjectInfo({
   const saveToDb = useCallback(async () => {
     if (!estimate?.id) return
     const payload = buildSavePayload()
-    console.log('[Step1] saving to DB:', payload)
-    const { error } = await supabase.from('estimates').update(payload).eq('id', estimate.id)
-    if (error) console.error('[Step1] save FAILED:', error.message)
-    else console.log('[Step1] save SUCCESS')
+    await supabase.from('estimates').update(payload).eq('id', estimate.id)
     // Also update React state so parent components see the changes
     if (onFieldChange) onFieldChange(payload)
   // eslint-disable-next-line react-hooks/exhaustive-deps

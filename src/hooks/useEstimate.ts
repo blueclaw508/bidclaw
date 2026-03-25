@@ -75,9 +75,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     const safe = stripUnsafe(updates)
     if (Object.keys(safe).length === 0) return
     setSaving(true)
-    const { error } = await supabase.from('estimates').update(safe).eq('id', estimateId)
-    if (error) console.error('[useEstimate] immediateSave FAILED:', error.message, 'keys:', Object.keys(safe))
-    else console.log('[useEstimate] immediateSave SUCCESS — keys:', Object.keys(safe))
+    await supabase.from('estimates').update(safe).eq('id', estimateId)
     setSaving(false)
   }, [estimateId])
 
@@ -94,9 +92,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       const safe = stripUnsafe(accumulated)
       if (Object.keys(safe).length === 0) return
       setSaving(true)
-      const { error } = await supabase.from('estimates').update(safe).eq('id', estimateId)
-      if (error) console.error('[useEstimate] autoSave FAILED:', error.message, 'keys:', Object.keys(safe))
-      else console.log('[useEstimate] autoSave SUCCESS — keys:', Object.keys(safe))
+      await supabase.from('estimates').update(safe).eq('id', estimateId)
       setSaving(false)
     }, 500)
   }, [estimateId])
