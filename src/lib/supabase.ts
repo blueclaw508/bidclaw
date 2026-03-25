@@ -14,6 +14,9 @@ export async function callAI<T = unknown>(payload: {
   messages: Array<{ role: string; content: string | Array<Record<string, unknown>> }>
   system?: string
   max_tokens?: number
+  model?: string
+  temperature?: number
+  tools?: Array<Record<string, unknown>>
 }): Promise<{ data: T | null; error: string | null }> {
   const MAX_RETRIES = 2
 

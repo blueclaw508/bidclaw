@@ -21,7 +21,7 @@ export default async (req) => {
 
   try {
     const body = await req.json()
-    const { messages, system, max_tokens = 4096 } = body
+    const { messages, system, max_tokens = 4096, model = 'claude-sonnet-4-20250514', temperature, tools } = body
 
     // Pre-process messages: download any URL-sourced files and convert to base64
     const processedMessages = await Promise.all(
@@ -89,11 +89,13 @@ export default async (req) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model,
         max_tokens,
         stream: true,
         system: system || '',
         messages: processedMessages,
+        ...(temperature !== undefined && { temperature }),
+        ...(tools && tools.length > 0 && { tools }),
       }),
     })
 
@@ -138,6 +140,9 @@ export default async (req) => {
                 fullText += event.delta.text
                 // Send keepalive chunk to prevent client timeout
                 await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: event.delta.text })}\n\n`))
+              } else if (event.type === 'content_block_start' || event.type === 'content_block_stop' || event.type === 'message_delta') {
+                // Send keepalive during web search tool use to prevent client timeout
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: '' })}\n\n`))
               }
             } catch { /* skip unparseable lines */ }
           }
@@ -146,7 +151,7 @@ export default async (req) => {
         // Send the final assembled response in the format the client expects
         const finalResponse = {
           content: [{ type: 'text', text: fullText }],
-          model: 'claude-sonnet-4-20250514',
+          model,
           stop_reason: 'end_turn',
         }
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', response: finalResponse })}\n\n`))

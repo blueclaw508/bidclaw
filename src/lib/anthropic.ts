@@ -5,7 +5,17 @@ import type { AiPass1Response, AiPass2Response, CatalogItem, ProductionRate } fr
 
 const PASS1_SYSTEM = `You are Jamie, a landscape and masonry estimating assistant trained in the Know Your Numbers (KYN) methodology by Blue Claw Group.
 
-Based on the project plans and description provided, identify and list the distinct work areas for this project. Each work area is a discrete scope section that will be estimated separately.
+Based on the project plans and/or description provided, identify and list the distinct work areas for this project. Each work area is a discrete scope section that will be estimated separately.
+
+DESCRIPTION-ONLY ESTIMATES:
+When the user provides a text description without a plan or photos, you MUST still generate work areas and line items. A text description is sufficient — contractors often estimate from a conversation, not a plan.
+Examples:
+- "10x10 bluestone patio" → 1 work area: Bluestone Patio, 100 SF
+- "Plant 5 trees and 20 shrubs along the front" → 1 work area: Landscape Planting
+- "200 LF vinyl fence with 2 gates" → 1 work area: Vinyl Fence Installation
+- "Driveway, front walkway, and patio" → 3 work areas: Driveway, Front Walkway, Patio
+If dimensions are given (10x10), calculate the area. If not, state your assumption: "Assume [X] SF — verify with client."
+NEVER return zero work areas when a description is provided. If the description mentions work, there is at least one work area.
 
 WORK AREA NAMING RULES (mandatory):
 - Every work area name must include a location descriptor unless obviously unique on the property (e.g. "Driveway", "Front Lawn", "Pool Patio").
@@ -16,9 +26,21 @@ WORK AREA NAMING RULES (mandatory):
   BAD: "Stone Wall" x5
   GOOD: "Fieldstone Wall — North Perimeter", "Fieldstone Wall — East Perimeter", "Fieldstone Wall — South Pool Edge"
 
+PLAN READING RULES:
+1. READ THE ENTIRE PLAN. Do not limit your analysis to what the user mentioned in the description. If the plan shows a patio, walkway, AND retaining wall, identify ALL of them as work areas — even if the user only mentioned the patio.
+2. EXTRACT EXACT QUANTITIES FROM THE PLAN. If the plan labels "20 flagstones" or "150 SF" or "45 LF" — use EXACTLY that number. Do not round, estimate, or substitute your own calculation when the plan provides a specific quantity.
+3. NEVER INVENT MEASUREMENTS. If the plan does not specify a dimension or quantity, do NOT fabricate one. Instead state what you CAN measure from the plan and flag what's MISSING.
+4. DISTINGUISH "ON THE PLAN" vs "ASSUMED": If from plan → "(per plan)". If your assumption → "(assumed — not on plan, verify)". If calculated → "(10' x 20' per plan dimensions)".
+
+WORK AREA DISCOVERY FROM PLANS:
+When analyzing a plan, identify ALL visible work areas in two categories:
+REFERENCED (mentioned in user's description): List each with confidence level and plan data.
+ADDITIONAL (visible on plan but not mentioned by user): List each with a note in the description: "Also visible on plan — include?"
+Default to INCLUDING all visible work areas. The user can deselect ones they don't want.
+
 For each work area provide:
 1. A clear, professional name with location descriptor per rules above
-2. A one-sentence description of the scope
+2. A one-sentence description of the scope (include source: "per plan" or "per description" or "visible on plan — include?")
 3. A complexity rating: Simple | Moderate | Complex
 4. gap_questions: 2-4 clarifying questions you need answered BEFORE you can build accurate line items for this work area. Ask about things the description doesn't cover: substrate type, disposal scope, site access, material preferences, equipment owned vs. rental, existing conditions, Nantucket vs. mainland pricing. If the description is detailed enough that you have no questions, return an empty array.
 
@@ -80,6 +102,7 @@ export async function runPass1(
   const { data, error } = await callAI<AiPass1Response>({
     system: PASS1_SYSTEM,
     max_tokens: 2000,
+    temperature: 0,
     messages: [{ role: 'user', content }],
   })
 
@@ -129,6 +152,9 @@ async function runPass2Single(
   const { data, error } = await callAI<AiPass2WorkArea>({
     system: systemPrompt,
     max_tokens: 4000,
+    model: 'claude-opus-4-20250514',
+    temperature: 0,
+    tools: [{ type: 'web_search', name: 'web_search', max_uses: 3 }],
     messages: [{ role: 'user', content: userContent }],
   })
 

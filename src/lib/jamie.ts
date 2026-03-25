@@ -80,6 +80,8 @@ export async function jamieBuildEstimate(
   })
 
   const { data, error } = await callAI<JamieBuildResult>({
+    model: 'claude-opus-4-20250514',
+    temperature: 0,
     system: `${basePrompt}
 
 You are building an estimate from a job intake conversation. Generate work areas with UNIFIED scope descriptions and line items.
@@ -151,6 +153,8 @@ export async function jamieWriteScope(
   const itemsSummary = lineItems.map((li) => `${li.name}: ${li.quantity} ${li.unit} (${li.category})`).join('\n')
 
   const { data, error } = await callAI<{ scope_description: string; line_items: LineItemData[] }>({
+    model: 'claude-opus-4-20250514',
+    temperature: 0.3,
     system: `${basePrompt}
 
 You are rewriting the scope and line items for a single work area. The user has existing line items — use them as a starting point but apply the Prime Directive: if you add something to the scope, add a line item. If you remove something from the scope, remove the line item.
@@ -200,6 +204,8 @@ export async function jamieGenerateSummary(
   }).join('\n')
 
   const { data, error } = await callAI<{ summary: string }>({
+    model: 'claude-opus-4-20250514',
+    temperature: 0.3,
     system: `${JAMIE_CONVERSATIONAL}
 
 Write a professional estimate introduction paragraph for a client proposal. Include:
@@ -335,6 +341,8 @@ Adjust the summary numbers based on the actual line items provided.`
     : [{ role: 'user', content: initialContext }]
 
   const { data, error } = await callAI<{ reply: string }>({
+    model: 'claude-opus-4-20250514',
+    temperature: 0.3,
     system: `${JAMIE_CONVERSATIONAL}
 
 You are reviewing a work area estimate with the contractor. Be direct, trade-savvy, and helpful. If the contractor asks questions, answer them using the line item data. If they want changes, suggest specific adjustments.
