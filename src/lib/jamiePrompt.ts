@@ -298,7 +298,15 @@ Half day = 13-14 hours. Under 10 hrs = single crew member or minimum call.
 
 function buildCatalogBlock(catalog: CatalogItem[]): string {
   if (catalog.length === 0) return 'The contractor has no catalog items yet.'
-  const lines = catalog.map((item) => `  "${item.name}" → category: ${item.type || 'Materials'}`)
+  // Map lowercase Supabase types to Jamie's title-case categories
+  const typeToCategory: Record<string, string> = {
+    material: 'Materials', labor: 'Labor', equipment: 'Equipment',
+    subcontractor: 'Subcontractor', disposal: 'Disposal', other: 'Other',
+  }
+  const lines = catalog.map((item) => {
+    const cat = typeToCategory[item.type] || item.type || 'Materials'
+    return `  "${item.name}" → category: ${cat}`
+  })
   return `CONTRACTOR'S ITEM CATALOG — MATCH NAMES AND CATEGORIES EXACTLY:
 ${lines.join('\n')}
 

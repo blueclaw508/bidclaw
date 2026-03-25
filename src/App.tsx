@@ -645,10 +645,13 @@ function AppContent() {
               }}
               onAddCatalogLineItem={(waId: string, ci: CatalogItem) => {
                 const categoryMap: Record<string, string> = {
+                  material: 'Materials', labor: 'Labor', equipment: 'Equipment',
+                  subcontractor: 'Subcontractor', disposal: 'Disposal', other: 'Other',
+                  // Legacy title-case keys (in case any catalog items still use them)
                   Materials: 'Materials', Labor: 'Labor', Equipment: 'Equipment',
                   Subcontractors: 'Subcontractor', Disposal: 'Disposal',
                 }
-                const unitMap: Record<string, string> = { Labor: 'HR', Equipment: 'HR' }
+                const unitMap: Record<string, string> = { labor: 'HR', equipment: 'HR', Labor: 'HR', Equipment: 'HR' }
                 const newItem: LineItemData = {
                   id: 'li_' + Date.now(),
                   name: ci.name,
