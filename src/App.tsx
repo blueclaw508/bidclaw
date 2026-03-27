@@ -22,7 +22,7 @@ import { Step4Send } from '@/components/estimate/Step4Send'
 import { useEstimate } from '@/hooks/useEstimate'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate } from '@/lib/types'
+import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate, GapQuestion, WorkAreaEstimateMode } from '@/lib/types'
 import type { JamieMessage, JamieAnalysisResult } from '@/lib/jamie'
 import {
   getNextIntakeQuestion,
@@ -74,7 +74,7 @@ function AppContent() {
   const {
     estimate, loading: estLoading, saving, aiLoading, aiMessage, notFound: estNotFound,
     updateEstimate, createEstimate, uploadFiles,
-    runAiPass1, runAiPass2, sendToQuickCalc,
+    runAiPass1, runAiPass2, reEstimateWorkArea, sendToQuickCalc,
   } = useEstimate(activeEstimateId, showJamieError)
 
   const workAreas: WorkAreaData[] = estimate?.work_areas ?? []
@@ -109,6 +109,10 @@ function AppContent() {
     client_name: string; project_address: string; project_description: string; files: File[]
   } | null>(null)
   const [manualWorkAreaMode, setManualWorkAreaMode] = useState(false)
+  // Mode detection & gap questions (Change B)
+  const [workAreaModes, setWorkAreaModes] = useState<Record<string, WorkAreaEstimateMode>>({})
+  const [structuredGapQuestions, setStructuredGapQuestions] = useState<Record<string, GapQuestion[]>>({})
+  const [reEstimateLoading, setReEstimateLoading] = useState(false)
 
   // ── Layer 2: restore Jamie state once per estimate when it first loads ──
   useEffect(() => {
@@ -138,6 +142,9 @@ function AppContent() {
         setJamieScopes(prev => ({ ...dbScopes, ...prev }))
       }
     }
+    // Restore mode detection from DB-persisted fields
+    if (estimate.work_area_modes) setWorkAreaModes(estimate.work_area_modes)
+    if (estimate.structured_gap_questions) setStructuredGapQuestions(estimate.structured_gap_questions)
   }, [estimate])
 
   // ── Layer 2: write Jamie state to localStorage on every change ──
@@ -177,6 +184,8 @@ function AppContent() {
     setShowWorkAreaChoice(false)
     setPendingFormData(null)
     setManualWorkAreaMode(false)
+    setWorkAreaModes({})
+    setStructuredGapQuestions({})
   }, [activeEstimateId])
 
   // Jamie: start intake
@@ -521,6 +530,30 @@ function AppContent() {
       if (pass2Result?.scopeDescriptions) {
         setJamieScopes(pass2Result.scopeDescriptions)
       }
+      if (pass2Result?.workAreaModes) {
+        setWorkAreaModes(pass2Result.workAreaModes)
+      }
+      if (pass2Result?.structuredGapQuestions) {
+        setStructuredGapQuestions(pass2Result.structuredGapQuestions)
+      }
+    }
+
+    // Re-estimate a single work area after gap questions answered (Change B)
+    const handleReEstimateWorkArea = async (waId: string, answers: GapQuestion[]) => {
+      const wa = workAreas.find((w) => w.id === waId)
+      if (!wa) return
+      setReEstimateLoading(true)
+      const success = await reEstimateWorkArea(wa, answers)
+      if (success) {
+        // Refresh modes and gap questions from updated estimate
+        setWorkAreaModes((prev) => ({ ...prev, [waId]: estimate?.work_area_modes?.[waId] ?? 'full_takeoff' }))
+        setStructuredGapQuestions((prev) => ({ ...prev, [waId]: estimate?.structured_gap_questions?.[waId] ?? [] }))
+        // Update scope if returned
+        if (estimate?.scope_descriptions?.[waId]) {
+          setJamieScopes((prev) => ({ ...prev, [waId]: estimate!.scope_descriptions![waId] }))
+        }
+      }
+      setReEstimateLoading(false)
     }
 
     const handleGapSubmit = async (answers: Record<string, string>) => {
@@ -679,6 +712,10 @@ function AppContent() {
               jamieAnalysis={jamieAnalysis}
               jamieAnalysisLoading={jamieAnalysisLoading}
               onJamieAnalyze={handleJamieAnalyze}
+              workAreaModes={workAreaModes}
+              structuredGapQuestions={structuredGapQuestions}
+              onReEstimateWorkArea={handleReEstimateWorkArea}
+              reEstimateLoading={reEstimateLoading}
             />
           ) : (
             <Step4Send

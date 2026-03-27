@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { WorkAreaData, LineItemData, CatalogItem } from '@/lib/types'
+import type { WorkAreaData, LineItemData, CatalogItem, GapQuestion, WorkAreaEstimateMode } from '@/lib/types'
 import type { JamieAnalysisResult } from '@/lib/jamie'
 import { ProgressIndicator } from './Step1ProjectInfo'
 import { LineItemRow } from './LineItemRow'
@@ -14,6 +14,10 @@ import {
   CheckCircle2,
   PenLine,
   Send,
+  Users,
+  RotateCcw,
+  HelpCircle,
+  RefreshCw,
 } from 'lucide-react'
 
 interface Step3LineItemsProps {
@@ -41,6 +45,11 @@ interface Step3LineItemsProps {
   jamieAnalysis?: JamieAnalysisResult | null
   jamieAnalysisLoading?: boolean
   onJamieAnalyze?: () => void
+  // Mode detection & gap questions (Change B)
+  workAreaModes?: Record<string, WorkAreaEstimateMode>
+  structuredGapQuestions?: Record<string, GapQuestion[]>
+  onReEstimateWorkArea?: (workAreaId: string, answers: GapQuestion[]) => void
+  reEstimateLoading?: boolean
 }
 
 interface WorkAreaSectionProps {
@@ -58,6 +67,94 @@ interface WorkAreaSectionProps {
   jamieScopeLoading?: boolean
   onJamieWriteScope?: () => void
   onJamieUpdateScope?: (scope: string) => void
+  // Mode detection & gap questions
+  estimateMode?: WorkAreaEstimateMode
+  gapQuestions?: GapQuestion[]
+  onReEstimate?: (answers: GapQuestion[]) => void
+  reEstimateLoading?: boolean
+}
+
+// ── Gap Questions Inline Form (Change B) ──
+function GapQuestionsForm({
+  questions,
+  onReEstimate,
+  loading,
+}: {
+  questions: GapQuestion[]
+  onReEstimate: (answers: GapQuestion[]) => void
+  loading: boolean
+}) {
+  const [answers, setAnswers] = useState<Record<number, string | number>>({})
+
+  const updateAnswer = (idx: number, value: string | number) => {
+    setAnswers((prev) => ({ ...prev, [idx]: value }))
+  }
+
+  const requiredAnswered = questions
+    .filter((q) => q.required)
+    .every((q, idx) => {
+      const a = answers[questions.indexOf(q)] ?? answers[idx]
+      return a !== undefined && a !== ''
+    })
+
+  const handleSubmit = () => {
+    const answered = questions.map((q, idx) => ({
+      ...q,
+      answer: answers[idx] ?? q.answer,
+    }))
+    onReEstimate(answered)
+  }
+
+  return (
+    <div className="space-y-3">
+      {questions.map((q, idx) => (
+        <div key={idx} className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-slate-700">
+            {q.question}
+            {q.required && <span className="ml-0.5 text-red-500">*</span>}
+          </label>
+          {q.type === 'select' && q.options ? (
+            <select
+              value={(answers[idx] as string) ?? ''}
+              onChange={(e) => updateAnswer(idx, e.target.value)}
+              className="rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            >
+              <option value="">Select...</option>
+              {q.options.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          ) : q.type === 'number' ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                value={(answers[idx] as number) ?? ''}
+                onChange={(e) => updateAnswer(idx, parseFloat(e.target.value) || 0)}
+                className="w-24 rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              {q.unit && <span className="text-xs text-slate-400">{q.unit}</span>}
+            </div>
+          ) : (
+            <input
+              type="text"
+              value={(answers[idx] as string) ?? ''}
+              onChange={(e) => updateAnswer(idx, e.target.value)}
+              className="rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            />
+          )}
+        </div>
+      ))}
+      <button
+        onClick={handleSubmit}
+        disabled={!requiredAnswered || loading}
+        className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+        Re-estimate with Details
+      </button>
+    </div>
+  )
 }
 
 function WorkAreaSection({
@@ -74,29 +171,48 @@ function WorkAreaSection({
   jamieScopeLoading,
   onJamieWriteScope,
   onJamieUpdateScope,
+  estimateMode,
+  gapQuestions,
+  onReEstimate,
+  reEstimateLoading,
 }: WorkAreaSectionProps) {
   const [collapsed, setCollapsed] = useState(workArea.approved)
   const [showCatalogPicker, setShowCatalogPicker] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
   const hasItems = items.length > 0
+  const nonPlaceholderItems = items.filter((i) => !i.placeholder)
+  const hasRealItems = nonPlaceholderItems.length > 0
   const newItemCount = items.filter((i) => i.catalog_match_type === 'new_created').length
   const laborItems = items.filter((i) => i.category === 'Labor')
   const totalManHours = laborItems.reduce((sum, i) => sum + (i.quantity || 0), 0)
+  const isNeedsInfo = estimateMode === 'needs_info'
+  const isAllowance = estimateMode === 'allowance'
 
   return (
     <div
       className={`rounded-xl border transition-colors ${
-        workArea.approved ? 'border-green-200' : 'border-slate-200'
+        workArea.approved
+          ? 'border-green-200'
+          : isNeedsInfo || isAllowance
+          ? 'border-amber-200'
+          : 'border-slate-200'
       }`}
     >
       {/* Header */}
       <button
         onClick={() => setCollapsed(!collapsed)}
         className={`flex w-full items-center gap-3 rounded-t-xl px-4 py-3 text-left transition-colors ${
-          workArea.approved ? 'bg-green-50' : 'bg-slate-50'
+          workArea.approved
+            ? 'bg-green-50'
+            : isNeedsInfo || isAllowance
+            ? 'bg-amber-50'
+            : 'bg-slate-50'
         }`}
       >
         {workArea.approved && <CheckCircle2 size={18} className="flex-shrink-0 text-green-600" />}
+        {!workArea.approved && (isNeedsInfo || isAllowance) && (
+          <HelpCircle size={18} className="flex-shrink-0 text-amber-500" />
+        )}
 
         <div className="min-w-0 flex-1">
           <span className="text-sm font-semibold text-blue-900">{workArea.name}</span>
@@ -108,6 +224,11 @@ function WorkAreaSection({
               </span>
             )}
           </span>
+          {(isNeedsInfo || isAllowance) && !workArea.approved && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              {isNeedsInfo ? 'Needs Info' : 'Allowance'}
+            </span>
+          )}
         </div>
 
         {workArea.approved ? (
@@ -131,6 +252,30 @@ function WorkAreaSection({
       {/* Content */}
       {!collapsed && (
         <div className="bg-white rounded-b-xl">
+          {/* Needs Info Banner */}
+          {(isNeedsInfo || isAllowance) && !workArea.approved && gapQuestions && gapQuestions.length > 0 && (
+            <div className="border-b border-amber-200 bg-amber-50/50 px-4 py-3">
+              <div className="flex items-start gap-2 mb-3">
+                <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-800">
+                    Jamie needs more info to estimate this work area
+                  </p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">
+                    Answer the questions below and re-estimate, or manually fill in quantities on the placeholder items.
+                  </p>
+                </div>
+              </div>
+              {onReEstimate && (
+                <GapQuestionsForm
+                  questions={gapQuestions}
+                  onReEstimate={onReEstimate}
+                  loading={reEstimateLoading ?? false}
+                />
+              )}
+            </div>
+          )}
+
           {/* Column headers */}
           <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             <div className="min-w-0 flex-1">Item Name</div>
@@ -143,13 +288,22 @@ function WorkAreaSection({
 
           {/* Line items */}
           {items.map((lineItem) => (
-            <LineItemRow
+            <div
               key={lineItem.id}
-              item={lineItem}
-              onUpdate={(updates) => onUpdateItem(lineItem.id, updates)}
-              onRemove={() => onRemoveItem(lineItem.id)}
-              catalogItems={catalogItems}
-            />
+              className={lineItem.placeholder ? 'opacity-50' : ''}
+            >
+              <LineItemRow
+                item={lineItem}
+                onUpdate={(updates) => onUpdateItem(lineItem.id, updates)}
+                onRemove={() => onRemoveItem(lineItem.id)}
+                catalogItems={catalogItems}
+              />
+              {lineItem.placeholder && lineItem.placeholder_note && (
+                <div className="px-4 pb-1 -mt-1">
+                  <span className="text-[10px] italic text-amber-500">{lineItem.placeholder_note}</span>
+                </div>
+              )}
+            </div>
           ))}
 
           {/* Work Area Labor Hours subtotal */}
@@ -280,6 +434,10 @@ export function Step3LineItems({
   jamieAnalysis,
   jamieAnalysisLoading,
   onJamieAnalyze,
+  workAreaModes,
+  structuredGapQuestions,
+  onReEstimateWorkArea,
+  reEstimateLoading,
 }: Step3LineItemsProps) {
   const approvedCount = workAreas.filter((wa) => wa.approved).length
   const totalCount = workAreas.length
@@ -376,6 +534,10 @@ export function Step3LineItems({
                   jamieScopeLoading={jamieScopeLoading === wa.id}
                   onJamieWriteScope={onJamieWriteScope ? () => onJamieWriteScope(wa.id) : undefined}
                   onJamieUpdateScope={onJamieUpdateScope ? (scope: string) => onJamieUpdateScope(wa.id, scope) : undefined}
+                  estimateMode={workAreaModes?.[wa.id]}
+                  gapQuestions={structuredGapQuestions?.[wa.id]}
+                  onReEstimate={onReEstimateWorkArea ? (answers) => onReEstimateWorkArea(wa.id, answers) : undefined}
+                  reEstimateLoading={reEstimateLoading}
                 />
                 {/* Inline new catalog item pricing prompts */}
                 {newItems.length > 0 && (

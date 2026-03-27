@@ -129,6 +129,76 @@ export interface JamieScopeResult {
   line_items: LineItemData[]
 }
 
+const NOTES_FORMAT_PROMPT = `Write scope notes for a work area using this EXACT bullet format. These notes serve as both the client proposal AND the crew field directive.
+
+MANDATORY FORMAT (every line is a bullet using the • character):
+• [Line 1] One sentence: what is being installed, where on the property, and per what spec (plan or site visit).
+• [Line 2] Overall size or quantity of the work area.
+• [Line 3] Material specified — manufacturer, product name, color if known. Skip if no specific material.
+• [Lines 4+] Step-by-step work sequence. One bullet per step. Written as crew instructions — precise enough to hold up as a field directive.
+• [Last line] "Disposal Fees Included." — ONLY when demolition or removal is involved.
+
+CRITICAL RULES:
+- Every single line = one bullet point (•)
+- No asterisks (*) — bullets (•) only
+- No numbered lists
+- No plain unformatted lines
+- No headers within notes
+- No salesy language — pure scope description
+- Written in third person imperative ("Install..." not "We will install...")
+- Precise enough that a crew could execute from this document alone
+- The location in Line 1 must match the work area name
+
+EXAMPLE — Paver Patio:
+• Install new EP Henry Cambridge paver patio at rear of residence per site visit.
+• Approx. 890 SF patio area.
+• EP Henry Cambridge Cobble, color: Toffee Onyx.
+• Excavate and remove existing lawn area to depth of 10".
+• Install and compact 6" processed gravel base.
+• Install 1" bedding sand and screed to grade.
+• Install pavers per pattern specified.
+• Sweep polymeric sand into joints and compact.
+• Install aluminum edge restraint at perimeter.
+• Disposal Fees Included.
+
+EXAMPLE — Loam & Sod:
+• Install new lawn area at rear of residence per site visit.
+• Approx. 1,430 SF lawn area.
+• Premium sod, species per site conditions.
+• Fine grade existing subgrade and remove construction debris from lawn areas.
+• Deliver and spread 27 CY of premium loam at 6" depth.
+• Fine grade and roll loam to smooth, even finish.
+• Install sod in staggered pattern per standard practice.
+• Roll sod upon completion.
+• Water all sod thoroughly upon installation.
+• Disposal Fees Included.
+
+EXAMPLE — Mulch:
+• Install new mulch to existing planting beds per site visit.
+• Approx. 19 CY mulch to existing bed areas.
+• Shredded bark mulch, color to match existing.
+• Edge all bed perimeters prior to mulch installation.
+• Deliver and spread 19 CY shredded bark mulch at 3" depth throughout existing beds.
+• Hand rake to uniform finish.
+• Clean all hard surfaces upon completion.
+
+EXAMPLE — Planting:
+• Install all new plant material per Planting Plan L3 prepared by Summerland Homes & Gardens dated February 2, 2026.
+• Approx. 7 trees, 89 shrubs, and 89 perennials per plant list.
+• All plant material per species and quantities specified on plan.
+• Prepare all planting bed areas — cultivate soil and remove debris.
+• Deliver and incorporate soil amendments into planting beds per plan.
+• Install all trees, shrubs, and perennials per plan at correct finish grade.
+• Stake all trees and large evergreens per standard practice.
+• Water all plant material thoroughly upon installation.
+• Apply anti-desiccant to all plants at planting time.
+• Contractor to provide one-year guarantee on all plant material.
+
+SPEC SOURCE LANGUAGE for Line 1:
+- If plan was uploaded → "per [Plan Name] prepared by [Designer] dated [Date]"
+- If no plan → "per site visit"
+- If dimensions were manually entered → "per site measurements"`
+
 export async function jamieWriteScope(
   workAreaName: string,
   lineItems: LineItemData[],

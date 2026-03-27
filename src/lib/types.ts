@@ -90,6 +90,21 @@ export interface LineItemData {
   catalog_match_type?: 'matched' | 'fuzzy_matched' | 'new_created'
   catalog_item_id?: string
   unit_cost?: number | null
+  placeholder?: boolean
+  placeholder_note?: string
+}
+
+// ── Jamie Mode Detection (Change B) ──
+
+export type WorkAreaEstimateMode = 'full_takeoff' | 'needs_info' | 'allowance'
+
+export interface GapQuestion {
+  question: string
+  type: 'select' | 'number' | 'text'
+  options?: string[]
+  unit?: string
+  required: boolean
+  answer?: string | number
 }
 
 export interface EstimateRecord {
@@ -105,6 +120,10 @@ export interface EstimateRecord {
   workflow_step: number
   work_areas: WorkAreaData[] | null
   line_items: Record<string, LineItemData[]> | null
+  scope_descriptions: Record<string, string> | null
+  gap_questions: Record<string, string[]> | null
+  structured_gap_questions?: Record<string, GapQuestion[]> | null
+  work_area_modes?: Record<string, WorkAreaEstimateMode> | null
   new_catalog_items_created: string[] | null
   approval_status: ApprovalStatus
   sent_to_quickcalc_at: string | null
@@ -138,14 +157,28 @@ export interface AiLineItem {
 export interface AiPass2WorkArea {
   id: string
   name: string
+  mode: WorkAreaEstimateMode
   scope_description: string
   line_items: AiLineItem[]
   gap_questions: string[]
+  structured_gap_questions?: GapQuestion[]
   new_catalog_items: string[]
 }
 
 export interface AiPass2Response {
   work_areas: AiPass2WorkArea[]
+}
+
+// Single work area response (used by isolated per-work-area API calls)
+export interface AiPass2SingleWorkAreaResponse {
+  id: string
+  name: string
+  mode: WorkAreaEstimateMode
+  scope_description: string
+  line_items: AiLineItem[]
+  gap_questions: string[]
+  structured_gap_questions?: GapQuestion[]
+  new_catalog_items: string[]
 }
 
 // ── Legacy types (kept for backward compat) ──

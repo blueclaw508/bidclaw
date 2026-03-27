@@ -7,9 +7,11 @@ import type {
   WorkAreaData,
   LineItemData,
   CatalogItem,
+  GapQuestion,
+  WorkAreaEstimateMode,
   AiPass1Response,
 } from '@/lib/types'
-import { runPass1, runPass2 } from '@/lib/anthropic'
+import { runPass1, runPass2, runPass2SingleWorkArea } from '@/lib/anthropic'
 import type { Pass2Progress } from '@/lib/anthropic'
 import { matchAllLineItems, categoryFromCatalogType, unitFromCategory } from '@/lib/catalogMatcher'
 import { searchMaterialAssemblies, formatSearchResultsForPrompt } from '@/lib/webSearch'
@@ -192,10 +194,16 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     approvedWorkAreas: WorkAreaData[],
     gapAnswers?: Record<string, string>,
     manualMode?: boolean
-  ): Promise<{ lineItems: Record<string, LineItemData[]>; scopeDescriptions: Record<string, string>; gapQuestions: Record<string, string[]> } | null> => {
+  ): Promise<{
+    lineItems: Record<string, LineItemData[]>
+    scopeDescriptions: Record<string, string>
+    gapQuestions: Record<string, string[]>
+    structuredGapQuestions?: Record<string, GapQuestion[]>
+    workAreaModes?: Record<string, WorkAreaEstimateMode>
+  } | null> => {
     if (!estimate || !user) return null
     setAiLoading(true)
-    setAiMessage('Analyzing work areas...')
+    setAiMessage('Fetching your catalog...')
     try {
       // Fetch catalog and production rates in parallel
       const [{ data: catalog }, { data: ratesData }] = await Promise.all([
@@ -215,6 +223,8 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       const lineItems: Record<string, LineItemData[]> = {}
       const scopeDescriptions: Record<string, string> = {}
       const gapQuestions: Record<string, string[]> = {}
+      const structuredGapQuestions: Record<string, GapQuestion[]> = {}
+      const workAreaModes: Record<string, WorkAreaEstimateMode> = {}
       const newCatalogItems: string[] = []
 
       // Transition to Step 3 immediately so the user sees progress — save immediately
@@ -237,6 +247,8 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
 
           if (completedWorkArea.scope_description) scopeDescriptions[completedWorkArea.id] = completedWorkArea.scope_description
           if (completedWorkArea.gap_questions) gapQuestions[completedWorkArea.id] = completedWorkArea.gap_questions
+          if ((completedWorkArea as any).structured_gap_questions) structuredGapQuestions[completedWorkArea.id] = (completedWorkArea as any).structured_gap_questions
+          workAreaModes[completedWorkArea.id] = (completedWorkArea as any).mode ?? 'full_takeoff'
 
           lineItems[completedWorkArea.id] = waItems.map((li) => {
             const match = matchResults.get(li.id)
@@ -244,7 +256,16 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
             // Override category from catalog item's stored type — catalog is source of truth
             const category = match ? categoryFromCatalogType(match.catalogItem.type) : li.category
             const unit = match ? unitFromCategory(category, li.unit) : li.unit
-            return { ...li, category, unit, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
+            return {
+              ...li,
+              category,
+              unit,
+              catalog_match_type: match?.matchType,
+              catalog_item_id: match?.catalogItem.id,
+              // Preserve placeholder flag from Jamie's response
+              placeholder: (li as any).placeholder ?? false,
+              placeholder_note: (li as any).placeholder_note ?? undefined,
+            }
           })
 
           // Embed scope_descriptions and gap_questions into work_areas for safe saving
@@ -289,10 +310,14 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       updateEstimate({
         work_areas: finalWorkAreas,
         line_items: lineItems,
+        scope_descriptions: scopeDescriptions,
+        gap_questions: gapQuestions,
+        structured_gap_questions: structuredGapQuestions,
+        work_area_modes: workAreaModes,
         new_catalog_items_created: newCatalogItems,
       }, true)
 
-      return { lineItems, scopeDescriptions, gapQuestions }
+      return { lineItems, scopeDescriptions, gapQuestions, structuredGapQuestions, workAreaModes }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Line item generation failed'
       if (onJamieError) onJamieError(msg)
@@ -303,6 +328,77 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       setAiMessage('')
     }
   }, [estimate, user, updateEstimate, onJamieError])
+
+  // Re-estimate a single work area after gap questions are answered (Change B)
+  const reEstimateWorkArea = useCallback(async (
+    workArea: WorkAreaData,
+    answeredQuestions: GapQuestion[]
+  ): Promise<boolean> => {
+    if (!estimate || !user) return false
+    setAiLoading(true)
+    setAiMessage(`Jamie is re-estimating ${workArea.name}...`)
+    try {
+      const { data: catalog } = await supabase
+        .from('kyn_catalog_items').select('*').eq('user_id', user.id)
+      const userCatalog = (catalog ?? []) as CatalogItem[]
+
+      // Build enriched description from original + answered questions
+      const answersText = answeredQuestions
+        .filter((q) => q.answer !== undefined && q.answer !== '')
+        .map((q) => `${q.question}: ${q.answer}${q.unit ? ' ' + q.unit : ''}`)
+        .join('\n')
+
+      const enrichedDescription = `${workArea.description}\n\nAdditional details from contractor:\n${answersText}`
+
+      const result = await runPass2SingleWorkArea(
+        { id: workArea.id, name: workArea.name, description: enrichedDescription },
+        estimate.project_description ?? '',
+        userCatalog
+      )
+
+      // Match line items to catalog
+      const matchResults = await matchAllLineItems(result.line_items, userCatalog, user.id)
+      const newCatalogItems: string[] = []
+      const matchedItems: LineItemData[] = result.line_items.map((li) => {
+        const match = matchResults.get(li.id)
+        if (match?.matchType === 'new_created') newCatalogItems.push(match.catalogItem.id)
+        return {
+          ...li,
+          catalog_match_type: match?.matchType,
+          catalog_item_id: match?.catalogItem.id,
+          placeholder: (li as any).placeholder ?? false,
+          placeholder_note: (li as any).placeholder_note ?? undefined,
+        }
+      })
+
+      // Update ONLY this work area's data — leave all other work areas untouched
+      const currentLineItems = estimate.line_items ?? {}
+      const currentScopes = estimate.scope_descriptions ?? {}
+      const currentGapQ = estimate.gap_questions ?? {}
+      const currentStructuredGapQ = estimate.structured_gap_questions ?? {}
+      const currentModes = estimate.work_area_modes ?? {}
+      const currentNewItems = estimate.new_catalog_items_created ?? []
+
+      updateEstimate({
+        line_items: { ...currentLineItems, [workArea.id]: matchedItems },
+        scope_descriptions: { ...currentScopes, [workArea.id]: result.scope_description },
+        gap_questions: { ...currentGapQ, [workArea.id]: result.gap_questions },
+        structured_gap_questions: { ...currentStructuredGapQ, [workArea.id]: result.structured_gap_questions ?? [] },
+        work_area_modes: { ...currentModes, [workArea.id]: result.mode },
+        new_catalog_items_created: [...currentNewItems, ...newCatalogItems],
+      })
+
+      setAiMessage('Work area re-estimated')
+      toast.success(`Jamie re-estimated ${workArea.name}`)
+      return true
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Re-estimate failed for ${workArea.name}`)
+      return false
+    } finally {
+      setAiLoading(false)
+      setAiMessage('')
+    }
+  }, [estimate, user, updateEstimate])
 
   const sendToQuickCalc = useCallback(async (): Promise<boolean> => {
     if (!estimate || !user) return false
@@ -545,6 +641,6 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
   return {
     estimate, loading, saving, aiLoading, aiMessage, notFound,
     updateEstimate, createEstimate, uploadFiles,
-    runAiPass1, runAiPass2, sendToQuickCalc,
+    runAiPass1, runAiPass2, reEstimateWorkArea, sendToQuickCalc,
   }
 }
