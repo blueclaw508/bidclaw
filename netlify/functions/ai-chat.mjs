@@ -81,6 +81,24 @@ export default async (req) => {
       })
     )
 
+    // ── DIAGNOSTIC LOGGING — prove what reaches Anthropic ──
+    for (const msg of processedMessages) {
+      if (!Array.isArray(msg.content)) {
+        console.log(`[ai-chat DIAG] Message role=${msg.role}, content=string (${typeof msg.content === 'string' ? msg.content.length : 0} chars)`)
+      } else {
+        const blocks = msg.content
+        const imageBlocks = blocks.filter(b => b.type === 'image')
+        const docBlocks = blocks.filter(b => b.type === 'document')
+        const textBlocks = blocks.filter(b => b.type === 'text')
+        const imgSizes = imageBlocks.map(b => b.source?.data ? `${(b.source.data.length / 1024).toFixed(0)}KB` : `url:${b.source?.url?.substring(0, 60)}`)
+        console.log(`[ai-chat DIAG] Message role=${msg.role}: ${blocks.length} blocks — ${imageBlocks.length} image, ${docBlocks.length} document, ${textBlocks.length} text`)
+        if (imageBlocks.length > 0) console.log(`[ai-chat DIAG] Image sizes: ${imgSizes.join(', ')}`)
+        if (imageBlocks.length === 0 && docBlocks.length === 0) console.log(`[ai-chat DIAG] ⚠️ NO PLAN IN PAYLOAD`)
+      }
+    }
+    console.log(`[ai-chat DIAG] Model: ${model}, Tools: ${tools?.length ?? 0}`)
+    // ── END DIAGNOSTIC ──
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
