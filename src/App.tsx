@@ -15,24 +15,18 @@ import AboutKYN from '@/components/settings/AboutKYN'
 import { EstimateDashboard } from '@/components/estimate/EstimateDashboard'
 import { Step1ProjectInfo } from '@/components/estimate/Step1ProjectInfo'
 import { Step2WorkAreas } from '@/components/estimate/Step2WorkAreas'
-import { JamieWorkAreaChoice } from '@/components/estimate/JamieWorkAreaChoice'
-import { GapQuestions } from '@/components/estimate/GapQuestions'
 import { Step3LineItems } from '@/components/estimate/Step3LineItems'
 import { Step4Send } from '@/components/estimate/Step4Send'
 import { useEstimate } from '@/hooks/useEstimate'
 import { supabase } from '@/lib/supabase'
-import { toast } from 'sonner'
 import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate, GapQuestion, WorkAreaEstimateMode } from '@/lib/types'
-import type { JamieMessage, JamieAnalysisResult } from '@/lib/jamie'
+import type { JamieAnalysisResult } from '@/lib/jamie'
 import {
-  getNextIntakeQuestion,
-  buildIntakeContext,
-  jamieBuildEstimate,
   jamieWriteScope,
   jamieGenerateSummary,
   jamieAnalyzeEstimate,
 } from '@/lib/jamie'
-import { matchAllLineItems, categoryFromCatalogType, unitFromCategory } from '@/lib/catalogMatcher'
+import { categoryFromCatalogType, unitFromCategory } from '@/lib/catalogMatcher'
 import { Loader2, Cloud, Check, Lock, Clock } from 'lucide-react'
 
 type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'about-kyn' | 'estimates'
@@ -42,7 +36,7 @@ const LS_ESTIMATE_ID = 'bidclaw_active_estimate_id'
 const lsJamieKey = (id: string) => 'bidclaw_jamie_' + id
 
 function AppContent() {
-  const { user, companyProfile, hasQCAccount, canAccessBidClaw, bidclawAccessLevel, trialDaysLeft, subscriptionTier, loading: authLoading } = useAuth()
+  const { user, hasQCAccount, canAccessBidClaw, bidclawAccessLevel, trialDaysLeft, subscriptionTier, loading: authLoading } = useAuth()
   const [currentTab, setCurrentTab] = useState<Tab>('estimates')
   const [activeEstimateId, setActiveEstimateId] = useState<string | null>(() => {
     try { return localStorage.getItem(LS_ESTIMATE_ID) } catch { return null }
@@ -74,7 +68,7 @@ function AppContent() {
   const {
     estimate, loading: estLoading, saving, aiLoading, aiMessage, notFound: estNotFound,
     updateEstimate, createEstimate, uploadFiles,
-    runAiPass1, runAiPass2, reEstimateWorkArea, sendToQuickCalc,
+    runAiPass2, reEstimateWorkArea, sendToQuickCalc,
   } = useEstimate(activeEstimateId, showJamieError)
 
   const workAreas: WorkAreaData[] = estimate?.work_areas ?? []
@@ -91,9 +85,6 @@ function AppContent() {
 
 
   // ── Jamie State ──
-  const [jamieMessages, setJamieMessages] = useState<JamieMessage[]>([])
-  const [jamieLoading] = useState(false)
-  const [jamieBuildingEstimate, setJamieBuildingEstimate] = useState(false)
   const [jamieBuilt, setJamieBuilt] = useState(false)
   const [jamieScopes, setJamieScopes] = useState<Record<string, string>>({})
   const [jamieScopeLoading, setJamieScopeLoading] = useState<string | null>(null)
@@ -101,14 +92,6 @@ function AppContent() {
   const [jamieSummaryLoading, setJamieSummaryLoading] = useState(false)
   const [jamieAnalysis, setJamieAnalysis] = useState<JamieAnalysisResult | null>(null)
   const [jamieAnalysisLoading, setJamieAnalysisLoading] = useState(false)
-  const [pendingGapQuestions, setPendingGapQuestions] = useState<Record<string, string[]>>({})
-  const [, setGapAnswers] = useState<Record<string, string>>({})
-  const [showGapStep, setShowGapStep] = useState(false)
-  const [showWorkAreaChoice, setShowWorkAreaChoice] = useState(false)
-  const [, setPendingFormData] = useState<{
-    client_name: string; project_address: string; project_description: string; files: File[]
-  } | null>(null)
-  const [manualWorkAreaMode, setManualWorkAreaMode] = useState(false)
   // Mode detection & gap questions (Change B)
   const [workAreaModes, setWorkAreaModes] = useState<Record<string, WorkAreaEstimateMode>>({})
   const [structuredGapQuestions, setStructuredGapQuestions] = useState<Record<string, GapQuestion[]>>({})
@@ -122,15 +105,10 @@ function AppContent() {
       const raw = localStorage.getItem(lsJamieKey(estimate.id))
       if (!raw) return
       const saved = JSON.parse(raw)
-      if (saved.jamieMessages?.length) setJamieMessages(saved.jamieMessages)
       if (saved.jamieBuilt) setJamieBuilt(saved.jamieBuilt)
       if (saved.jamieScopes && Object.keys(saved.jamieScopes).length) setJamieScopes(saved.jamieScopes)
       if (saved.jamieSummary) setJamieSummary(saved.jamieSummary)
       if (saved.jamieAnalysis) setJamieAnalysis(saved.jamieAnalysis)
-      if (saved.pendingGapQuestions && Object.keys(saved.pendingGapQuestions).length) setPendingGapQuestions(saved.pendingGapQuestions)
-      if (saved.showGapStep) setShowGapStep(saved.showGapStep)
-      if (saved.showWorkAreaChoice) setShowWorkAreaChoice(saved.showWorkAreaChoice)
-      if (saved.manualWorkAreaMode) setManualWorkAreaMode(saved.manualWorkAreaMode)
     } catch {}
     // Also restore scopes from work_areas (DB-persisted)
     if (estimate.work_areas) {
@@ -152,19 +130,13 @@ function AppContent() {
     if (!activeEstimateId) return
     try {
       localStorage.setItem(lsJamieKey(activeEstimateId), JSON.stringify({
-        jamieMessages,
         jamieBuilt,
         jamieScopes,
         jamieSummary,
         jamieAnalysis,
-        pendingGapQuestions,
-        showGapStep,
-        showWorkAreaChoice,
-        manualWorkAreaMode,
       }))
     } catch {}
-  }, [activeEstimateId, jamieMessages, jamieBuilt, jamieScopes, jamieSummary,
-      jamieAnalysis, pendingGapQuestions, showGapStep, showWorkAreaChoice, manualWorkAreaMode])
+  }, [activeEstimateId, jamieBuilt, jamieScopes, jamieSummary, jamieAnalysis])
 
   // ── Layer 3: intentional reset — clears localStorage, returns to dashboard ──
   const resetEstimateState = useCallback(() => {
@@ -173,111 +145,14 @@ function AppContent() {
       localStorage.removeItem(LS_ESTIMATE_ID)
     } catch {}
     setActiveEstimateId(null)
-    setJamieMessages([])
     setJamieBuilt(false)
     setJamieScopes({})
     setJamieSummary(null)
     setJamieAnalysis(null)
-    setShowGapStep(false)
-    setPendingGapQuestions({})
-    setGapAnswers({})
-    setShowWorkAreaChoice(false)
-    setPendingFormData(null)
-    setManualWorkAreaMode(false)
     setWorkAreaModes({})
     setStructuredGapQuestions({})
   }, [activeEstimateId])
 
-  // Jamie: start intake
-  const handleJamieStart = useCallback(() => {
-    const firstQ = getNextIntakeQuestion([])
-    if (firstQ) {
-      setJamieMessages([{ role: 'jamie', content: firstQ }])
-    }
-  }, [])
-
-  // Jamie: send user message
-  const handleJamieSendMessage = useCallback((text: string) => {
-    setJamieMessages((prev) => {
-      const updated = [...prev, { role: 'user' as const, content: text }]
-      // Add next question after a short delay
-      const nextQ = getNextIntakeQuestion(updated)
-      if (nextQ) {
-        setTimeout(() => {
-          setJamieMessages((p) => [...p, { role: 'jamie' as const, content: nextQ }])
-        }, 600)
-      } else {
-        setTimeout(() => {
-          setJamieMessages((p) => [
-            ...p,
-            { role: 'jamie' as const, content: "Great — I've got everything I need. Hit the button below and I'll build your estimate." },
-          ])
-        }, 600)
-      }
-      return updated
-    })
-  }, [])
-
-  // Jamie: build estimate from intake
-  const handleJamieBuildEstimate = useCallback(async () => {
-    if (!user || !estimate) return
-    setJamieBuildingEstimate(true)
-    try {
-      // Fetch user's catalog, production rates, and KYN rates
-      const [{ data: catalogData }, { data: ratesData }] = await Promise.all([
-        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
-        supabase.from('production_rates').select('*').eq('user_id', user.id),
-      ])
-      const userCatalog = (catalogData ?? []) as CatalogItem[]
-      const productionRates = (ratesData ?? []) as ProductionRate[]
-
-      const intakeContext = buildIntakeContext(jamieMessages)
-      const result = await jamieBuildEstimate(
-        intakeContext,
-        estimate.client_name ?? '',
-        estimate.project_address ?? '',
-        userCatalog,
-        productionRates,
-      )
-
-      // Match line items to catalog
-      const allItems = Object.values(result.line_items).flat()
-      const matchResults = await matchAllLineItems(allItems, userCatalog, user.id)
-      const newCatalogIds: string[] = []
-      const matchedLineItems: Record<string, LineItemData[]> = {}
-
-      for (const [waId, items] of Object.entries(result.line_items)) {
-        matchedLineItems[waId] = items.map((li) => {
-          const match = matchResults.get(li.id)
-          if (match?.matchType === 'new_created') newCatalogIds.push(match.catalogItem.id)
-          // Override category from catalog item's stored type — catalog is source of truth
-          const category = match ? categoryFromCatalogType(match.catalogItem.type) : li.category
-          const unit = match ? unitFromCategory(category, li.unit) : li.unit
-          return { ...li, category, unit, catalog_match_type: match?.matchType, catalog_item_id: match?.catalogItem.id }
-        })
-      }
-
-      // Update estimate with Jamie's output
-      updateEstimate({
-        work_areas: result.work_areas,
-        line_items: matchedLineItems,
-        new_catalog_items_created: newCatalogIds,
-        workflow_step: 3,
-        approval_status: 'work_areas_approved',
-      })
-
-      setJamieScopes(result.scope_descriptions ?? {})
-      setJamieBuilt(true)
-      toast.success('Jamie built your estimate!')
-    } catch (err) {
-      showJamieError(
-        err instanceof Error ? err.message : 'Jamie could not build the estimate',
-        handleJamieBuildEstimate
-      )
-    } finally {
-      setJamieBuildingEstimate(false)
-    }
-  }, [user, estimate, jamieMessages, updateEstimate, showJamieError])
 
   // Jamie: write scope for a work area (unified — returns scope + line items)
   const handleJamieWriteScope = useCallback(async (waId: string) => {
@@ -475,58 +350,16 @@ function AppContent() {
           plan_file_urls: urls,
           workflow_step: 2,
         }, true)
-        // Store form data and show the Jamie work area choice card
-        setPendingFormData(data)
-        setShowWorkAreaChoice(true)
       } catch {
         showJamieError('Jamie hit a snag — couldn\'t process your project files. Try again.')
       }
     }
 
-    // User chose "Pull them from the plan" — run Pass1 as before
-    const handlePullFromPlan = async () => {
-      setManualWorkAreaMode(false)
-      const pass1Result = await runAiPass1()
-      setShowWorkAreaChoice(false)
-      if (pass1Result?.gapQuestions) {
-        const hasQuestions = Object.values(pass1Result.gapQuestions).some((qs) => qs.length > 0)
-        if (hasQuestions) {
-          setPendingGapQuestions(pass1Result.gapQuestions)
-        }
-      }
-    }
-
-    // User chose "I'll provide them" and submitted manual work area names
-    const handleManualWorkAreas = async (workAreaNames: string[]) => {
-      setManualWorkAreaMode(true)
-      // Create work area objects from the names
-      const manualWAs: WorkAreaData[] = workAreaNames.map((name, i) => ({
-        id: `wa_${i + 1}`,
-        name,
-        description: name,
-        complexity: 'Moderate' as const,
-        approved: false,
-      }))
-      updateEstimate({ work_areas: manualWAs, workflow_step: 2, approval_status: 'draft' }, true)
-      setShowWorkAreaChoice(false)
-    }
-
-    // Called when user approves work areas — either directly or after answering gap questions
-    const handleApproveWorkAreas = async (answeredGapQuestions?: Record<string, string>) => {
-      // If there are pending gap questions the user hasn't seen yet, show Step 2.5
-      if (!answeredGapQuestions) {
-        const hasQuestions = Object.values(pendingGapQuestions).some((qs) => qs.length > 0)
-        if (hasQuestions) {
-          setShowGapStep(true)
-          return
-        }
-      }
-
-      // No gap questions or already answered — run Pass2
+    // Called when user clicks "Continue to Estimate" on Step 2
+    const handleApproveWorkAreas = async () => {
       const approved = workAreas.map((wa) => ({ ...wa, approved: true }))
       updateEstimate({ work_areas: approved })
-      setShowGapStep(false)
-      const pass2Result = await runAiPass2(approved, answeredGapQuestions, manualWorkAreaMode)
+      const pass2Result = await runAiPass2(approved)
       if (pass2Result?.scopeDescriptions) {
         setJamieScopes(pass2Result.scopeDescriptions)
       }
@@ -545,28 +378,13 @@ function AppContent() {
       setReEstimateLoading(true)
       const success = await reEstimateWorkArea(wa, answers)
       if (success) {
-        // Refresh modes and gap questions from updated estimate
         setWorkAreaModes((prev) => ({ ...prev, [waId]: estimate?.work_area_modes?.[waId] ?? 'full_takeoff' }))
         setStructuredGapQuestions((prev) => ({ ...prev, [waId]: estimate?.structured_gap_questions?.[waId] ?? [] }))
-        // Update scope if returned
         if (estimate?.scope_descriptions?.[waId]) {
           setJamieScopes((prev) => ({ ...prev, [waId]: estimate!.scope_descriptions![waId] }))
         }
       }
       setReEstimateLoading(false)
-    }
-
-    const handleGapSubmit = async (answers: Record<string, string>) => {
-      setGapAnswers(answers)
-      setShowGapStep(false)
-      // Now run Pass2 with gap answers injected
-      await handleApproveWorkAreas(answers)
-    }
-
-    const handleGapSkip = async () => {
-      setShowGapStep(false)
-      // Run Pass2 without answers
-      await handleApproveWorkAreas({})
     }
 
     return (
@@ -616,42 +434,17 @@ function AppContent() {
               onBack={() => setActiveEstimateId(null)}
               generating={aiLoading}
               onFieldChange={(updates) => updateEstimate(updates)}
-              jamieMessages={jamieMessages}
-              jamieLoading={jamieLoading}
-              jamieBuildingEstimate={jamieBuildingEstimate}
-              onJamieStart={handleJamieStart}
-              onJamieSendMessage={handleJamieSendMessage}
-              onJamieBuildEstimate={handleJamieBuildEstimate}
-            />
-          ) : step === 2 && showWorkAreaChoice ? (
-            <JamieWorkAreaChoice
-              contractorFirstName={companyProfile?.userName?.split(' ')[0] ?? ''}
-              clientName={estimate.client_name || ''}
-              onPullFromPlan={handlePullFromPlan}
-              onManualSubmit={handleManualWorkAreas}
-              loading={aiLoading}
-            />
-          ) : step === 2 && showGapStep ? (
-            <GapQuestions
-              questions={pendingGapQuestions}
-              workAreaNames={Object.fromEntries(workAreas.map((wa) => [wa.id, wa.name]))}
-              onSubmit={handleGapSubmit}
-              onSkip={handleGapSkip}
-              onBack={() => setShowGapStep(false)}
-              loading={aiLoading}
             />
           ) : step === 2 ? (
             <Step2WorkAreas
               workAreas={workAreas}
-              loading={aiLoading}
-              loadingMessage={aiMessage}
               onUpdateWorkArea={(id: string, updates: Partial<WorkAreaData>) => {
                 updateEstimate({ work_areas: workAreas.map((wa) => wa.id === id ? { ...wa, ...updates } : wa) })
               }}
               onRemoveWorkArea={(id: string) => updateEstimate({ work_areas: workAreas.filter((wa) => wa.id !== id) })}
-              onAddWorkArea={() => {
+              onAddWorkArea={(name: string) => {
                 const newWa: WorkAreaData = {
-                  id: 'wa_' + Date.now(), name: 'New Work Area', description: '',
+                  id: 'wa_' + Date.now(), name, description: '',
                   complexity: 'Moderate', approved: false,
                 }
                 updateEstimate({ work_areas: [...workAreas, newWa] })

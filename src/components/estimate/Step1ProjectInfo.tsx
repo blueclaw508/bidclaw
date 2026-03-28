@@ -3,8 +3,6 @@ import * as pdfjsLib from 'pdfjs-dist'
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
 import type { EstimateRecord } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
-import type { JamieMessage } from '@/lib/jamie'
-import { JamieChatPanel } from './JamieChatPanel'
 import { PlanMeasure } from './PlanMeasure'
 import type { Measurement } from './PlanMeasure'
 import {
@@ -17,7 +15,6 @@ import {
   ArrowLeft,
   AlertTriangle,
   RefreshCw,
-  Bot,
   Ruler,
   Loader2,
 } from 'lucide-react'
@@ -34,13 +31,6 @@ interface Step1ProjectInfoProps {
   onBack?: () => void
   generating?: boolean
   onFieldChange?: (updates: Partial<EstimateRecord>) => void
-  // Jamie props
-  jamieMessages?: JamieMessage[]
-  jamieLoading?: boolean
-  jamieBuildingEstimate?: boolean
-  onJamieStart?: () => void
-  onJamieSendMessage?: (text: string) => void
-  onJamieBuildEstimate?: () => void
 }
 
 interface UploadedFile {
@@ -173,10 +163,7 @@ async function rasterizePdfPage1(file: File): Promise<string> {
 
 export function Step1ProjectInfo({
   estimate, onGenerate, onBack, generating, onFieldChange,
-  jamieMessages, jamieLoading, jamieBuildingEstimate,
-  onJamieStart, onJamieSendMessage, onJamieBuildEstimate,
 }: Step1ProjectInfoProps) {
-  const [showJamie, setShowJamie] = useState(false)
   // Form fields — initialized from recognized DB columns
   const [firstName, setFirstName] = useState(() => {
     // Parse first name from client_name ("John Smith" → "John", "John Smith — Acme" → "John")
@@ -350,30 +337,7 @@ export function Step1ProjectInfo({
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-bold text-blue-900">Project Information</h2>
-          {onJamieStart && !showJamie && !isRegenerate && (
-            <button
-              onClick={() => { setShowJamie(true); onJamieStart() }}
-              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#1e3a8a] to-[#1e40af] px-4 py-2 text-sm font-semibold text-white hover:from-[#1e40af] hover:to-[#2563eb] shadow-sm transition-all"
-            >
-              <Bot size={16} />
-              Start with Jamie
-            </button>
-          )}
         </div>
-
-        {/* Jamie Chat Panel */}
-        {showJamie && jamieMessages && onJamieSendMessage && onJamieBuildEstimate && (
-          <div className="mb-6">
-            <JamieChatPanel
-              messages={jamieMessages}
-              onSendMessage={onJamieSendMessage}
-              onComplete={onJamieBuildEstimate}
-              onClose={() => setShowJamie(false)}
-              loading={jamieLoading ?? false}
-              buildingEstimate={jamieBuildingEstimate ?? false}
-            />
-          </div>
-        )}
 
         {/* Estimate Name */}
         <div className="mb-4">

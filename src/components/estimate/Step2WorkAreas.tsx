@@ -1,91 +1,71 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { WorkAreaData } from '@/lib/types'
 import { ProgressIndicator } from './Step1ProjectInfo'
-import { WorkAreaCard } from './WorkAreaCard'
 import {
   ArrowLeft,
   ArrowRight,
   Plus,
-  Loader2,
-  FileSearch,
-  Layers,
-  CheckCircle2,
+  X,
   AlertTriangle,
 } from 'lucide-react'
 
 interface Step2WorkAreasProps {
   workAreas: WorkAreaData[]
-  loading: boolean
-  loadingMessage: string
   onUpdateWorkArea: (id: string, updates: Partial<WorkAreaData>) => void
   onRemoveWorkArea: (id: string) => void
-  onAddWorkArea: () => void
+  onAddWorkArea: (name: string) => void
   onApprove: () => void
   onBack: () => void
 }
 
-const loadingStages = [
-  { message: 'Reading your project plans...', icon: FileSearch },
-  { message: 'Identifying work areas...', icon: Layers },
-  { message: 'Work areas ready for review', icon: CheckCircle2 },
+const SUGGESTION_CHIPS = [
+  'Patio', 'Walkway', 'Retaining Wall', 'Seat Wall', 'Steps',
+  'Fire Pit', 'Planting', 'Sod', 'Drainage', 'Landscape Lighting',
+  'Driveway', 'Fence',
 ]
-
-function LoadingAnimation({ message }: { message: string }) {
-  const stageIndex = loadingStages.findIndex((s) => s.message === message)
-  const currentIndex = stageIndex >= 0 ? stageIndex : 0
-
-  return (
-    <div className="flex flex-col items-center justify-center py-16">
-      <div className="relative mb-8">
-        <div className="h-16 w-16 animate-spin rounded-full border-4 border-slate-200 border-t-[#2563EB]" />
-      </div>
-
-      <div className="space-y-3">
-        {loadingStages.map((stage, idx) => {
-          const Icon = stage.icon
-          const isActive = idx === currentIndex
-          const isComplete = idx < currentIndex
-
-          return (
-            <div
-              key={stage.message}
-              className={`flex items-center gap-3 transition-opacity ${
-                isActive ? 'opacity-100' : isComplete ? 'opacity-60' : 'opacity-30'
-              }`}
-            >
-              {isComplete ? (
-                <CheckCircle2 size={18} className="text-green-500" />
-              ) : isActive ? (
-                <Loader2 size={18} className="animate-spin text-[#2563EB]" />
-              ) : (
-                <Icon size={18} className="text-slate-300" />
-              )}
-              <span
-                className={`text-sm font-medium ${
-                  isActive ? 'text-blue-900' : isComplete ? 'text-slate-500' : 'text-slate-300'
-                }`}
-              >
-                {stage.message}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 export function Step2WorkAreas({
   workAreas,
-  loading,
-  loadingMessage,
   onUpdateWorkArea,
   onRemoveWorkArea,
   onAddWorkArea,
   onApprove,
   onBack,
 }: Step2WorkAreasProps) {
+  const [inputValue, setInputValue] = useState('')
   const [showBackConfirm, setShowBackConfirm] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Auto-focus input on mount
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  const handleAdd = () => {
+    const trimmed = inputValue.trim()
+    if (!trimmed) return
+    onAddWorkArea(trimmed)
+    setInputValue('')
+    inputRef.current?.focus()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleAdd()
+    }
+  }
+
+  const handleChipClick = (name: string) => {
+    // Don't add duplicates
+    const exists = workAreas.some(
+      (wa) => wa.name.toLowerCase() === name.toLowerCase()
+    )
+    if (!exists) {
+      onAddWorkArea(name)
+    }
+    inputRef.current?.focus()
+  }
 
   const handleBack = () => {
     if (workAreas.length > 0) {
@@ -100,63 +80,100 @@ export function Step2WorkAreas({
       <ProgressIndicator currentStep={2} />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-blue-900">Work Areas</h2>
-            <p className="text-sm text-slate-500">
-              {loading
-                ? 'Jamie is analyzing your project...'
-                : `${workAreas.length} work area${workAreas.length !== 1 ? 's' : ''} identified`}
-            </p>
-          </div>
+        {/* Header */}
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-blue-900">Work Areas</h2>
+          <p className="text-sm text-slate-500">
+            Add the work areas you need estimated. Jamie will build the line items on the next step.
+          </p>
         </div>
 
-        {loading ? (
-          <LoadingAnimation message={loadingMessage} />
-        ) : (
-          <>
-            {/* Work area cards */}
-            <div className="space-y-4">
-              {workAreas.map((wa) => (
-                <WorkAreaCard
-                  key={wa.id}
-                  workArea={wa}
-                  onUpdate={(updates) => onUpdateWorkArea(wa.id, updates)}
-                  onRemove={() => onRemoveWorkArea(wa.id)}
-                />
-              ))}
-            </div>
+        {/* Input field */}
+        <div className="mb-4 flex items-center gap-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a work area name..."
+            className="flex-1 rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={!inputValue.trim()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Plus size={16} />
+            Add
+          </button>
+        </div>
 
-            {/* Add work area */}
-            <button
-              onClick={onAddWorkArea}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-4 text-sm font-medium text-slate-500 transition-colors hover:border-[#2563EB] hover:text-[#2563EB]"
-            >
-              <Plus size={16} />
-              Add Work Area
-            </button>
-
-            {/* Actions */}
-            <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-5">
+        {/* Suggestion chips */}
+        <div className="mb-6 flex flex-wrap gap-2">
+          {SUGGESTION_CHIPS.map((chip) => {
+            const alreadyAdded = workAreas.some(
+              (wa) => wa.name.toLowerCase() === chip.toLowerCase()
+            )
+            return (
               <button
-                onClick={handleBack}
-                className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                key={chip}
+                onClick={() => handleChipClick(chip)}
+                disabled={alreadyAdded}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  alreadyAdded
+                    ? 'border-green-200 bg-green-50 text-green-600 cursor-default'
+                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-[#2563EB] hover:bg-blue-50 hover:text-[#2563EB] cursor-pointer'
+                }`}
               >
-                <ArrowLeft size={16} />
-                Back to Project Info
+                {alreadyAdded ? '✓ ' : ''}{chip}
               </button>
+            )
+          })}
+        </div>
 
-              <button
-                onClick={onApprove}
-                disabled={workAreas.length === 0}
-                className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-6 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all duration-100 hover:brightness-110 active:scale-95 active:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Approve Work Areas & Build Estimate
-                <ArrowRight size={16} />
-              </button>
-            </div>
-          </>
+        {/* Work area list */}
+        {workAreas.length > 0 && (
+          <div className="space-y-3 mb-6">
+            {workAreas.map((wa) => (
+              <WorkAreaEntry
+                key={wa.id}
+                workArea={wa}
+                onUpdate={(updates) => onUpdateWorkArea(wa.id, updates)}
+                onRemove={() => onRemoveWorkArea(wa.id)}
+              />
+            ))}
+          </div>
         )}
+
+        {/* Empty state */}
+        {workAreas.length === 0 && (
+          <div className="mb-6 rounded-lg border-2 border-dashed border-slate-200 py-10 text-center">
+            <p className="text-sm text-slate-400">
+              No work areas yet. Type a name above or click a suggestion chip.
+            </p>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center justify-between border-t border-slate-100 pt-5">
+          <button
+            onClick={handleBack}
+            className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <ArrowLeft size={16} />
+            Back to Project Info
+          </button>
+
+          <button
+            onClick={onApprove}
+            disabled={workAreas.length === 0}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-6 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all duration-100 hover:brightness-110 active:scale-95 active:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Continue to Estimate
+            <ArrowRight size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Back confirmation dialog */}
@@ -192,6 +209,117 @@ export function Step2WorkAreas({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Individual Work Area Entry ──
+
+function WorkAreaEntry({
+  workArea,
+  onUpdate,
+  onRemove,
+}: {
+  workArea: WorkAreaData
+  onUpdate: (updates: Partial<WorkAreaData>) => void
+  onRemove: () => void
+}) {
+  const [editingName, setEditingName] = useState(false)
+  const [nameValue, setNameValue] = useState(workArea.name)
+  const [descValue, setDescValue] = useState(workArea.description || '')
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  const descRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    setNameValue(workArea.name)
+    setDescValue(workArea.description || '')
+  }, [workArea.name, workArea.description])
+
+  useEffect(() => {
+    if (editingName && nameInputRef.current) {
+      nameInputRef.current.focus()
+      nameInputRef.current.select()
+    }
+  }, [editingName])
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (descRef.current) {
+      descRef.current.style.height = 'auto'
+      descRef.current.style.height = descRef.current.scrollHeight + 'px'
+    }
+  }, [descValue])
+
+  const saveName = () => {
+    setEditingName(false)
+    const trimmed = nameValue.trim()
+    if (trimmed && trimmed !== workArea.name) {
+      onUpdate({ name: trimmed })
+    } else {
+      setNameValue(workArea.name)
+    }
+  }
+
+  const saveDescription = () => {
+    const trimmed = descValue.trim()
+    if (trimmed !== (workArea.description || '')) {
+      onUpdate({ description: trimmed })
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white">
+      {/* Header — name + delete */}
+      <div className="flex items-center gap-3 rounded-t-xl bg-slate-50 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              onBlur={saveName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveName()
+                if (e.key === 'Escape') {
+                  setNameValue(workArea.name)
+                  setEditingName(false)
+                }
+              }}
+              className="w-full rounded border border-[#2563EB] bg-white px-2 py-1 text-sm font-semibold text-blue-900 outline-none focus:ring-2 focus:ring-[#2563EB]/20"
+            />
+          ) : (
+            <button
+              onClick={() => setEditingName(true)}
+              className="text-left text-sm font-semibold text-blue-900 hover:text-[#2563EB] transition-colors"
+              title="Click to rename"
+            >
+              {workArea.name}
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={onRemove}
+          className="flex-shrink-0 rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+          aria-label="Remove work area"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Body — description/details */}
+      <div className="px-4 py-3">
+        <textarea
+          ref={descRef}
+          value={descValue}
+          onChange={(e) => setDescValue(e.target.value)}
+          onBlur={saveDescription}
+          placeholder="Add details — dimensions, materials, notes"
+          rows={2}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 leading-relaxed outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 resize-y"
+        />
+      </div>
     </div>
   )
 }

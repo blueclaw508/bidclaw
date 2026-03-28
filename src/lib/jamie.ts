@@ -310,45 +310,170 @@ export function jamieAnalyzeEstimate(
   workAreas: WorkAreaData[],
   lineItems: Record<string, LineItemData[]>,
 ): JamieAnalysisResult {
-  // Pure local analysis — no AI call needed, no pricing checks
+  // Real validation — catches garbage data, not just missing fields
   const warnings: JamieAnalysisItem[] = []
+
+  // Track all item names across work areas for duplicate detection
+  const globalItemMap: Map<string, string[]> = new Map()
 
   for (const wa of workAreas) {
     const items = lineItems[wa.id] ?? []
+    const waNameLower = wa.name.toLowerCase()
 
-    // Warning: work area with no line items
+    // ── Empty work area ──
     if (items.length === 0) {
       warnings.push({
         line_item_name: wa.name,
         work_area: wa.name,
         status: 'warning',
-        message: 'This work area has no line items.',
+        message: 'This work area has no line items — Jamie may need more info.',
       })
       continue
     }
 
+    // ── All-placeholder check (every qty is 0) ──
+    const allZero = items.every((li) => !li.quantity || li.quantity <= 0)
+    if (allZero) {
+      warnings.push({
+        line_item_name: wa.name,
+        work_area: wa.name,
+        status: 'warning',
+        message: 'All quantities are zero — Jamie needs dimensions or specs to calculate.',
+      })
+    }
+
+    // ── Missing labor line ──
+    const hasLabor = items.some((li) => li.category === 'Labor')
+    const hasMaterials = items.some((li) => li.category === 'Materials')
+    if (hasMaterials && !hasLabor) {
+      warnings.push({
+        line_item_name: 'Labor',
+        work_area: wa.name,
+        status: 'warning',
+        message: `${wa.name} has materials but no labor line — who installs it?`,
+      })
+    }
+
+    // ── Missing General Conditions ──
+    const hasGC = items.some((li) =>
+      li.name.toLowerCase().includes('general conditions') ||
+      li.name.toLowerCase().includes('rounding')
+    )
+    if (!hasGC && items.length > 2) {
+      warnings.push({
+        line_item_name: 'General Conditions',
+        work_area: wa.name,
+        status: 'warning',
+        message: `${wa.name} is missing a General Conditions / Rounding line.`,
+      })
+    }
+
     for (const li of items) {
-      // Warning: missing quantity on any line item
+      // Track for cross-area duplicates
+      const normalName = li.name.toLowerCase().trim()
+      if (!globalItemMap.has(normalName)) globalItemMap.set(normalName, [])
+      globalItemMap.get(normalName)!.push(wa.name)
+
+      // ── Missing quantity ──
       if (!li.quantity || li.quantity <= 0) {
+        if (!li.placeholder) {
+          warnings.push({
+            line_item_name: li.name,
+            work_area: wa.name,
+            status: 'warning',
+            message: `Missing quantity on "${li.name}".`,
+          })
+        }
+        continue // Skip range checks on zero-qty items
+      }
+
+      // ── Unreasonably small quantities by work type ──
+      const qty = li.quantity
+      const unitLower = (li.unit || '').toLowerCase()
+      const nameLower = li.name.toLowerCase()
+
+      // Patio / walkway area checks
+      if (
+        (waNameLower.includes('patio') || waNameLower.includes('walkway')) &&
+        (unitLower === 'sf' || unitLower === 'sq ft') &&
+        (nameLower.includes('paver') || nameLower.includes('bluestone') || nameLower.includes('stone') || nameLower.includes('porcelain'))
+      ) {
+        if (qty < 50) {
+          warnings.push({
+            line_item_name: li.name,
+            work_area: wa.name,
+            status: 'warning',
+            message: `${qty} SF is unusually small for a ${wa.name}. Verify dimensions.`,
+          })
+        }
+      }
+
+      // Wall length checks
+      if (
+        (waNameLower.includes('wall') || waNameLower.includes('seat wall')) &&
+        (unitLower === 'lf' || unitLower === 'lin ft') &&
+        (nameLower.includes('wall') || nameLower.includes('block') || nameLower.includes('cap'))
+      ) {
+        if (qty < 3) {
+          warnings.push({
+            line_item_name: li.name,
+            work_area: wa.name,
+            status: 'warning',
+            message: `${qty} LF is unusually short for a wall. Verify length.`,
+          })
+        }
+      }
+
+      // Wall SF face checks
+      if (
+        waNameLower.includes('wall') &&
+        unitLower === 'sf' &&
+        (nameLower.includes('veneer') || nameLower.includes('stone') || nameLower.includes('block'))
+      ) {
+        if (qty < 10) {
+          warnings.push({
+            line_item_name: li.name,
+            work_area: wa.name,
+            status: 'warning',
+            message: `${qty} SF of wall face is unusually small. Verify — did Jamie have real dimensions?`,
+          })
+        }
+      }
+
+      // Labor hour sanity
+      if (li.category === 'Labor' && qty > 200) {
         warnings.push({
           line_item_name: li.name,
           work_area: wa.name,
           status: 'warning',
-          message: `Missing quantity on "${li.name}".`,
+          message: `${qty} labor hours in one work area is extremely high — check for cross-contamination from other areas.`,
         })
       }
 
-      // Warning: missing man hours on labor lines
-      if (li.category === 'Labor' && (!li.quantity || li.quantity <= 0)) {
+      // Equipment hour sanity
+      if (li.category === 'Equipment' && qty > 100) {
         warnings.push({
           line_item_name: li.name,
           work_area: wa.name,
           status: 'warning',
-          message: `Missing man hours on labor item "${li.name}".`,
+          message: `${qty} equipment hours is unusually high — verify.`,
         })
       }
+    }
+  }
 
-      // Pricing warnings removed — BidClaw handles quantities only
+  // ── Cross-area duplicate detection ──
+  for (const [itemName, areas] of globalItemMap) {
+    if (areas.length > 1 && !itemName.includes('general conditions') && !itemName.includes('rounding')) {
+      const uniqueAreas = [...new Set(areas)]
+      if (uniqueAreas.length > 1) {
+        warnings.push({
+          line_item_name: itemName,
+          work_area: uniqueAreas.join(', '),
+          status: 'warning',
+          message: `"${itemName}" appears in ${uniqueAreas.length} work areas (${uniqueAreas.join(', ')}). Check for duplicates.`,
+        })
+      }
     }
   }
 
