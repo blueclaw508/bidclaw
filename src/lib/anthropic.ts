@@ -289,12 +289,17 @@ export async function runPass2SingleWorkArea(
   // Build content blocks — plan images first, then text instructions
   const content: Array<Record<string, unknown>> = []
 
-  // Add plan files as vision inputs (same pattern as Pass 1)
+  // Add plan files as vision inputs
+  // Strategy: try client-side rasterization first; if that fails, pass the raw URL
+  // to the server (ai-chat.mjs will download and convert it server-side)
   if (planFileUrls && planFileUrls.length > 0) {
     for (const url of planFileUrls) {
+      console.log(`[Pass2] Processing plan file: ${url}`)
       try {
         const plan = await processPlanFile(url)
+        console.log(`[Pass2] processPlanFile returned type="${plan.type}", hasData=${!!plan.data}, hasUrl=${!!plan.url}`)
         if (plan.type === 'image_base64' && plan.data) {
+          console.log(`[Pass2] ✅ Adding base64 image block (${(plan.data.length / 1024).toFixed(0)} KB)`)
           content.push({
             type: 'image',
             source: {
@@ -304,18 +309,34 @@ export async function runPass2SingleWorkArea(
             },
           })
         } else if (plan.type === 'image_url' && plan.url) {
+          console.log(`[Pass2] ✅ Adding image URL block`)
           content.push({
             type: 'image',
             source: { type: 'url', url: plan.url },
           })
         } else if (plan.type === 'document_url' && plan.url) {
+          console.log(`[Pass2] ✅ Adding document URL block`)
           content.push({
             type: 'document',
             source: { type: 'url', url: plan.url },
           })
+        } else {
+          console.error(`[Pass2] ❌ processPlanFile returned unusable result:`, JSON.stringify(plan).slice(0, 200))
+          // Fallback: send raw URL as document for server to handle
+          console.log(`[Pass2] ↩️ Fallback: sending raw URL as image for server download`)
+          content.push({
+            type: 'image',
+            source: { type: 'url', url },
+          })
         }
       } catch (err) {
-        console.warn(`[Pass2] Could not process plan file ${url}:`, err)
+        console.error(`[Pass2] ❌ processPlanFile CRASHED for ${url}:`, err instanceof Error ? err.message : err)
+        // Fallback: send raw URL — the server (ai-chat.mjs) will download and convert
+        console.log(`[Pass2] ↩️ Fallback: sending raw URL as image for server download`)
+        content.push({
+          type: 'image',
+          source: { type: 'url', url },
+        })
       }
     }
   }
