@@ -200,6 +200,8 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
     gapQuestions: Record<string, string[]>
     structuredGapQuestions?: Record<string, GapQuestion[]>
     workAreaModes?: Record<string, WorkAreaEstimateMode>
+    planReferences?: Record<string, string[]>
+    jamieMessages?: Record<string, string>
   } | null> => {
     if (!estimate || !user) return null
     setAiLoading(true)
@@ -225,6 +227,8 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
       const gapQuestions: Record<string, string[]> = {}
       const structuredGapQuestions: Record<string, GapQuestion[]> = {}
       const workAreaModes: Record<string, WorkAreaEstimateMode> = {}
+      const planReferences: Record<string, string[]> = {}
+      const jamieMessages: Record<string, string> = {}
       const newCatalogItems: string[] = []
 
       // Transition to Step 3 immediately so the user sees progress — save immediately
@@ -247,8 +251,10 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
 
           if (completedWorkArea.scope_description) scopeDescriptions[completedWorkArea.id] = completedWorkArea.scope_description
           if (completedWorkArea.gap_questions) gapQuestions[completedWorkArea.id] = completedWorkArea.gap_questions
-          if ((completedWorkArea as any).structured_gap_questions) structuredGapQuestions[completedWorkArea.id] = (completedWorkArea as any).structured_gap_questions
-          workAreaModes[completedWorkArea.id] = (completedWorkArea as any).mode ?? 'full_takeoff'
+          if (completedWorkArea.structured_gap_questions) structuredGapQuestions[completedWorkArea.id] = completedWorkArea.structured_gap_questions
+          workAreaModes[completedWorkArea.id] = completedWorkArea.mode ?? 'full_takeoff'
+          if (completedWorkArea.plan_references) planReferences[completedWorkArea.id] = completedWorkArea.plan_references
+          if (completedWorkArea.jamie_message) jamieMessages[completedWorkArea.id] = completedWorkArea.jamie_message
 
           lineItems[completedWorkArea.id] = waItems.map((li) => {
             const match = matchResults.get(li.id)
@@ -295,7 +301,8 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         gapAnswers,
         searchContext,
         handleProgress,
-        manualMode
+        manualMode,
+        estimate.plan_file_urls ?? []
       )
 
       setAiMessage('Estimate ready for review')
@@ -317,7 +324,7 @@ export function useEstimate(estimateId: string | null, onJamieError?: (msg: stri
         new_catalog_items_created: newCatalogItems,
       }, true)
 
-      return { lineItems, scopeDescriptions, gapQuestions, structuredGapQuestions, workAreaModes }
+      return { lineItems, scopeDescriptions, gapQuestions, structuredGapQuestions, workAreaModes, planReferences, jamieMessages }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Line item generation failed'
       if (onJamieError) onJamieError(msg)

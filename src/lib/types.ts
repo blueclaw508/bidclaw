@@ -100,11 +100,14 @@ export type WorkAreaEstimateMode = 'full_takeoff' | 'needs_info' | 'allowance'
 
 export interface GapQuestion {
   question: string
-  type: 'select' | 'number' | 'text'
+  type: 'select' | 'single_select' | 'number' | 'text'
   options?: string[]
   unit?: string
   required: boolean
   answer?: string | number
+  allow_custom?: boolean
+  custom_unit?: string
+  id?: string
 }
 
 export interface EstimateRecord {
@@ -174,6 +177,8 @@ export interface AiPass2SingleWorkAreaResponse {
   id: string
   name: string
   mode: WorkAreaEstimateMode
+  plan_references?: string[]
+  jamie_message?: string
   scope_description: string
   line_items: AiLineItem[]
   gap_questions: string[]

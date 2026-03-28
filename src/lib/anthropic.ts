@@ -119,15 +119,60 @@ export async function runPass1(
 
 function buildPass2SystemPrompt(
   workArea: { id: string; name: string; description: string },
-  catalogNames: string[]
+  catalogNames: string[],
+  hasPlan?: boolean
 ): string {
+  const planBlock = hasPlan ? `
+PLAN READING INSTRUCTIONS — FOLLOW THESE EXACTLY:
+
+You have been given an uploaded project plan/drawing. Before generating
+any line items, you MUST carefully examine the plan and extract ALL
+information relevant to this work area.
+
+STEP 1 — READ THE PLAN THOROUGHLY:
+- Read every text label, annotation, and callout on the plan
+- Read every dimension line and measurement
+- Read every numbered reference and legend entry
+- Identify the specific area of the plan that corresponds to this work area
+- Note any materials, species, quantities, or specs mentioned
+
+STEP 2 — EXTRACT FOR THIS WORK AREA:
+For the work area named "${workArea.name}", extract:
+- Dimensions (length, width, area, height, depth, diameter)
+- Materials specified (stone type, paver type, plant species, etc.)
+- Quantities called out (plant counts, LF of edging, SF of area, etc.)
+- Construction notes (footing requirements, base prep, drainage, etc.)
+- Any numbered legend references that apply to this scope
+
+STEP 3 — STATE WHAT YOU FOUND:
+In your scope_description, begin with what you extracted from the plan:
+"Per the plan: [specific details found]"
+This proves you read the plan and anchors your estimate in real data.
+
+STEP 4 — IDENTIFY WHAT'S MISSING:
+If critical information is NOT on the plan (e.g., wall height not shown,
+material not specified, area not dimensioned), include it in gap_questions.
+Only ask about what's genuinely missing — do not ask about things that
+ARE on the plan.
+
+STEP 5 — POPULATE plan_references:
+List every specific detail you extracted from the plan in the plan_references
+array. This is your proof that you read the plan.
+
+IMPORTANT: If you cannot see or read the plan image, say so explicitly
+in your response: "I was unable to read the uploaded plan." Do NOT
+silently produce an empty estimate. Do NOT make up dimensions.
+If you can see the plan, PROVE IT by citing specific details from it.
+
+` : ''
+
   return `You are Jamie, a KYN-trained estimating agent for BidClaw. You are estimating ONE SPECIFIC work area in isolation. Do NOT include items for any other work area.
 
 WORK AREA YOU ARE ESTIMATING:
 Name: ${workArea.name}
 Description: ${workArea.description}
 ID: ${workArea.id}
-
+${planBlock}
 ISOLATION RULES (CRITICAL):
 - Generate line items ONLY for "${workArea.name}". Nothing else.
 - Every line item must directly belong to this work area's scope.
@@ -212,6 +257,7 @@ Return ONLY valid JSON matching this structure:
   "id": "${workArea.id}",
   "name": "${workArea.name}",
   "mode": "full_takeoff" | "needs_info" | "allowance",
+  "plan_references": ["Specific details extracted from the plan for this work area"],
   "scope_description": "Professional scope text...",
   "line_items": [
     { "id": "li_1", "name": "Item Name", "quantity": 100, "unit": "SF", "category": "Materials", "description": "One sentence crew directive.", "placeholder": false }
@@ -220,6 +266,7 @@ Return ONLY valid JSON matching this structure:
   "structured_gap_questions": [
     { "question": "...", "type": "select|number|text", "options": ["..."], "unit": "LF", "required": true }
   ],
+  "jamie_message": "What Jamie says to the contractor about what she found and what she needs (Mode 2 only)",
   "new_catalog_items": ["items NOT in contractor catalog"]
 }`
 }
@@ -232,10 +279,52 @@ Return ONLY valid JSON matching this structure:
 export async function runPass2SingleWorkArea(
   workArea: { id: string; name: string; description: string },
   projectDescription: string,
-  userCatalog: CatalogItem[]
+  userCatalog: CatalogItem[],
+  planFileUrls?: string[]
 ): Promise<AiPass2SingleWorkAreaResponse> {
   const catalogNames = userCatalog.map((i) => i.name)
-  const system = buildPass2SystemPrompt(workArea, catalogNames)
+  const hasPlan = planFileUrls && planFileUrls.length > 0
+  const system = buildPass2SystemPrompt(workArea, catalogNames, hasPlan)
+
+  // Build content blocks — plan images first, then text instructions
+  const content: Array<Record<string, unknown>> = []
+
+  // Add plan files as vision inputs (same pattern as Pass 1)
+  if (planFileUrls && planFileUrls.length > 0) {
+    for (const url of planFileUrls) {
+      try {
+        const plan = await processPlanFile(url)
+        if (plan.type === 'image_base64' && plan.data) {
+          content.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: plan.mediaType ?? 'image/jpeg',
+              data: plan.data,
+            },
+          })
+        } else if (plan.type === 'image_url' && plan.url) {
+          content.push({
+            type: 'image',
+            source: { type: 'url', url: plan.url },
+          })
+        } else if (plan.type === 'document_url' && plan.url) {
+          content.push({
+            type: 'document',
+            source: { type: 'url', url: plan.url },
+          })
+        }
+      } catch (err) {
+        console.warn(`[Pass2] Could not process plan file ${url}:`, err)
+      }
+    }
+  }
+
+  // Add text instructions
+  content.push({
+    type: 'text',
+    text: `Estimate this work area:\nName: ${workArea.name}\nDescription: ${workArea.description}\n\nProject context: ${projectDescription}\n\nRemember: estimate ONLY "${workArea.name}". Do not include items for any other scope.${hasPlan ? '\n\nA project plan/drawing is attached above. READ IT CAREFULLY and extract all details relevant to this work area before generating line items. Cite specific plan details in your scope_description.' : ''}`,
+  })
 
   const { data, error } = await callAI<AiPass2SingleWorkAreaResponse>({
     system,
@@ -246,7 +335,7 @@ export async function runPass2SingleWorkArea(
     messages: [
       {
         role: 'user',
-        content: `Estimate this work area:\nName: ${workArea.name}\nDescription: ${workArea.description}\n\nProject context: ${projectDescription}\n\nRemember: estimate ONLY "${workArea.name}". Do not include items for any other scope.`,
+        content,
       },
     ],
   })
@@ -300,7 +389,8 @@ export async function runPass2(
   gapAnswers?: Record<string, string>,
   _webSearchContext?: string,
   onProgress?: (progress: Pass2Progress) => void,
-  _manualMode?: boolean
+  _manualMode?: boolean,
+  planFileUrls?: string[]
 ): Promise<AiPass2Response> {
   const completedWorkAreas: AiPass2SingleWorkAreaResponse[] = []
 
@@ -331,7 +421,7 @@ export async function runPass2(
     // Try up to 2 attempts per work area
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        result = await runPass2SingleWorkArea(enrichedWa, projectDescription, userCatalog)
+        result = await runPass2SingleWorkArea(enrichedWa, projectDescription, userCatalog, planFileUrls)
         break
       } catch (err) {
         if (attempt === 0) {
@@ -375,6 +465,8 @@ export async function runPass2(
       id: r.id,
       name: r.name,
       mode: r.mode,
+      plan_references: r.plan_references,
+      jamie_message: r.jamie_message,
       scope_description: r.scope_description,
       line_items: r.line_items,
       gap_questions: r.gap_questions,

@@ -226,14 +226,11 @@ function WorkAreaEntry({
 }) {
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState(workArea.name)
-  const [descValue, setDescValue] = useState(workArea.description || '')
   const nameInputRef = useRef<HTMLInputElement>(null)
-  const descRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     setNameValue(workArea.name)
-    setDescValue(workArea.description || '')
-  }, [workArea.name, workArea.description])
+  }, [workArea.name])
 
   useEffect(() => {
     if (editingName && nameInputRef.current) {
@@ -241,14 +238,6 @@ function WorkAreaEntry({
       nameInputRef.current.select()
     }
   }, [editingName])
-
-  // Auto-resize textarea
-  useEffect(() => {
-    if (descRef.current) {
-      descRef.current.style.height = 'auto'
-      descRef.current.style.height = descRef.current.scrollHeight + 'px'
-    }
-  }, [descValue])
 
   const saveName = () => {
     setEditingName(false)
@@ -260,66 +249,43 @@ function WorkAreaEntry({
     }
   }
 
-  const saveDescription = () => {
-    const trimmed = descValue.trim()
-    if (trimmed !== (workArea.description || '')) {
-      onUpdate({ description: trimmed })
-    }
-  }
-
   return (
-    <div className="rounded-xl border border-slate-200 bg-white">
-      {/* Header — name + delete */}
-      <div className="flex items-center gap-3 rounded-t-xl bg-slate-50 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          {editingName ? (
-            <input
-              ref={nameInputRef}
-              type="text"
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              onBlur={saveName}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') saveName()
-                if (e.key === 'Escape') {
-                  setNameValue(workArea.name)
-                  setEditingName(false)
-                }
-              }}
-              className="w-full rounded border border-[#2563EB] bg-white px-2 py-1 text-sm font-semibold text-blue-900 outline-none focus:ring-2 focus:ring-[#2563EB]/20"
-            />
-          ) : (
-            <button
-              onClick={() => setEditingName(true)}
-              className="text-left text-sm font-semibold text-blue-900 hover:text-[#2563EB] transition-colors"
-              title="Click to rename"
-            >
-              {workArea.name}
-            </button>
-          )}
-        </div>
-
-        <button
-          onClick={onRemove}
-          className="flex-shrink-0 rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
-          aria-label="Remove work area"
-        >
-          <X size={16} />
-        </button>
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div className="min-w-0 flex-1">
+        {editingName ? (
+          <input
+            ref={nameInputRef}
+            type="text"
+            value={nameValue}
+            onChange={(e) => setNameValue(e.target.value)}
+            onBlur={saveName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveName()
+              if (e.key === 'Escape') {
+                setNameValue(workArea.name)
+                setEditingName(false)
+              }
+            }}
+            className="w-full rounded border border-[#2563EB] bg-white px-2 py-1 text-sm font-semibold text-blue-900 outline-none focus:ring-2 focus:ring-[#2563EB]/20"
+          />
+        ) : (
+          <button
+            onClick={() => setEditingName(true)}
+            className="text-left text-sm font-semibold text-blue-900 hover:text-[#2563EB] transition-colors"
+            title="Click to rename"
+          >
+            {workArea.name}
+          </button>
+        )}
       </div>
 
-      {/* Body — description/details */}
-      <div className="px-4 py-3">
-        <textarea
-          ref={descRef}
-          value={descValue}
-          onChange={(e) => setDescValue(e.target.value)}
-          onBlur={saveDescription}
-          placeholder="Add details — dimensions, materials, notes"
-          rows={2}
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 leading-relaxed outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 resize-y"
-        />
-      </div>
+      <button
+        onClick={onRemove}
+        className="flex-shrink-0 rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+        aria-label="Remove work area"
+      >
+        <X size={16} />
+      </button>
     </div>
   )
 }

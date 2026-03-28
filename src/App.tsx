@@ -96,6 +96,9 @@ function AppContent() {
   const [workAreaModes, setWorkAreaModes] = useState<Record<string, WorkAreaEstimateMode>>({})
   const [structuredGapQuestions, setStructuredGapQuestions] = useState<Record<string, GapQuestion[]>>({})
   const [reEstimateLoading, setReEstimateLoading] = useState(false)
+  const [planReferences, setPlanReferences] = useState<Record<string, string[]>>({})
+  const [jamieMessages, setJamieMessages] = useState<Record<string, string>>({})
+
 
   // ── Layer 2: restore Jamie state once per estimate when it first loads ──
   useEffect(() => {
@@ -151,6 +154,8 @@ function AppContent() {
     setJamieAnalysis(null)
     setWorkAreaModes({})
     setStructuredGapQuestions({})
+    setPlanReferences({})
+    setJamieMessages({})
   }, [activeEstimateId])
 
 
@@ -369,6 +374,12 @@ function AppContent() {
       if (pass2Result?.structuredGapQuestions) {
         setStructuredGapQuestions(pass2Result.structuredGapQuestions)
       }
+      if (pass2Result?.planReferences) {
+        setPlanReferences(pass2Result.planReferences)
+      }
+      if (pass2Result?.jamieMessages) {
+        setJamieMessages(pass2Result.jamieMessages)
+      }
     }
 
     // Re-estimate a single work area after gap questions answered (Change B)
@@ -509,6 +520,8 @@ function AppContent() {
               structuredGapQuestions={structuredGapQuestions}
               onReEstimateWorkArea={handleReEstimateWorkArea}
               reEstimateLoading={reEstimateLoading}
+              planReferences={planReferences}
+              jamieMessages={jamieMessages}
             />
           ) : (
             <Step4Send

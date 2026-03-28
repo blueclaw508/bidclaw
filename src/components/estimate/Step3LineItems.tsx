@@ -50,6 +50,8 @@ interface Step3LineItemsProps {
   structuredGapQuestions?: Record<string, GapQuestion[]>
   onReEstimateWorkArea?: (workAreaId: string, answers: GapQuestion[]) => void
   reEstimateLoading?: boolean
+  planReferences?: Record<string, string[]>
+  jamieMessages?: Record<string, string>
 }
 
 interface WorkAreaSectionProps {
@@ -72,19 +74,28 @@ interface WorkAreaSectionProps {
   gapQuestions?: GapQuestion[]
   onReEstimate?: (answers: GapQuestion[]) => void
   reEstimateLoading?: boolean
+  jamieMessage?: string
+  planReferences?: string[]
 }
 
-// ── Gap Questions Inline Form (Change B) ──
+// ── Mode 2 Targeted Chat (Change B — replaces static gap form) ──
 function GapQuestionsForm({
   questions,
   onReEstimate,
   loading,
+  onSkip,
+  jamieMessage,
+  planReferences,
 }: {
   questions: GapQuestion[]
   onReEstimate: (answers: GapQuestion[]) => void
   loading: boolean
+  onSkip?: () => void
+  jamieMessage?: string
+  planReferences?: string[]
 }) {
   const [answers, setAnswers] = useState<Record<number, string | number>>({})
+  const [customInputs, setCustomInputs] = useState<Record<number, boolean>>({})
 
   const updateAnswer = (idx: number, value: string | number) => {
     setAnswers((prev) => ({ ...prev, [idx]: value }))
@@ -92,8 +103,9 @@ function GapQuestionsForm({
 
   const requiredAnswered = questions
     .filter((q) => q.required)
-    .every((q, idx) => {
-      const a = answers[questions.indexOf(q)] ?? answers[idx]
+    .every((_q, origIdx) => {
+      const idx = origIdx
+      const a = answers[idx]
       return a !== undefined && a !== ''
     })
 
@@ -107,25 +119,84 @@ function GapQuestionsForm({
 
   return (
     <div className="space-y-3">
+      {/* Jamie's message — what she found on the plan */}
+      {jamieMessage && (
+        <div className="rounded-lg bg-white border border-amber-200 p-3">
+          <p className="text-xs font-semibold text-blue-900 mb-1">Jamie</p>
+          <p className="text-xs text-slate-700 leading-relaxed">{jamieMessage}</p>
+        </div>
+      )}
+
+      {/* Plan references — compact proof of reading */}
+      {planReferences && planReferences.length > 0 && (
+        <div className="rounded-md bg-blue-50 px-3 py-2">
+          <p className="text-[10px] font-semibold text-blue-700 mb-1">Found on plan:</p>
+          <div className="flex flex-wrap gap-1">
+            {planReferences.map((ref, i) => (
+              <span key={i} className="inline-block rounded bg-blue-100 px-2 py-0.5 text-[10px] text-blue-800">
+                {ref}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Questions with option chips */}
       {questions.map((q, idx) => (
-        <div key={idx} className="flex flex-col gap-1">
+        <div key={idx} className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-slate-700">
             {q.question}
             {q.required && <span className="ml-0.5 text-red-500">*</span>}
           </label>
-          {q.type === 'select' && q.options ? (
-            <select
-              value={(answers[idx] as string) ?? ''}
-              onChange={(e) => updateAnswer(idx, e.target.value)}
-              className="rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-            >
-              <option value="">Select...</option>
+
+          {/* Select type — render as clickable chips */}
+          {(q.type === 'select' || q.type === 'single_select') && q.options ? (
+            <div className="flex flex-wrap gap-1.5">
               {q.options.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
+                <button
+                  key={opt}
+                  onClick={() => {
+                    updateAnswer(idx, opt)
+                    setCustomInputs((prev) => ({ ...prev, [idx]: false }))
+                  }}
+                  className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    answers[idx] === opt
+                      ? 'border-amber-500 bg-amber-50 text-amber-800'
+                      : 'border-slate-200 text-slate-600 hover:border-amber-300 hover:bg-amber-50'
+                  }`}
+                >
+                  {opt}
+                </button>
               ))}
-            </select>
+              {/* Custom / Other input */}
+              {q.allow_custom !== false && (
+                <button
+                  onClick={() => {
+                    setCustomInputs((prev) => ({ ...prev, [idx]: true }))
+                    updateAnswer(idx, '')
+                  }}
+                  className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    customInputs[idx]
+                      ? 'border-amber-500 bg-amber-50 text-amber-800'
+                      : 'border-dashed border-slate-300 text-slate-400 hover:border-amber-300 hover:text-slate-600'
+                  }`}
+                >
+                  Other...
+                </button>
+              )}
+              {customInputs[idx] && (
+                <input
+                  type="text"
+                  autoFocus
+                  value={(answers[idx] as string) ?? ''}
+                  onChange={(e) => updateAnswer(idx, e.target.value)}
+                  placeholder={q.custom_unit ? `Enter ${q.custom_unit}` : 'Enter value'}
+                  className="w-32 rounded-md border border-amber-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
+                />
+              )}
+            </div>
           ) : q.type === 'number' ? (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <input
                 type="number"
                 min={0}
@@ -145,14 +216,26 @@ function GapQuestionsForm({
           )}
         </div>
       ))}
-      <button
-        onClick={handleSubmit}
-        disabled={!requiredAnswered || loading}
-        className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-      >
-        {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-        Re-estimate with Details
-      </button>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          onClick={handleSubmit}
+          disabled={!requiredAnswered || loading}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          Build Takeoff
+        </button>
+        {onSkip && (
+          <button
+            onClick={onSkip}
+            className="text-xs font-medium text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            Skip — I'll fill in manually
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -175,6 +258,8 @@ function WorkAreaSection({
   gapQuestions,
   onReEstimate,
   reEstimateLoading,
+  jamieMessage,
+  planReferences,
 }: WorkAreaSectionProps) {
   const [collapsed, setCollapsed] = useState(workArea.approved)
   const [showCatalogPicker, setShowCatalogPicker] = useState(false)
@@ -250,7 +335,7 @@ function WorkAreaSection({
       {/* Content */}
       {!collapsed && (
         <div className="bg-white rounded-b-xl">
-          {/* Needs Info Banner */}
+          {/* Mode 2 — Jamie needs info */}
           {(isNeedsInfo || isAllowance) && !workArea.approved && gapQuestions && gapQuestions.length > 0 && (
             <div className="border-b border-amber-200 bg-amber-50/50 px-4 py-3">
               <div className="flex items-start gap-2 mb-3">
@@ -259,9 +344,6 @@ function WorkAreaSection({
                   <p className="text-xs font-semibold text-amber-800">
                     Jamie needs more info to estimate this work area
                   </p>
-                  <p className="text-[11px] text-amber-600 mt-0.5">
-                    Answer the questions below and re-estimate, or manually fill in quantities on the placeholder items.
-                  </p>
                 </div>
               </div>
               {onReEstimate && (
@@ -269,8 +351,25 @@ function WorkAreaSection({
                   questions={gapQuestions}
                   onReEstimate={onReEstimate}
                   loading={reEstimateLoading ?? false}
+                  onSkip={() => onApprove()}
+                  jamieMessage={jamieMessage}
+                  planReferences={planReferences}
                 />
               )}
+            </div>
+          )}
+
+          {/* Mode 1 — Plan references (proof Jamie read the plan) */}
+          {!isNeedsInfo && !isAllowance && planReferences && planReferences.length > 0 && (
+            <div className="border-b border-slate-100 bg-blue-50/50 px-4 py-2">
+              <p className="text-[10px] font-semibold text-blue-600 mb-1">From plan:</p>
+              <div className="flex flex-wrap gap-1">
+                {planReferences.map((ref, i) => (
+                  <span key={i} className="inline-block rounded bg-blue-100 px-2 py-0.5 text-[10px] text-blue-700">
+                    {ref}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
@@ -436,6 +535,8 @@ export function Step3LineItems({
   structuredGapQuestions,
   onReEstimateWorkArea,
   reEstimateLoading,
+  planReferences: planRefsMap,
+  jamieMessages: jamieMessagesMap,
 }: Step3LineItemsProps) {
   const approvedCount = workAreas.filter((wa) => wa.approved).length
   const totalCount = workAreas.length
@@ -536,6 +637,8 @@ export function Step3LineItems({
                   gapQuestions={structuredGapQuestions?.[wa.id]}
                   onReEstimate={onReEstimateWorkArea ? (answers) => onReEstimateWorkArea(wa.id, answers) : undefined}
                   reEstimateLoading={reEstimateLoading}
+                  jamieMessage={jamieMessagesMap?.[wa.id]}
+                  planReferences={planRefsMap?.[wa.id]}
                 />
                 {/* Inline new catalog item pricing prompts */}
                 {newItems.length > 0 && (
