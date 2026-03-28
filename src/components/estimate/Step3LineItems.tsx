@@ -180,8 +180,6 @@ function WorkAreaSection({
   const [showCatalogPicker, setShowCatalogPicker] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
   const hasItems = items.length > 0
-  const nonPlaceholderItems = items.filter((i) => !i.placeholder)
-  const _hasRealItems = nonPlaceholderItems.length > 0
   const newItemCount = items.filter((i) => i.catalog_match_type === 'new_created').length
   const laborItems = items.filter((i) => i.category === 'Labor')
   const totalManHours = laborItems.reduce((sum, i) => sum + (i.quantity || 0), 0)
