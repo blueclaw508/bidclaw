@@ -346,7 +346,7 @@ export async function runPass2SingleWorkArea(
   const { data, error } = await callAI<AiPass2SingleWorkAreaResponse>({
     system,
     max_tokens: 4000,
-    model: 'claude-opus-4-20250514',
+    model: 'claude-opus-4-6',
     temperature: 0,
     tools: [{ type: 'web_search', name: 'web_search', max_uses: 3 }],
     messages: [

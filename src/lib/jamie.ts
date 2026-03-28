@@ -80,7 +80,7 @@ export async function jamieBuildEstimate(
   })
 
   const { data, error } = await callAI<JamieBuildResult>({
-    model: 'claude-opus-4-20250514',
+    model: 'claude-opus-4-6',
     temperature: 0,
     system: `${basePrompt}
 
@@ -216,7 +216,7 @@ export async function jamieWriteScope(
   const itemsSummary = lineItems.map((li) => `${li.name}: ${li.quantity} ${li.unit} (${li.category})`).join('\n')
 
   const { data, error } = await callAI<{ scope_description: string; line_items: LineItemData[] }>({
-    model: 'claude-opus-4-20250514',
+    model: 'claude-opus-4-6',
     temperature: 0.3,
     system: `${basePrompt}
 
@@ -264,7 +264,7 @@ export async function jamieGenerateSummary(
   }).join('\n')
 
   const { data, error } = await callAI<{ summary: string }>({
-    model: 'claude-opus-4-20250514',
+    model: 'claude-opus-4-6',
     temperature: 0.3,
     system: `${JAMIE_CONVERSATIONAL}
 
@@ -526,7 +526,7 @@ Adjust the summary numbers based on the actual line items provided.`
     : [{ role: 'user', content: initialContext }]
 
   const { data, error } = await callAI<{ reply: string }>({
-    model: 'claude-opus-4-20250514',
+    model: 'claude-opus-4-6',
     temperature: 0.3,
     system: `${JAMIE_CONVERSATIONAL}
 

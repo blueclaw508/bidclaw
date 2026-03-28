@@ -21,7 +21,7 @@ export default async (req) => {
 
   try {
     const body = await req.json()
-    const { messages, system, max_tokens = 4096, model = 'claude-sonnet-4-20250514', temperature, tools } = body
+    const { messages, system, max_tokens = 4096, model = 'claude-sonnet-4-6', temperature, tools } = body
 
     // Pre-process messages: download any URL-sourced files and convert to base64
     const processedMessages = await Promise.all(
