@@ -31,42 +31,55 @@ export async function processPlanFile(
 ): Promise<PlanContent> {
   const ext = (originalFileName ?? url).split('.').pop()?.toLowerCase() ?? ''
 
+  console.log(`[PlanProcessor] Processing: ${url}`)
+  console.log(`[PlanProcessor] Detected extension: "${ext}"`)
+
   // Non-PDF images — pass directly as image URL
   if (['png', 'jpg', 'jpeg', 'webp', 'tiff'].includes(ext)) {
+    console.log(`[PlanProcessor] → Returning as image_url (non-PDF image)`)
     return { type: 'image_url', url }
   }
 
   // Not a PDF and not an image — skip
   if (ext !== 'pdf') {
+    console.log(`[PlanProcessor] → Unknown extension, returning as document_url`)
     return { type: 'document_url', url }
   }
 
   // PDF — try text extraction first to determine if raster or vector
   try {
     const textContent = await extractTextFromPDF(url)
+    console.log(`[PlanProcessor] PDF text extracted: ${textContent.trim().length} chars (threshold: ${TEXT_THRESHOLD})`)
 
     if (textContent && textContent.trim().length > TEXT_THRESHOLD) {
       // Text-based PDF — use document URL (Claude handles these well)
+      console.log(`[PlanProcessor] → Text-based PDF, returning as document_url`)
       return { type: 'document_url', url }
     }
 
     // Raster/flattened PDF — convert to JPEG for vision
+    console.log(`[PlanProcessor] → Raster PDF (low text), converting to JPEG...`)
     const imageData = await rasterizePDFToBase64(url)
+    console.log(`[PlanProcessor] → Rasterized to ${(imageData.length / 1024).toFixed(0)} KB base64`)
     return {
       type: 'image_base64',
       data: imageData,
       mediaType: 'image/jpeg',
     }
-  } catch {
+  } catch (err) {
+    console.warn(`[PlanProcessor] Text extraction failed:`, err)
     // If text extraction fails entirely, try rasterization as fallback
     try {
+      console.log(`[PlanProcessor] → Fallback: rasterizing PDF...`)
       const imageData = await rasterizePDFToBase64(url)
+      console.log(`[PlanProcessor] → Fallback rasterized to ${(imageData.length / 1024).toFixed(0)} KB base64`)
       return {
         type: 'image_base64',
         data: imageData,
         mediaType: 'image/jpeg',
       }
-    } catch {
+    } catch (err2) {
+      console.error(`[PlanProcessor] Rasterization also failed:`, err2)
       // Last resort — send as document URL and let Claude try
       return { type: 'document_url', url }
     }

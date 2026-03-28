@@ -326,6 +326,23 @@ export async function runPass2SingleWorkArea(
     text: `Estimate this work area:\nName: ${workArea.name}\nDescription: ${workArea.description}\n\nProject context: ${projectDescription}\n\nRemember: estimate ONLY "${workArea.name}". Do not include items for any other scope.${hasPlan ? '\n\nA project plan/drawing is attached above. READ IT CAREFULLY and extract all details relevant to this work area before generating line items. Cite specific plan details in your scope_description.' : ''}`,
   })
 
+  // ── DIAGNOSTIC LOGGING — prove plan image reaches API call ──
+  const imageBlocks = content.filter((b) => b.type === 'image')
+  const docBlocks = content.filter((b) => b.type === 'document')
+  const totalImageBytes = imageBlocks.reduce((sum, b) => {
+    const src = b.source as Record<string, unknown> | undefined
+    if (src?.type === 'base64' && typeof src.data === 'string') return sum + (src.data as string).length
+    return sum
+  }, 0)
+  console.log(`[Pass2 DIAG] Work area: "${workArea.name}"`)
+  console.log(`[Pass2 DIAG] Content blocks: ${content.length} total — ${imageBlocks.length} image, ${docBlocks.length} document, ${content.length - imageBlocks.length - docBlocks.length} text`)
+  console.log(`[Pass2 DIAG] Image data size: ${totalImageBytes > 0 ? `${(totalImageBytes / 1024).toFixed(0)} KB base64` : 'NONE — no base64 image data'}`)
+  console.log(`[Pass2 DIAG] planFileUrls received: ${planFileUrls ? JSON.stringify(planFileUrls) : 'undefined'}`)
+  if (imageBlocks.length === 0 && docBlocks.length === 0) {
+    console.warn(`[Pass2 DIAG] ⚠️ NO PLAN IMAGE OR DOCUMENT IN PAYLOAD — Jamie is flying blind!`)
+  }
+  // ── END DIAGNOSTIC ──
+
   const { data, error } = await callAI<AiPass2SingleWorkAreaResponse>({
     system,
     max_tokens: 4000,
