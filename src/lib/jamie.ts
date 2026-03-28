@@ -129,7 +129,7 @@ export interface JamieScopeResult {
   line_items: LineItemData[]
 }
 
-const NOTES_FORMAT_PROMPT = `Write scope notes for a work area using this EXACT bullet format. These notes serve as both the client proposal AND the crew field directive.
+const _NOTES_FORMAT_PROMPT = `Write scope notes for a work area using this EXACT bullet format. These notes serve as both the client proposal AND the crew field directive.
 
 MANDATORY FORMAT (every line is a bullet using the • character):
 • [Line 1] One sentence: what is being installed, where on the property, and per what spec (plan or site visit).

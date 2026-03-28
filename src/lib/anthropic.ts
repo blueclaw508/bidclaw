@@ -1,6 +1,5 @@
 import { callAI } from '@/lib/supabase'
 import { processPlanFile } from '@/lib/planProcessor'
-import { buildUnifiedEstimatePrompt } from '@/lib/jamiePrompt'
 import type {
   AiPass1Response,
   AiPass2Response,
@@ -297,11 +296,11 @@ export async function runPass2(
   approvedWorkAreas: { id: string; name: string; description: string }[],
   projectDescription: string,
   userCatalog: CatalogItem[],
-  productionRates: ProductionRate[],
+  _productionRates: ProductionRate[],
   gapAnswers?: Record<string, string>,
-  webSearchContext?: string,
+  _webSearchContext?: string,
   onProgress?: (progress: Pass2Progress) => void,
-  manualMode?: boolean
+  _manualMode?: boolean
 ): Promise<AiPass2Response> {
   const completedWorkAreas: AiPass2SingleWorkAreaResponse[] = []
 
