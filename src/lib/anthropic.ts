@@ -369,7 +369,7 @@ export async function runPass2SingleWorkArea(
     max_tokens: 4000,
     model: 'claude-opus-4-6',
     temperature: 0,
-    tools: [{ type: 'web_search', name: 'web_search', max_uses: 3 }],
+    tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3 }],
     messages: [
       {
         role: 'user',
