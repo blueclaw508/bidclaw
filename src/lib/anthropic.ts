@@ -90,12 +90,6 @@ export async function runPass1(
         type: 'image',
         source: { type: 'url', url: plan.url },
       })
-    } else if (plan.type === 'document_url' && plan.url) {
-      // Text-based PDF — use document URL (Claude text extraction)
-      content.push({
-        type: 'document',
-        source: { type: 'url', url: plan.url },
-      })
     }
   }
 
@@ -286,19 +280,20 @@ export async function runPass2SingleWorkArea(
   const hasPlan = planFileUrls && planFileUrls.length > 0
   const system = buildPass2SystemPrompt(workArea, catalogNames, hasPlan)
 
-  // Build content blocks — plan images first, then text instructions
+  // Build content blocks — plan image first, then extracted text, then instructions
   const content: Array<Record<string, unknown>> = []
+  let planTextAnnotations = ''
 
-  // Add plan files as vision inputs
-  // Strategy: try client-side rasterization first; if that fails, pass the raw URL
-  // to the server (ai-chat.mjs will download and convert it server-side)
+  // Process plan files — ALWAYS rasterize to image + extract text annotations
   if (planFileUrls && planFileUrls.length > 0) {
     for (const url of planFileUrls) {
       console.log(`[Pass2] Processing plan file: ${url}`)
       try {
         const plan = await processPlanFile(url)
-        console.log(`[Pass2] processPlanFile returned type="${plan.type}", hasData=${!!plan.data}, hasUrl=${!!plan.url}`)
-        if (plan.type === 'image_base64' && plan.data) {
+        console.log(`[Pass2] processPlanFile returned type="${plan.type}", hasData=${!!(plan.data && plan.data.length > 0)}, hasText=${!!(plan.extractedText)}`)
+
+        // Add the rasterized image (primary — Jamie needs to SEE the plan)
+        if (plan.type === 'image_base64' && plan.data && plan.data.length > 0) {
           console.log(`[Pass2] ✅ Adding base64 image block (${(plan.data.length / 1024).toFixed(0)} KB)`)
           content.push({
             type: 'image',
@@ -314,38 +309,33 @@ export async function runPass2SingleWorkArea(
             type: 'image',
             source: { type: 'url', url: plan.url },
           })
-        } else if (plan.type === 'document_url' && plan.url) {
-          console.log(`[Pass2] ✅ Adding document URL block`)
-          content.push({
-            type: 'document',
-            source: { type: 'url', url: plan.url },
-          })
         } else {
-          console.error(`[Pass2] ❌ processPlanFile returned unusable result:`, JSON.stringify(plan).slice(0, 200))
-          // Fallback: send raw URL as document for server to handle
-          console.log(`[Pass2] ↩️ Fallback: sending raw URL as image for server download`)
-          content.push({
-            type: 'image',
-            source: { type: 'url', url },
-          })
+          console.error(`[Pass2] ❌ No image data from processPlanFile`)
+        }
+
+        // Collect extracted text annotations (supplementary context)
+        if (plan.extractedText) {
+          planTextAnnotations += plan.extractedText + '\n'
+          console.log(`[Pass2] ✅ Extracted ${plan.extractedText.length} chars of plan text annotations`)
         }
       } catch (err) {
         console.error(`[Pass2] ❌ processPlanFile CRASHED for ${url}:`, err instanceof Error ? err.message : err)
-        // Fallback: send raw URL — the server (ai-chat.mjs) will download and convert
-        console.log(`[Pass2] ↩️ Fallback: sending raw URL as image for server download`)
-        content.push({
-          type: 'image',
-          source: { type: 'url', url },
-        })
       }
     }
   }
 
-  // Add text instructions
-  content.push({
-    type: 'text',
-    text: `Estimate this work area:\nName: ${workArea.name}\nDescription: ${workArea.description}\n\nProject context: ${projectDescription}\n\nRemember: estimate ONLY "${workArea.name}". Do not include items for any other scope.${hasPlan ? '\n\nA project plan/drawing is attached above. READ IT CAREFULLY and extract all details relevant to this work area before generating line items. Cite specific plan details in your scope_description.' : ''}`,
-  })
+  // Build the text instruction block — includes plan text annotations if available
+  let textInstruction = `Estimate this work area:\nName: ${workArea.name}\nDescription: ${workArea.description}\n\nProject context: ${projectDescription}\n\nRemember: estimate ONLY "${workArea.name}". Do not include items for any other scope.`
+
+  if (hasPlan) {
+    textInstruction += '\n\nA project plan/drawing is attached as an image above. READ IT CAREFULLY — look at dimensions, labels, zones, materials callouts, and spatial layout. Extract all details relevant to this work area before generating line items. Cite specific plan details in your scope_description.'
+  }
+
+  if (planTextAnnotations.trim()) {
+    textInstruction += `\n\nEXTRACTED TEXT LABELS FROM THE PLAN:\n${planTextAnnotations.trim()}\n\n(These are text annotations extracted from the plan PDF. Use them alongside the visual image above.)`
+  }
+
+  content.push({ type: 'text', text: textInstruction })
 
   // ── DIAGNOSTIC LOGGING — prove plan image reaches API call ──
   const imageBlocks = content.filter((b) => b.type === 'image')
