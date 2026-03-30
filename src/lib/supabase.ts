@@ -25,9 +25,12 @@ export async function callAI<T = unknown>(payload: {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 120_000) // 2 minute timeout
 
-      const response = await fetch('/.netlify/functions/ai-chat', {
+      const response = await fetch(`${supabaseUrl}/functions/v1/ai-chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
         body: JSON.stringify(payload),
         signal: controller.signal,
       })

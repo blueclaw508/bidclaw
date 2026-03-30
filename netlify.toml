@@ -5,6 +5,12 @@
 [build.environment]
   NODE_VERSION = "22"
 
+[functions]
+  node_bundler = "esbuild"
+
+[functions."ai-chat"]
+  external_node_modules = ["node-fetch"]
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
