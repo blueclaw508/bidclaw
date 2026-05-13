@@ -13,27 +13,21 @@ import ItemCatalog from '@/components/settings/ItemCatalog'
 import ProductionRates from '@/components/settings/ProductionRates'
 import AboutKYN from '@/components/settings/AboutKYN'
 import { EstimateDashboard } from '@/components/estimate/EstimateDashboard'
-import { Step1ProjectInfo } from '@/components/estimate/Step1ProjectInfo'
-import { Step2WorkAreas } from '@/components/estimate/Step2WorkAreas'
-import { Step3LineItems } from '@/components/estimate/Step3LineItems'
-import { Step4Send } from '@/components/estimate/Step4Send'
-import { useEstimate } from '@/hooks/useEstimate'
-import { supabase } from '@/lib/supabase'
-import type { WorkAreaData, LineItemData, CatalogItem, ProductionRate, GapQuestion, WorkAreaEstimateMode } from '@/lib/types'
-import type { JamieAnalysisResult } from '@/lib/jamie'
-import {
-  jamieWriteScope,
-  jamieGenerateSummary,
-  jamieAnalyzeEstimate,
-} from '@/lib/jamie'
-import { categoryFromCatalogType, unitFromCategory } from '@/lib/catalogMatcher'
+
+// v3 screens
+import { Screen1Upload } from '@/components/estimate/Screen1Upload'
+import { Screen2Findings } from '@/components/estimate/Screen2Findings'
+import { Step3ReviewV2, type CustomerInfo } from '@/components/estimate/Step3ReviewV2'
+
+// V2 engine hook
+import { useEstimateV2 } from '@/hooks/useEstimateV2'
+// pass2V2 types used internally by the hook
+
 import { Loader2, Cloud, Check, Lock, Clock } from 'lucide-react'
 
 type Tab = 'company-info' | 'item-catalog' | 'production-rates' | 'about-kyn' | 'estimates'
 
-// localStorage keys — outside component so they never change reference
 const LS_ESTIMATE_ID = 'bidclaw_active_estimate_id'
-const lsJamieKey = (id: string) => 'bidclaw_jamie_' + id
 
 function AppContent() {
   const { user, hasQCAccount, canAccessBidClaw, bidclawAccessLevel, trialDaysLeft, subscriptionTier, loading: authLoading } = useAuth()
@@ -45,8 +39,6 @@ function AppContent() {
   const [jamieErrorOpen, setJamieErrorOpen] = useState(false)
   const [jamieErrorType, setJamieErrorType] = useState<JamieErrorType>('snag')
   const lastRetryAction = useRef<(() => void) | null>(null)
-  // Tracks which estimateId has already had its Jamie state restored in this session
-  const jamieRestored = useRef<string | null>(null)
 
   const showJamieError = useCallback((errorMsg: string, retryAction?: () => void) => {
     setJamieErrorType(classifyJamieError(errorMsg))
@@ -54,198 +46,161 @@ function AppContent() {
     setJamieErrorOpen(true)
   }, [])
 
-  // ── Layer 1: persist activeEstimateId so tab-switch never returns user to dashboard ──
+  // Persist activeEstimateId
   useEffect(() => {
     try {
       if (activeEstimateId) localStorage.setItem(LS_ESTIMATE_ID, activeEstimateId)
       else localStorage.removeItem(LS_ESTIMATE_ID)
     } catch {}
-    // Reset the Jamie-restored guard so state CAN be re-restored if the
-    // component remounts with the same estimateId (e.g. after a tab switch)
-    jamieRestored.current = null
   }, [activeEstimateId])
 
-  const {
-    estimate, loading: estLoading, saving, aiLoading, aiMessage, notFound: estNotFound,
-    updateEstimate, createEstimate, uploadFiles,
-    runAiPass2, reEstimateWorkArea, sendToQuickCalc,
-  } = useEstimate(activeEstimateId, showJamieError)
+  // V2 hook
+  const v2 = useEstimateV2(activeEstimateId ?? undefined, (msg) => showJamieError(msg))
 
-  const workAreas: WorkAreaData[] = estimate?.work_areas ?? []
-  const lineItems: Record<string, LineItemData[]> = estimate?.line_items ?? {}
-  const newCatalogItems: string[] = estimate?.new_catalog_items_created ?? []
-
-  // ── Layer 1: clear stale localStorage only when DB confirmed estimate is gone ──
+  // Clear stale localStorage when estimate not found
   useEffect(() => {
-    if (estNotFound && activeEstimateId) {
+    if (v2.notFound && activeEstimateId) {
       try { localStorage.removeItem(LS_ESTIMATE_ID) } catch {}
       setActiveEstimateId(null)
     }
-  }, [estNotFound, activeEstimateId])
+  }, [v2.notFound, activeEstimateId])
 
-
-  // ── Jamie State ──
-  const [jamieBuilt, setJamieBuilt] = useState(false)
-  const [jamieScopes, setJamieScopes] = useState<Record<string, string>>({})
-  const [jamieScopeLoading, setJamieScopeLoading] = useState<string | null>(null)
-  const [jamieSummary, setJamieSummary] = useState<string | null>(null)
-  const [jamieSummaryLoading, setJamieSummaryLoading] = useState(false)
-  const [jamieAnalysis, setJamieAnalysis] = useState<JamieAnalysisResult | null>(null)
-  const [jamieAnalysisLoading, setJamieAnalysisLoading] = useState(false)
-  // Mode detection & gap questions (Change B)
-  const [workAreaModes, setWorkAreaModes] = useState<Record<string, WorkAreaEstimateMode>>({})
-  const [structuredGapQuestions, setStructuredGapQuestions] = useState<Record<string, GapQuestion[]>>({})
-  const [reEstimateLoading, setReEstimateLoading] = useState(false)
-  const [planReferences, setPlanReferences] = useState<Record<string, string[]>>({})
-  const [jamieMessages, setJamieMessages] = useState<Record<string, string>>({})
-
-
-  // ── Layer 2: restore Jamie state once per estimate when it first loads ──
-  useEffect(() => {
-    if (!estimate || estimate.id === jamieRestored.current) return
-    jamieRestored.current = estimate.id
-    try {
-      const raw = localStorage.getItem(lsJamieKey(estimate.id))
-      if (!raw) return
-      const saved = JSON.parse(raw)
-      if (saved.jamieBuilt) setJamieBuilt(saved.jamieBuilt)
-      if (saved.jamieScopes && Object.keys(saved.jamieScopes).length) setJamieScopes(saved.jamieScopes)
-      if (saved.jamieSummary) setJamieSummary(saved.jamieSummary)
-      if (saved.jamieAnalysis) setJamieAnalysis(saved.jamieAnalysis)
-    } catch {}
-    // Also restore scopes from work_areas (DB-persisted)
-    if (estimate.work_areas) {
-      const dbScopes: Record<string, string> = {}
-      for (const wa of estimate.work_areas) {
-        if (wa.scope_description) dbScopes[wa.id] = wa.scope_description
-      }
-      if (Object.keys(dbScopes).length > 0) {
-        setJamieScopes(prev => ({ ...dbScopes, ...prev }))
-      }
-    }
-    // Restore mode detection from DB-persisted fields
-    if (estimate.work_area_modes) setWorkAreaModes(estimate.work_area_modes)
-    if (estimate.structured_gap_questions) setStructuredGapQuestions(estimate.structured_gap_questions)
-  }, [estimate])
-
-  // ── Layer 2: write Jamie state to localStorage on every change ──
-  useEffect(() => {
-    if (!activeEstimateId) return
-    try {
-      localStorage.setItem(lsJamieKey(activeEstimateId), JSON.stringify({
-        jamieBuilt,
-        jamieScopes,
-        jamieSummary,
-        jamieAnalysis,
-      }))
-    } catch {}
-  }, [activeEstimateId, jamieBuilt, jamieScopes, jamieSummary, jamieAnalysis])
-
-  // ── Layer 3: intentional reset — clears localStorage, returns to dashboard ──
+  // Reset — returns to dashboard
   const resetEstimateState = useCallback(() => {
-    try {
-      if (activeEstimateId) localStorage.removeItem(lsJamieKey(activeEstimateId))
-      localStorage.removeItem(LS_ESTIMATE_ID)
-    } catch {}
+    try { localStorage.removeItem(LS_ESTIMATE_ID) } catch {}
     setActiveEstimateId(null)
-    setJamieBuilt(false)
-    setJamieScopes({})
-    setJamieSummary(null)
-    setJamieAnalysis(null)
-    setWorkAreaModes({})
-    setStructuredGapQuestions({})
-    setPlanReferences({})
-    setJamieMessages({})
-  }, [activeEstimateId])
-
-
-  // Jamie: write scope for a work area (unified — returns scope + line items)
-  const handleJamieWriteScope = useCallback(async (waId: string) => {
-    const wa = workAreas.find((w) => w.id === waId)
-    if (!wa || !user) return
-    setJamieScopeLoading(waId)
-    try {
-      // Fetch catalog and production rates for unified prompt
-      const [{ data: catalogData }, { data: ratesData }] = await Promise.all([
-        supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id),
-        supabase.from('production_rates').select('*').eq('user_id', user.id),
-      ])
-      const userCatalog = (catalogData ?? []) as CatalogItem[]
-      const productionRates = (ratesData ?? []) as ProductionRate[]
-
-      const result = await jamieWriteScope(
-        wa.name,
-        lineItems[waId] ?? [],
-        userCatalog,
-        productionRates,
-        estimate?.project_description ?? undefined,
-        (estimate?.plan_file_urls?.length ?? 0) > 0,
-      )
-      // Update both scope AND line items (Prime Directive enforcement)
-      setJamieScopes((prev) => ({ ...prev, [waId]: result.scope_description }))
-      // Embed scope into work_areas for DB persistence
-      const updatedWorkAreas = workAreas.map(w =>
-        w.id === waId ? { ...w, scope_description: result.scope_description } : w
-      )
-      if (result.line_items && result.line_items.length > 0) {
-        updateEstimate({
-          work_areas: updatedWorkAreas,
-          line_items: { ...lineItems, [waId]: result.line_items },
-        })
-      } else {
-        updateEstimate({ work_areas: updatedWorkAreas })
-      }
-    } catch (err) {
-      showJamieError(
-        err instanceof Error ? err.message : 'Jamie could not write scope',
-        () => handleJamieWriteScope(waId)
-      )
-    } finally {
-      setJamieScopeLoading(null)
-    }
-  }, [workAreas, lineItems, user, estimate, updateEstimate, showJamieError])
-
-  // Jamie: update scope
-  const handleJamieUpdateScope = useCallback((waId: string, scope: string) => {
-    setJamieScopes((prev) => ({ ...prev, [waId]: scope }))
   }, [])
 
-  // Jamie: generate estimate summary
-  const handleJamieGenerateSummary = useCallback(async () => {
-    if (!estimate) return
-    setJamieSummaryLoading(true)
-    try {
-      const summary = await jamieGenerateSummary(
-        estimate.client_name ?? '',
-        estimate.project_address ?? '',
-        workAreas,
-        lineItems
-      )
-      setJamieSummary(summary)
-    } catch (err) {
-      showJamieError(
-        err instanceof Error ? err.message : 'Jamie could not generate summary',
-        handleJamieGenerateSummary
-      )
-    } finally {
-      setJamieSummaryLoading(false)
-    }
-  }, [estimate, workAreas, lineItems, showJamieError])
+  // ── Customer info state (lives here so it persists across screens) ──
+  const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
+    first_name: '', last_name: '', company_name: '', phone: '', email: '',
+    estimate_name: '', address_line: '', city: '', state: '', zip: '',
+  })
+  const customerInfoSynced = useRef(false)
 
-  // Jamie: analyze estimate (local checks only — no pricing, no catalog-wide audit)
-  const handleJamieAnalyze = useCallback(() => {
-    setJamieAnalysisLoading(true)
-    try {
-      const result = jamieAnalyzeEstimate(workAreas, lineItems)
-      setJamieAnalysis(result)
-    } catch (err) {
-      showJamieError(
-        err instanceof Error ? err.message : 'Jamie analysis failed'
-      )
-    } finally {
-      setJamieAnalysisLoading(false)
+  // Sync customer info from estimate + pass1 client_info_found
+  useEffect(() => {
+    if (!v2.estimate || customerInfoSynced.current) return
+    customerInfoSynced.current = true
+
+    const est = v2.estimate
+    const clientInfo = est.pass1_extraction?.client_info_found
+
+    setCustomerInfo({
+      first_name: est.first_name || '',
+      last_name: est.last_name || '',
+      company_name: est.company_name || '',
+      phone: est.phone || '',
+      email: est.email || '',
+      estimate_name: est.estimate_name || clientInfo?.project_name || '',
+      address_line: est.address_line || clientInfo?.address || '',
+      city: est.city || clientInfo?.city || '',
+      state: est.state || clientInfo?.state || '',
+      zip: est.zip || '',
+    })
+  }, [v2.estimate])
+
+  // Reset sync flag when estimate changes
+  useEffect(() => {
+    customerInfoSynced.current = false
+  }, [activeEstimateId])
+
+  const handleCustomerInfoChange = useCallback((updates: Partial<CustomerInfo>) => {
+    setCustomerInfo(prev => ({ ...prev, ...updates }))
+    // Debounced save to DB
+    v2.updateEstimate(updates as Record<string, unknown>)
+  }, [v2])
+
+  // ── Catalog items for Step3 ──
+  const [catalogItems, setCatalogItems] = useState<import('@/lib/types').CatalogItem[]>([])
+  useEffect(() => {
+    if (!user) return
+    import('@/lib/supabase').then(({ supabase }) => {
+      supabase.from('kyn_catalog_items').select('*').eq('user_id', user.id).then(({ data }) => {
+        if (data) setCatalogItems(data as import('@/lib/types').CatalogItem[])
+      })
+    })
+  }, [user])
+
+  // ── Screen 1: Send to Jamie ──
+  const handleSendToJamie = useCallback(async (
+    files: File[],
+    userContext: string,
+    fields: { estimateName: string; firstName: string; lastName: string; address: string; city: string; state: string; zip: string }
+  ) => {
+    let estId = activeEstimateId
+
+    // Create estimate if needed
+    if (!estId) {
+      estId = await v2.createEstimate()
+      if (!estId) { showJamieError('Could not create estimate'); return }
+      setActiveEstimateId(estId)
+      // Wait for hook to load the new estimate
+      await new Promise(r => setTimeout(r, 500))
     }
-  }, [workAreas, lineItems, showJamieError])
+
+    // Save quick-entry fields + user context to the estimate
+    const fieldUpdates: Record<string, unknown> = {}
+    if (fields.estimateName) fieldUpdates.estimate_name = fields.estimateName
+    if (fields.firstName) fieldUpdates.first_name = fields.firstName
+    if (fields.lastName) fieldUpdates.last_name = fields.lastName
+    if (fields.address) fieldUpdates.address_line = fields.address
+    if (fields.city) fieldUpdates.city = fields.city
+    if (fields.state) fieldUpdates.state = fields.state
+    if (fields.zip) fieldUpdates.zip = fields.zip
+    if (userContext) fieldUpdates.project_description = userContext
+    if (Object.keys(fieldUpdates).length > 0) {
+      v2.updateEstimate(fieldUpdates as Record<string, unknown>, true)
+    }
+
+    // Sync customerInfo state so Screen 3 pre-fills
+    setCustomerInfo(prev => ({
+      ...prev,
+      ...(fields.firstName ? { first_name: fields.firstName } : {}),
+      ...(fields.lastName ? { last_name: fields.lastName } : {}),
+      ...(fields.address ? { address_line: fields.address } : {}),
+      ...(fields.city ? { city: fields.city } : {}),
+      ...(fields.state ? { state: fields.state } : {}),
+      ...(fields.zip ? { zip: fields.zip } : {}),
+      ...(fields.estimateName ? { estimate_name: fields.estimateName } : {}),
+    }))
+
+    // Upload files
+    for (const file of files) {
+      await v2.uploadPlan(file)
+    }
+
+    // Run Pass 1
+    await v2.runPass1()
+  }, [activeEstimateId, v2, showJamieError])
+
+  // ── Screen 2: Estimate work areas ──
+  const handleEstimateWorkAreas = useCallback(async (
+    selectedWorkAreas: { name: string; summary: string }[],
+    questionAnswers: { question: string; answer: string }[]
+  ) => {
+    if (!v2.estimate) return
+
+    // Create work areas in DB
+    for (const wa of selectedWorkAreas) {
+      await v2.addWorkArea(wa.name)
+    }
+
+    // Save question answers to estimate description for context
+    if (questionAnswers.length > 0) {
+      const existingDesc = v2.estimate.project_description || ''
+      const answersText = questionAnswers.map(qa => `${qa.question} → ${qa.answer}`).join('\n')
+      const newDesc = existingDesc
+        ? `${existingDesc}\n\nContractor answers:\n${answersText}`
+        : `Contractor answers:\n${answersText}`
+      v2.updateEstimate({ project_description: newDesc }, true)
+    }
+
+    // Run Pass 2
+    await v2.runPass2()
+  }, [v2])
+
+  // ── Auth gates ──
 
   if (authLoading) {
     return (
@@ -277,7 +232,6 @@ function AppContent() {
     )
   }
 
-  // Not a Pro subscriber — no trial, must upgrade QC first
   if (subscriptionTier === 'free' && bidclawAccessLevel === 'none') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -296,7 +250,6 @@ function AppContent() {
     )
   }
 
-  // Trial expired — block access, show upgrade
   if (bidclawAccessLevel === 'trial_expired') {
     return (
       <>
@@ -318,7 +271,6 @@ function AppContent() {
     )
   }
 
-  // Pro user with no trial yet and no paid access (shouldn't normally happen — auto-start covers it)
   if (!canAccessBidClaw) {
     return (
       <>
@@ -337,66 +289,24 @@ function AppContent() {
     )
   }
 
-  // Estimate workflow (full screen when active)
-  if (activeEstimateId && estimate) {
-    const step = estimate.workflow_step
+  // ══════════════════════════════════════════════════════
+  // v3 Guided Agentic Flow
+  // ══════════════════════════════════════════════════════
 
-    const handleGenerate = async (data: {
-      client_name: string; project_name?: string | null;
-      project_address: string; project_description: string; files: File[]
-    }) => {
-      try {
-        const urls = data.files.length > 0 ? await uploadFiles(data.files) : estimate.plan_file_urls
-        updateEstimate({
-          client_name: data.client_name,
-          project_name: data.project_name ?? null,
-          project_address: data.project_address,
-          project_description: data.project_description,
-          plan_file_urls: urls,
-          workflow_step: 2,
-        }, true)
-      } catch {
-        showJamieError('Jamie hit a snag — couldn\'t process your project files. Try again.')
-      }
-    }
+  if (activeEstimateId) {
+    // Determine which screen to show based on estimate state
+    const est = v2.estimate
+    const hasPass1 = !!est?.pass1_extraction
+    const hasPass2 = v2.workAreas.some(wa => wa.pass2_completed_at !== null)
+    const isReview = hasPass2 || est?.status === 'review' || est?.status === 'sent' || est?.status === 'exported'
 
-    // Called when user clicks "Continue to Estimate" on Step 2
-    const handleApproveWorkAreas = async () => {
-      const approved = workAreas.map((wa) => ({ ...wa, approved: true }))
-      updateEstimate({ work_areas: approved })
-      const pass2Result = await runAiPass2(approved)
-      if (pass2Result?.scopeDescriptions) {
-        setJamieScopes(pass2Result.scopeDescriptions)
-      }
-      if (pass2Result?.workAreaModes) {
-        setWorkAreaModes(pass2Result.workAreaModes)
-      }
-      if (pass2Result?.structuredGapQuestions) {
-        setStructuredGapQuestions(pass2Result.structuredGapQuestions)
-      }
-      if (pass2Result?.planReferences) {
-        setPlanReferences(pass2Result.planReferences)
-      }
-      if (pass2Result?.jamieMessages) {
-        setJamieMessages(pass2Result.jamieMessages)
-      }
-    }
-
-    // Re-estimate a single work area after gap questions answered (Change B)
-    const handleReEstimateWorkArea = async (waId: string, answers: GapQuestion[]) => {
-      const wa = workAreas.find((w) => w.id === waId)
-      if (!wa) return
-      setReEstimateLoading(true)
-      const success = await reEstimateWorkArea(wa, answers)
-      if (success) {
-        setWorkAreaModes((prev) => ({ ...prev, [waId]: estimate?.work_area_modes?.[waId] ?? 'full_takeoff' }))
-        setStructuredGapQuestions((prev) => ({ ...prev, [waId]: estimate?.structured_gap_questions?.[waId] ?? [] }))
-        if (estimate?.scope_descriptions?.[waId]) {
-          setJamieScopes((prev) => ({ ...prev, [waId]: estimate!.scope_descriptions![waId] }))
-        }
-      }
-      setReEstimateLoading(false)
-    }
+    // Which screen?
+    // Screen 1: No pass1 yet (or loading)
+    // Screen 2: Pass 1 done, no pass 2 yet
+    // Screen 3: Pass 2 done (review mode)
+    let screen: 1 | 2 | 3 = 1
+    if (isReview) screen = 3
+    else if (hasPass1) screen = 2
 
     return (
       <div className="min-h-screen bg-gray-50">
@@ -414,14 +324,16 @@ function AppContent() {
             </button>
           </div>
         )}
+
+        {/* Top bar */}
         <div className={`sticky ${bidclawAccessLevel === 'trial' ? 'top-[41px]' : 'top-0'} z-30 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3`}>
           <div className="flex items-center gap-3">
             <img src="/bidclaw-logo-sm.png" alt="BidClaw" className="h-8 w-8 rounded-lg object-contain" />
             <span className="font-semibold text-gray-900">BidClaw</span>
           </div>
           <div className="flex items-center gap-3">
-            {saving && <span className="flex items-center gap-1 text-xs text-gray-400"><Cloud size={14} /> Saving...</span>}
-            {!saving && <span className="flex items-center gap-1 text-xs text-green-600"><Check size={14} /> Saved</span>}
+            {v2.saving && <span className="flex items-center gap-1 text-xs text-gray-400"><Cloud size={14} /> Saving...</span>}
+            {!v2.saving && <span className="flex items-center gap-1 text-xs text-green-600"><Check size={14} /> Saved</span>}
             <button onClick={resetEstimateState}
               className="text-sm text-gray-500 hover:text-gray-900">Exit</button>
           </div>
@@ -433,109 +345,71 @@ function AppContent() {
           onClose={() => setJamieErrorOpen(false)}
           onRetry={lastRetryAction.current ?? undefined}
         />
+
         <div className="mx-auto max-w-5xl p-6">
-          {estLoading ? (
+          {v2.loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="animate-spin text-blue-600" size={32} />
             </div>
-          ) : step <= 1 ? (
-            <Step1ProjectInfo
-              estimate={estimate}
-              onGenerate={handleGenerate}
-              onBack={() => setActiveEstimateId(null)}
-              generating={aiLoading}
-              onFieldChange={(updates) => updateEstimate(updates)}
+          ) : screen === 1 ? (
+            <Screen1Upload
+              onSendToJamie={handleSendToJamie}
+              pass1Loading={v2.pass1Loading}
+              existingPlans={(est?.plans ?? []).map(p => ({ file_name: p.file_name, page_count: p.page_count }))}
+              initialFields={{
+                estimateName: est?.estimate_name ?? '',
+                firstName: est?.first_name ?? '',
+                lastName: est?.last_name ?? '',
+                address: est?.address_line ?? '',
+                city: est?.city ?? '',
+                state: est?.state ?? '',
+                zip: est?.zip ?? '',
+              }}
+              onBack={resetEstimateState}
             />
-          ) : step === 2 ? (
-            <Step2WorkAreas
-              workAreas={workAreas}
-              onUpdateWorkArea={(id: string, updates: Partial<WorkAreaData>) => {
-                updateEstimate({ work_areas: workAreas.map((wa) => wa.id === id ? { ...wa, ...updates } : wa) })
+          ) : screen === 2 ? (
+            <Screen2Findings
+              pass1Extraction={est!.pass1_extraction!}
+              pass2Loading={v2.pass2Loading}
+              pass2Progress={v2.pass2Progress}
+              pass2Error={v2.pass2Error}
+              onEstimate={handleEstimateWorkAreas}
+              onBack={() => {
+                // Navigate back to Screen 1 — clear pass1 to re-show upload
+                v2.updateEstimate({
+                  pass1_extraction: null,
+                  pass1_confidence: null,
+                  pass1_completed_at: null,
+                  status: 'draft',
+                } as Record<string, unknown>, true)
               }}
-              onRemoveWorkArea={(id: string) => updateEstimate({ work_areas: workAreas.filter((wa) => wa.id !== id) })}
-              onAddWorkArea={(name: string) => {
-                const newWa: WorkAreaData = {
-                  id: 'wa_' + Date.now(), name, description: '',
-                  complexity: 'Moderate', approved: false,
-                }
-                updateEstimate({ work_areas: [...workAreas, newWa] })
-              }}
-              onApprove={handleApproveWorkAreas}
-              onBack={() => updateEstimate({ workflow_step: 1 })}
-            />
-          ) : step === 3 ? (
-            <Step3LineItems
-              workAreas={workAreas}
-              lineItems={lineItems}
-              newCatalogItems={newCatalogItems}
-              loading={aiLoading}
-              loadingMessage={aiMessage}
-              onUpdateLineItem={(waId: string, itemId: string, updates: Partial<LineItemData>) => {
-                const waItems = (lineItems[waId] ?? []).map((li) => li.id === itemId ? { ...li, ...updates } : li)
-                updateEstimate({ line_items: { ...lineItems, [waId]: waItems } })
-              }}
-              onRemoveLineItem={(waId: string, itemId: string) => {
-                updateEstimate({ line_items: { ...lineItems, [waId]: (lineItems[waId] ?? []).filter((li) => li.id !== itemId) } })
-              }}
-              onAddLineItem={(waId: string) => {
-                const newItem: LineItemData = {
-                  id: 'li_' + Date.now(), name: '', quantity: 0, unit: 'EA', category: 'Materials', description: '',
-                }
-                updateEstimate({ line_items: { ...lineItems, [waId]: [...(lineItems[waId] ?? []), newItem] } })
-              }}
-              onAddCatalogLineItem={(waId: string, ci: CatalogItem) => {
-                const category = categoryFromCatalogType(ci.type)
-                const unit = unitFromCategory(category, 'EA')
-                const newItem: LineItemData = {
-                  id: 'li_' + Date.now(),
-                  name: ci.name,
-                  quantity: 1,
-                  unit: unit as LineItemData['unit'],
-                  category,
-                  description: '',
-                  catalog_item_id: ci.id,
-                  catalog_match_type: 'matched',
-                }
-                updateEstimate({ line_items: { ...lineItems, [waId]: [...(lineItems[waId] ?? []), newItem] } })
-              }}
-              onApproveWorkArea={(waId: string) => {
-                updateEstimate({ work_areas: workAreas.map((wa) => wa.id === waId ? { ...wa, approved: true } : wa) })
-              }}
-              onUnapproveWorkArea={(waId: string) => {
-                updateEstimate({ work_areas: workAreas.map((wa) => wa.id === waId ? { ...wa, approved: false } : wa) })
-              }}
-              onSend={() => updateEstimate({ workflow_step: 4 })}
-              onBack={() => updateEstimate({ workflow_step: 2 })}
-              onBackToStep1={() => updateEstimate({ workflow_step: 1 })}
-              // Jamie
-              jamieBuilt={jamieBuilt}
-              jamieScopes={jamieScopes}
-              jamieScopeLoading={jamieScopeLoading}
-              onJamieWriteScope={handleJamieWriteScope}
-              onJamieUpdateScope={handleJamieUpdateScope}
-              jamieAnalysis={jamieAnalysis}
-              jamieAnalysisLoading={jamieAnalysisLoading}
-              onJamieAnalyze={handleJamieAnalyze}
-              workAreaModes={workAreaModes}
-              structuredGapQuestions={structuredGapQuestions}
-              onReEstimateWorkArea={handleReEstimateWorkArea}
-              reEstimateLoading={reEstimateLoading}
-              planReferences={planReferences}
-              jamieMessages={jamieMessages}
             />
           ) : (
-            <Step4Send
-              estimate={estimate}
-              workAreas={workAreas}
-              lineItems={lineItems}
-              newCatalogItemCount={newCatalogItems.length}
-              onEdit={() => updateEstimate({ workflow_step: 3 })}
-              onSend={sendToQuickCalc}
-              onNewEstimate={() => { resetEstimateState(); setCurrentTab('estimates') }}
-              jamieSummary={jamieSummary}
-              jamieSummaryLoading={jamieSummaryLoading}
-              onJamieGenerateSummary={handleJamieGenerateSummary}
-              onJamieUpdateSummary={setJamieSummary}
+            <Step3ReviewV2
+              workAreas={v2.workAreas}
+              lineItems={v2.lineItems}
+              catalogItems={catalogItems}
+              onUpdateScope={(waId, scope) => v2.updateWorkAreaScope(waId, scope)}
+              onAddItem={(waId, item) => v2.addLineItem(waId, item)}
+              onUpdateItem={(id, updates) => v2.updateLineItem(id, updates)}
+              onRemoveItem={(id, waId) => v2.removeLineItem(id, waId)}
+              onBack={() => {
+                // Back to Findings — clear pass2 data from work areas
+                v2.updateEstimate({ status: 'pass1_complete' } as Record<string, unknown>, true)
+              }}
+              customerInfo={customerInfo}
+              onCustomerInfoChange={handleCustomerInfoChange}
+              clientInfoFound={est?.pass1_extraction?.client_info_found}
+              onSendToQuickCalc={async () => {
+                // Save customer info immediately before sending
+                await v2.updateEstimate(customerInfo as unknown as Record<string, unknown>, true)
+                return v2.sendToQuickCalc()
+              }}
+              onExportExcel={async () => {
+                // Save customer info immediately before export
+                await v2.updateEstimate(customerInfo as unknown as Record<string, unknown>, true)
+                return v2.exportToExcel()
+              }}
               isTrial={bidclawAccessLevel === 'trial'}
               onUpgrade={() => setShowUpgrade(true)}
             />
@@ -545,7 +419,10 @@ function AppContent() {
     )
   }
 
-  // Main app with nav
+  // ══════════════════════════════════════════════════════
+  // Main app with nav (no active estimate)
+  // ══════════════════════════════════════════════════════
+
   return (
     <div className="flex min-h-screen flex-col">
       {bidclawAccessLevel === 'trial' && (
@@ -582,10 +459,16 @@ function AppContent() {
             {currentTab === 'estimates' && (
               <EstimateDashboard
                 onNewEstimate={async () => {
-                  const id = await createEstimate({
-                    client_name: '', project_address: '', project_description: '', plan_file_urls: [],
-                  })
-                  if (id) setActiveEstimateId(id)
+                  try {
+                    const id = await v2.createEstimate()
+                    if (id) {
+                      setActiveEstimateId(id)
+                    } else {
+                      console.error('[App] createEstimate returned null — likely auth session issue')
+                    }
+                  } catch (err) {
+                    console.error('[App] createEstimate threw:', err)
+                  }
                 }}
                 onOpenEstimate={(id: string) => setActiveEstimateId(id)}
               />

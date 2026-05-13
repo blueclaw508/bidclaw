@@ -25,11 +25,10 @@ export async function callAI<T = unknown>(payload: {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 120_000) // 2 minute timeout
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/ai-chat`, {
+      const response = await fetch(`/.netlify/functions/ai-chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseKey}`,
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
@@ -62,9 +61,17 @@ export async function callAI<T = unknown>(payload: {
         if (!text) return { data: null, error: 'No response from Jamie' }
       }
 
-      // Parse JSON from the response (strip markdown code fences if present)
+      // Parse JSON from the response (strip markdown code fences, extract JSON object)
       try {
-        const jsonStr = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+        let jsonStr = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+        // If direct parse fails, try extracting JSON object between first { and last }
+        try { JSON.parse(jsonStr) } catch {
+          const firstBrace = jsonStr.indexOf('{')
+          const lastBrace = jsonStr.lastIndexOf('}')
+          if (firstBrace !== -1 && lastBrace > firstBrace) {
+            jsonStr = jsonStr.slice(firstBrace, lastBrace + 1)
+          }
+        }
         const parsed = JSON.parse(jsonStr)
         // Guard: if edge function returned an error object instead of expected data, surface it cleanly
         if (parsed && typeof parsed === 'object' && 'error' in parsed && !('work_areas' in parsed) && !('line_items' in parsed) && !('message' in parsed)) {

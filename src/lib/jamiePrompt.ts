@@ -6,54 +6,124 @@ import type { CatalogItem, ProductionRate } from '@/lib/types'
 
 // ── Kit Library Production Rates (injected into every estimate prompt) ──
 
-const KIT_LIBRARY_RATES = `KYN PRODUCTION RATE KIT LIBRARY — COMPLETE REFERENCE
-User-entered production rates ALWAYS override kit defaults. Kits are reference starting points.
+const KIT_LIBRARY_RATES = `PRODUCTION RATE REFERENCE DATA — from real BCA completed jobs
+User-entered production rates ALWAYS override these baselines. Use these to
+calibrate your estimates, but also research current practices and adjust for
+project-specific conditions.
 
-═══ SELECTION DECISION TREES ═══
+═══ RATE SUMMARY (field-proven baselines) ═══
 
-BLUESTONE PATIO:
-  Drylaid?
-    Under 1,000 SF → Kit 5 (0.22 Hr/SF)
-    1,000 SF or more → Kit 6 (0.20 Hr/SF)
-    ALWAYS add Kit 14 (Plastic Edge Restraint) for perimeter LF
-  Wet lain (mortared on concrete)?
-    Under 500 SF → Kit 24 (0.28 Hr/SF)
-    500 SF or more → Kit 23 (0.26 Hr/SF)
-    Wet lain includes Ready Mix Pour sub — confirm sub quote
+Bluestone Patio (drylaid):
+  Labor: 0.20-0.22 Hr/SF (lower end for larger areas 1,000+ SF)
+  Trade: Stone Masons
+  Notes: Includes base prep, sand bedding, stone placement, polymeric sand,
+  compaction. Add edge restraint as separate scope (plastic paver edging).
 
-PORCELAIN PAVER PATIO:
-  Drylaid?
-    Under 1,000 SF → Kit 16 (0.21 Hr/SF)
-    1,000 SF or more → Kit 17 (0.20 Hr/SF)
-    Use Polymeric Sand - Porcelain (NOT G2)
-  Wet lain?
-    Under 500 SF → Kit 25 (0.28 Hr/SF)
+Bluestone Patio (wet lain / mortared on concrete):
+  Labor: 0.26-0.28 Hr/SF (lower end for larger areas 500+ SF)
+  Trade: Stone Masons
+  Notes: Requires concrete sub-base pour (confirm sub quote). Higher labor
+  due to mortar bed and grouting. Includes muriatic acid for post-install cleaning.
 
-CRUSHED STONE DRIVEWAY:
-  2,000 SF or more → Kit 4 (0.012 Hr/SF)
+Porcelain Paver Patio (drylaid):
+  Labor: 0.20-0.21 Hr/SF (lower end for larger areas 1,000+ SF)
+  Trade: Stone Masons
+  Notes: Use Polymeric Sand - Porcelain (NOT G2 — porcelain requires specific
+  formulation). Otherwise similar assembly to drylaid bluestone.
 
-SOD INSTALLATION:
-  4,000 SF or more → Kit 19 (0.00625 Hr/SF)
-  Always pair with Kit 9 (Lawn Soil) if soil prep included
+Porcelain Paver Patio (wet lain):
+  Labor: 0.28 Hr/SF
+  Trade: Stone Masons
+  Notes: Same assembly as wet lain bluestone, sub porcelain for stone.
 
-EDGING:
-  Paver patio / drylaid bluestone / walkway → Kit 14 (Plastic Edge Restraint)
-  Shell driveway / hardscape perimeter → Kit 21 (Steel Edging)
-  Cobblestone apron → No edging needed (self-restraining)
-  Mortared installations → No edging needed
+Bluestone Coping / Treads:
+  Labor: 0.45 Hr/LF
+  Trade: Stone Masons
+  Notes: Mortar-set on wall or step. Includes glue, sand, cement.
 
-WALL:
-  Full mortared fieldstone → Kit 8 (0.65 Hr/SF of vertical face)
-  CMU block with veneer face → Kit 22 (budget-driven, all 1:1 factors)
-  Both: Add Stone Mason labor separately
+Cobblestone Apron:
+  Labor: 0.30 Hr/SF
+  Trade: Stone Masons
+  Notes: Self-restraining — no edging needed. Jumbo cobblestones 4x7x11.
 
-PLANTING:
-  Soil prep for beds → Kit 13 (Planting Soils at 12", per SF)
-  OR → Kit 20 (Soil Installation per yard, per CuYd) if user thinks in yards
-  Individual plants → Kit 12 (per EA) — add landscaper labor separately
-  Lawn areas → Kit 9 (Lawn Soil) before Kit 19 (Sod)
+Cobblestone Edging:
+  Labor: 0.20 Hr/LF
+  Trade: Stone Masons
+  Notes: Regular cobblestones 5x5x9, mortared in place.
 
-═══ COMPLETE KIT DETAILS ═══
+Crushed Stone Driveway:
+  Labor: 0.012 Hr/SF
+  Trade: Landscapers
+  Notes: Includes landscape fabric, T-base, and 3/4" native stone.
+
+Seashell Driveway:
+  Labor: 0.016 Hr/SF
+  Trade: Landscapers
+  Notes: Cape Cod specific. PVC Sch 40 (heavier). Add steel edging for perimeter.
+
+Fieldstone Retaining Wall:
+  Labor: 0.65 Hr/SF face area
+  Trade: Stone Masons
+  Notes: Highest mason labor rate. Full mortared structural wall. Include
+  drainage aggregate, filter fabric, rebar, cap stones. Walls over 4' may
+  need engineering. Add ready mix pour sub.
+
+Veneer Wall (CMU core + stone face):
+  Labor: Add Stone Mason labor separately (budget-driven)
+  Trade: Stone Masons
+  Notes: CMU structural core + veneer face. Prompt for wall face SF, corner SF,
+  CMU count, footing dims. All material factors are 1:1 (budget item).
+
+Plastic Edge Restraint:
+  Labor: Materials only (labor included in primary patio/walkway scope)
+  Notes: 7.5' sections + 12" spikes. Use for drylaid perimeters.
+
+Steel Edging:
+  Labor: 0.12 Hr/LF
+  Trade: Stone Masons
+  Notes: Black 1/4"x5"x16' sections. Use for shell driveways and hardscape perimeters.
+
+Sod Installation:
+  Labor: 0.00625 Hr/SF
+  Trade: Landscapers
+  Notes: For areas 4,000+ SF. 10% overage for trimming. 1 pallet per 500 SF.
+  Pair with soil prep if applicable.
+
+Lawn Soil Prep:
+  Labor: 0.010 Hr/SF
+  Trade: Landscapers
+  Notes: ~1.68" depth screened loam. Pair with sod or seeding.
+
+Planting Soil (bed prep at 12"):
+  Labor: 0.0134 Hr/SF
+  Trade: Landscapers
+  Notes: Compost/planting mix at 12" depth for planting beds.
+
+Soil Installation (by yard):
+  Labor: 0.55 Hr/CuYd
+  Trade: Landscapers
+  Notes: CuYd-based alternative to per-SF soil calc.
+
+Planting Installation:
+  Labor: (shrubs × 0.2 hr) + (trees × 2.2 hr)
+  Trade: Landscapers
+  Notes: Budget-driven. Prompt for plant material cost, delivery, amendments.
+  Cow manure: shrubs × 0.25 bags, trees × 0.5 bags. Peat moss: shrubs × 0.125,
+  trees × 0.25. Healthy Start: shrubs × 0.04, trees × 0.066. Warranty reserve
+  18% of plant material cost. Mulch: SF × depth(in) ÷ 324 = CuYd.
+
+Drywell Installation:
+  Labor: 9.00 Hr/EA
+  Trade: Landscapers
+  Notes: Assumes 3 downspout connections and 40 LF of pipe. Prompt for actual
+  counts. Includes crushed stone, fabric, and Flow-Well unit.
+
+Pool Excavation:
+  Labor: 0.1111 Hr/LF
+  Trade: Equipment Operator
+  Notes: Operator and excavator run in lockstep. Prompt for trucking sub quote.
+
+═══ COMPLETE MATERIAL ASSEMBLIES ═══
 
 KIT 1: Bluestone Coping (LF) — Stone Masons 0.45 Hr/LF
   Bluestone Treads 2" Stock Thermal Select Blue Up To 24": 1.00 SqFt/LF
@@ -286,13 +356,15 @@ Mulch conversion: SF × depth(inches) ÷ 324 = CuYd. For 2" depth: SF × 0.00617
 Round UP to 27 if within 20% (i.e., projected hours 22+ → round to 27).
 Half day = 13-14 hours. Under 10 hrs = single crew member or minimum call.
 
-═══ KIT USAGE INSTRUCTIONS ═══
-1. Identify the work type from the description/plan
-2. Check the decision tree for the correct kit based on type and size
-3. Use the kit's factors to CALCULATE quantities from the measured area/length/count
-4. Use the kit's material list to select the correct line items
-5. Use the kit's labor type (Stone Masons vs Landscapers vs Equipment Operator) for the labor line
-6. If a kit has NO LABOR LINE noted, add the correct labor type as a separate line item`
+═══ HOW TO USE REFERENCE DATA ═══
+These rates come from real completed BCA jobs. Use them as calibration:
+1. ALWAYS web search first — research tells you WHAT GOES INTO IT
+2. Reference rates tell you HOW LONG — use them to calibrate labor hours
+3. Material assemblies show WHAT'S NEEDED — verify against web search
+4. Adjust UP for complexity (tight access, intricate patterns, steep slopes)
+5. Adjust DOWN for simple/repetitive work or large-scale efficiency
+6. If no reference rate exists for a work type, rely on web search + trade knowledge
+7. Field-proven rates beat generic internet estimates — prefer BCA data when available`
 
 // ── The Unified System Prompt (Prime Directive enforced) ──
 
@@ -346,9 +418,13 @@ export function buildUnifiedEstimatePrompt(opts: {
 }): string {
   const { catalog, productionRates } = opts
 
-  return `You are Jamie, BidClaw's estimating agent. You follow the KYN (Know Your Numbers) framework.
+  return `You are Jamie, an expert construction estimator with decades of field experience
+in landscaping, masonry, hardscape, and related trades. You think like an experienced
+estimator, not a lookup table.
 
-PRIME DIRECTIVE: Every item mentioned in scope_description must have a matching line item. Every line item must be mentioned in scope_description. These are generated together. There is no scope without a line item. There is no line item without a scope mention.
+PRIME DIRECTIVE: Every item mentioned in scope_description must have a matching line item.
+Every line item must be mentioned in scope_description. These are generated together.
+There is no scope without a line item. There is no line item without a scope mention.
 
 BidClaw is a quantity and scope tool ONLY. It collects:
 - Quantities (SF, CY, LF, EA, hours)
@@ -356,7 +432,8 @@ BidClaw is a quantity and scope tool ONLY. It collects:
 - Sub costs (what subs charge — no markup)
 - Equipment items and hours (no rates)
 - Labor man hours (no rates, no burden)
-BidClaw NEVER calculates or discusses: labor burden, overhead, profit margin, markups, retail labor rate, RPR, or any pricing totals. All of that lives in QuickCalc.
+BidClaw NEVER calculates or discusses: labor burden, overhead, profit margin, markups,
+retail labor rate, RPR, or any pricing totals. All of that lives in QuickCalc.
 
 ${buildCatalogBlock(catalog)}
 
@@ -364,12 +441,21 @@ ${buildProductionRatesBlock(productionRates)}
 
 ${KIT_LIBRARY_RATES}
 
-RESEARCH BEFORE ESTIMATING:
-Before building line items for any work area, use web search to verify the correct construction method — especially for brand-name products, unfamiliar methods, or specialty installations. For example:
-- "Techo Bloc retaining wall" → search "how to build Techo Bloc retaining wall materials needed"
-- "Bluestone patio drylaid" → search "drylaid bluestone patio installation materials and steps"
-- "Vinyl fence installation" → search "vinyl fence installation materials list"
-Use what you learn to select the correct materials, methods, and installation sequence. Do NOT substitute generic alternatives for brand-name products. If web search returns conflicting methods, use the manufacturer's recommended installation method. If no web search tool is available, proceed with kit library knowledge and general trade knowledge.
+RESEARCH FIRST — ALWAYS:
+Before building line items, ALWAYS use web search to understand the complete assembly
+for the work type — even when you have reference rates. Your reference rates tell you
+HOW LONG. Web search tells you WHAT GOES INTO IT. Both are needed.
+
+Search for: "[work type] complete materials and equipment list contractor estimate"
+For brand-name products: search the manufacturer's recommended installation method.
+Do NOT substitute generic alternatives for brand-name products.
+
+Use your production rate reference data to CALIBRATE labor projections. Field-proven
+rates from real jobs are more reliable than generic internet estimates. But they are
+baselines — adjust for project-specific complexity.
+
+Consider the specific project conditions — site access, terrain, existing structures,
+regional factors. What makes THIS job different?
 
 LABOR TYPE RULES — MATCH LABOR TO THE TRADE:
 Masonry / Stone / Hardscape:

@@ -20,7 +20,7 @@ import {
 import { PageLayout } from '@/components/PageLayout'
 
 interface EstimateDashboardProps {
-  onNewEstimate: () => void
+  onNewEstimate: () => void | Promise<void>
   onOpenEstimate: (id: string) => void
 }
 
@@ -65,6 +65,7 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all')
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   // Fetch estimates
   useEffect(() => {
@@ -163,11 +164,29 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
       {/* Header */}
       <div className="mb-6 flex items-center justify-end">
         <button
-          onClick={onNewEstimate}
-          className="inline-flex items-center gap-2 rounded-lg bg-[#1e40af] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1e3a8a] transition-colors"
+          onClick={async () => {
+            if (creating) return
+            setCreating(true)
+            try {
+              await onNewEstimate()
+            } finally {
+              setCreating(false)
+            }
+          }}
+          disabled={creating}
+          className="inline-flex items-center gap-2 rounded-lg bg-[#1e40af] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1e3a8a] transition-colors disabled:opacity-60"
         >
-          <PlusCircle size={18} />
-          New Estimate
+          {creating ? (
+            <>
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Creating...
+            </>
+          ) : (
+            <>
+              <PlusCircle size={18} />
+              New Estimate
+            </>
+          )}
         </button>
       </div>
 
@@ -216,11 +235,29 @@ export function EstimateDashboard({ onNewEstimate, onOpenEstimate }: EstimateDas
           </p>
           {estimates.length === 0 && (
             <button
-              onClick={onNewEstimate}
-              className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-[#2563EB] hover:text-blue-700"
+              onClick={async () => {
+                if (creating) return
+                setCreating(true)
+                try {
+                  await onNewEstimate()
+                } finally {
+                  setCreating(false)
+                }
+              }}
+              disabled={creating}
+              className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-[#2563EB] hover:text-blue-700 disabled:opacity-60"
             >
-              <PlusCircle size={16} />
-              Create your first estimate
+              {creating ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-300 border-t-blue-600" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <PlusCircle size={16} />
+                  Create your first estimate
+                </>
+              )}
             </button>
           )}
         </div>

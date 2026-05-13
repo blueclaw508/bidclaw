@@ -24,7 +24,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json()
-    const { messages, system, max_tokens = 4096 } = body
+    const { messages, system, max_tokens = 4096, model, temperature, tools } = body
 
     // Pre-process messages: download any URL-sourced files and convert to base64
     const processedMessages = await Promise.all(
@@ -77,11 +77,13 @@ Deno.serve(async (req: Request) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: model || 'claude-sonnet-4-20250514',
         max_tokens,
         stream: true,
         system: system || '',
         messages: processedMessages,
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...(tools ? { tools } : {}),
       }),
     })
 
@@ -130,7 +132,7 @@ Deno.serve(async (req: Request) => {
 
         const finalResponse = {
           content: [{ type: 'text', text: fullText }],
-          model: 'claude-sonnet-4-20250514',
+          model: model || 'claude-sonnet-4-20250514',
           stop_reason: 'end_turn',
         }
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', response: finalResponse })}\n\n`))

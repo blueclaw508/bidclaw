@@ -184,21 +184,111 @@ async function rasterizePDFFromBuffer(data: ArrayBuffer): Promise<string> {
  */
 async function rasterizeFirstPage(pdf: pdfjsLib.PDFDocumentProxy): Promise<string> {
   const page = await pdf.getPage(1)
+  return await rasterizePage(page)
+}
 
-  // Calculate scale for target DPI (PDF default is 72 DPI)
+/**
+ * Rasterize a single PDF page to JPEG base64.
+ */
+async function rasterizePage(page: pdfjsLib.PDFPageProxy): Promise<string> {
   const scale = RASTER_DPI / 72
   const viewport = page.getViewport({ scale })
 
+  // Cap dimensions at 2048px on longest edge (Opus handles this well)
+  let finalScale = scale
+  const maxDim = Math.max(viewport.width, viewport.height)
+  if (maxDim > 2048) {
+    finalScale = scale * (2048 / maxDim)
+  }
+  const finalViewport = page.getViewport({ scale: finalScale })
+
   const canvas = document.createElement('canvas')
-  canvas.width = viewport.width
-  canvas.height = viewport.height
+  canvas.width = finalViewport.width
+  canvas.height = finalViewport.height
 
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Could not create canvas context')
 
-  await page.render({ canvasContext: ctx, viewport, canvas } as Parameters<typeof page.render>[0]).promise
+  await page.render({ canvasContext: ctx, viewport: finalViewport, canvas } as Parameters<typeof page.render>[0]).promise
 
-  // Convert to JPEG base64 (strip data URL prefix)
   const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY)
   return dataUrl.replace(/^data:image\/jpeg;base64,/, '')
+}
+
+// ── V2: Multi-page PDF rasterization ──
+
+export interface RasterizedPage {
+  pageIndex: number      // 0-based
+  base64: string         // JPEG base64 (no data URL prefix)
+  width: number
+  height: number
+}
+
+/**
+ * Rasterize ALL pages of a PDF to JPEG base64 images.
+ * Used by V2 Pass 1 — Jamie needs to see every plan sheet.
+ */
+export async function rasterizeAllPDFPages(url: string): Promise<RasterizedPage[]> {
+  const pdf = await pdfjsLib.getDocument({ url }).promise
+  const pages: RasterizedPage[] = []
+
+  console.log(`[PlanProcessor] Rasterizing all ${pdf.numPages} pages from PDF`)
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i)
+    const scale = RASTER_DPI / 72
+    const viewport = page.getViewport({ scale })
+
+    // Cap at 2048px
+    let finalScale = scale
+    const maxDim = Math.max(viewport.width, viewport.height)
+    if (maxDim > 2048) {
+      finalScale = scale * (2048 / maxDim)
+    }
+    const finalViewport = page.getViewport({ scale: finalScale })
+
+    const base64 = await rasterizePage(page)
+    pages.push({
+      pageIndex: i - 1,
+      base64,
+      width: Math.round(finalViewport.width),
+      height: Math.round(finalViewport.height),
+    })
+    console.log(`[PlanProcessor] Page ${i}/${pdf.numPages}: ${(base64.length / 1024).toFixed(0)} KB`)
+  }
+
+  pdf.destroy()
+  return pages
+}
+
+/**
+ * Rasterize ALL pages of a PDF from ArrayBuffer.
+ */
+export async function rasterizeAllPDFPagesFromBuffer(data: ArrayBuffer): Promise<RasterizedPage[]> {
+  const pdf = await pdfjsLib.getDocument({ data }).promise
+  const pages: RasterizedPage[] = []
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i)
+    const scale = RASTER_DPI / 72
+    const viewport = page.getViewport({ scale })
+
+    let finalScale = scale
+    const maxDim = Math.max(viewport.width, viewport.height)
+    if (maxDim > 2048) {
+      finalScale = scale * (2048 / maxDim)
+    }
+    const finalViewport = page.getViewport({ scale: finalScale })
+
+    const base64 = await rasterizePage(page)
+    pages.push({
+      pageIndex: i - 1,
+      base64,
+      width: Math.round(finalViewport.width),
+      height: Math.round(finalViewport.height),
+    })
+  }
+
+  pdf.destroy()
+  return pages
 }

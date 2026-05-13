@@ -284,3 +284,295 @@ export function roundManHours(manHours: number, crewSize: number, hoursPerDay: n
   if (crewDay <= 0) return manHours
   return Math.ceil(manHours / crewDay) * crewDay
 }
+
+// ============================================================
+// V2 Types — BidClaw Rebuild (April 2026)
+// Maps 1:1 to new relational schema (estimates + work_areas +
+// line_items + measurements tables). Old types above are
+// preserved for backward compat during the rebuild.
+// ============================================================
+
+// ── Estimate Status (V2 flow) ──
+
+export type V2EstimateStatus =
+  | 'draft'
+  | 'pass1_complete'
+  | 'estimating'
+  | 'review'
+  | 'sent'
+  | 'exported'
+
+// ── Plan File (stored in estimates.plans JSONB array) ──
+
+export interface V2PlanFile {
+  file_path: string
+  file_name: string
+  page_count: number
+  rasterized_pages: string[]   // URLs to individual page images
+  uploaded_at: string
+}
+
+// ── Pass 1 Extraction (stored in estimates.pass1_extraction JSONB) ──
+
+export interface V2Pass1Dimension {
+  item: string
+  value: string
+  unit: string
+  calculated_area?: number
+}
+
+export interface V2Pass1Material {
+  item: string
+  spec: string
+  location: string
+}
+
+export interface V2Pass1Quantity {
+  item: string
+  count: number
+  size?: string
+}
+
+export interface V2Pass1Annotation {
+  text: string
+  location: string
+}
+
+export interface V2Pass1AreaZone {
+  name: string
+  approx_sf: number
+  notes?: string
+}
+
+export interface V2Pass1ExistingCondition {
+  item: string
+  note: string
+}
+
+export interface V2Pass1Unknown {
+  item: string
+  note: string
+}
+
+export type V2Pass1Confidence = 'high' | 'medium' | 'low'
+
+export interface V2Pass1Extraction {
+  plans_analyzed: number
+  confidence: V2Pass1Confidence
+
+  // Raw extraction (nested under "extraction" in v3, flattened for compat)
+  dimensions: V2Pass1Dimension[]
+  materials: V2Pass1Material[]
+  quantities: V2Pass1Quantity[]
+  annotations: V2Pass1Annotation[]
+  areas_zones: V2Pass1AreaZone[]
+  existing_conditions: V2Pass1ExistingCondition[]
+  scale: string | null
+  unknowns: V2Pass1Unknown[]
+
+  // v3 additions — Jamie proposes work areas + asks questions + extracts client info
+  proposed_work_areas?: V2Pass1ProposedWorkArea[]
+  questions?: V2Pass1Question[]
+  client_info_found?: V2Pass1ClientInfo
+}
+
+// ── v3 Pass 1 — Proposed Work Areas ──
+
+export interface V2Pass1ProposedWorkArea {
+  name: string
+  summary: string
+  relevant_extraction: string[]
+  confidence: V2Pass1Confidence
+}
+
+// ── v3 Pass 1 — Dynamic Questions ──
+
+export interface V2Pass1Question {
+  question: string
+  options?: string[]
+  allow_custom?: boolean
+  relates_to_work_area?: string
+  answer?: string
+}
+
+// ── v3 Pass 1 — Client Info Found on Plans ──
+
+export interface V2Pass1ClientInfo {
+  address?: string | null
+  city?: string | null
+  state?: string | null
+  client_name?: string | null
+  project_name?: string | null
+  notes?: string | null
+}
+
+// ── Estimates Table (V2 — new columns added to existing table) ──
+
+export interface V2Estimate {
+  id: string
+  user_id: string
+  created_at: string
+  updated_at: string
+
+  // Customer info (1:1 with QuickCalc)
+  first_name: string
+  last_name: string
+  company_name: string | null
+  phone: string | null
+  email: string | null
+
+  // Project info
+  estimate_name: string | null
+  address_line: string
+  city: string
+  state: string
+  zip: string
+  project_type: string | null
+  project_description: string | null
+
+  // Plan data
+  plans: V2PlanFile[] | null
+
+  // Pass 1 output
+  pass1_extraction: V2Pass1Extraction | null
+  pass1_confidence: V2Pass1Confidence | null
+  pass1_completed_at: string | null
+
+  // Status
+  status: V2EstimateStatus
+}
+
+// ── Work Areas Table ──
+
+export type V2Pass2Mode = 'mode1' | 'mode2'
+
+export interface V2GapQuestion {
+  question: string
+  answer?: string
+  answered_at?: string
+}
+
+export interface V2WorkArea {
+  id: string
+  estimate_id: string
+  name: string
+  sort_order: number
+  created_at: string
+
+  // Pass 2 output
+  scope_description: string | null
+  pass2_mode: V2Pass2Mode | null
+  pass2_raw: Record<string, unknown> | null
+  gap_questions: V2GapQuestion[] | null
+  pass2_completed_at: string | null
+}
+
+// ── Line Items Table ──
+
+export type V2LineItemCategory =
+  | 'Materials'
+  | 'Equipment'
+  | 'Labor'
+  | 'Subcontractor'
+  | 'Other'
+
+export type V2MatchStatus = 'exact' | 'fuzzy' | 'new' | 'manual'
+export type V2LineItemSource = 'jamie' | 'user_added' | 'user_edited'
+
+export interface V2LineItem {
+  id: string
+  work_area_id: string
+  estimate_id: string
+  sort_order: number
+  created_at: string
+
+  // Item data
+  name: string
+  qty: number
+  unit: string
+  category: V2LineItemCategory
+
+  // Catalog matching
+  catalog_item_id: string | null
+  match_status: V2MatchStatus | null
+
+  // Source tracking
+  source: V2LineItemSource
+  original_name: string | null
+}
+
+// ── Measurements Table ──
+
+export type V2MeasurementShape = 'rectangle' | 'polygon' | 'linear'
+
+export interface V2MeasurementVertex {
+  x: number
+  y: number
+}
+
+export interface V2Measurement {
+  id: string
+  estimate_id: string
+  work_area_id: string | null
+  plan_index: number | null
+  created_at: string
+
+  // Measurement data
+  name: string | null
+  shape: V2MeasurementShape | null
+  area_sf: number | null
+  linear_ft: number | null
+  length_ft: number | null
+  width_ft: number | null
+  vertices: V2MeasurementVertex[] | null
+  scale_ppi: number | null
+}
+
+// ── Pass 2 API Response (what Jamie returns per work area) ──
+
+export interface V2Pass2Response {
+  work_area: string
+  scope_description: string
+  line_items: {
+    name: string
+    qty: number
+    unit: string
+    category: V2LineItemCategory
+    catalog_item_id: string | null
+    match_status: V2MatchStatus
+  }[]
+  reasoning?: string
+  gap_questions: string[]
+  new_catalog_items: string[]
+}
+
+// ── QuickCalc Push Payload (V2 — no cost fields) ──
+
+export interface V2QuickCalcPayload {
+  // Customer info (1:1 with QC fields)
+  first_name: string
+  last_name: string
+  company_name: string | null
+  phone: string | null
+  email: string | null
+  estimate_name: string | null
+  address_line: string
+  city: string
+  state: string
+  zip: string
+  project_description: string | null
+
+  // Work areas with line items
+  work_areas: {
+    name: string
+    scope_description: string | null
+    line_items: {
+      catalog_item_id: string | null
+      name: string
+      qty: number
+      unit: string
+      category: V2LineItemCategory
+      // NO cost, price, rate, or amount fields — ever
+    }[]
+  }[]
+}
