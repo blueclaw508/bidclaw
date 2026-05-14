@@ -1,382 +1,831 @@
-import { useState, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
-import { supabase } from '@/lib/supabase'
 import {
-  Upload,
-  Brain,
-  ClipboardList,
-  Send,
-  CheckCircle2,
+  AlertCircle,
   ArrowRight,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardCheck,
+  Database,
+  FileBadge,
+  Gauge,
+  Layers,
+  LogIn,
+  Play,
+  Send,
+  ShieldCheck,
+  Sparkles,
+  ThumbsUp,
+  Zap,
 } from 'lucide-react'
 
-/* ------------------------------------------------------------------ */
-/*  Jamie Avatar — consistent circular "J" avatar                      */
-/* ------------------------------------------------------------------ */
-function JamieAvatar({ size = 48 }: { size?: number }) {
-  const borderW = size > 30 ? 2.5 : 1.5
-  const fontSize = size * 0.46
+// QC's hero YouTube video — reused per Ian's decision. Same video, BC branding.
+const HERO_YT_ID = 'iC3X-d3bfcU'
+
+/* ============================================================
+ * Small building blocks
+ * ============================================================ */
+
+function HeroYouTube() {
+  const [playing, setPlaying] = useState(false)
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      fill="none"
-      className="flex-shrink-0"
+    <div
+      className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"
+      style={{ aspectRatio: '16/9' }}
     >
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={size / 2 - borderW}
-        fill="#0c1428"
-        stroke="#3b82f6"
-        strokeWidth={borderW}
-      />
-      <text
-        x="50%"
-        y="50%"
-        dominantBaseline="central"
-        textAnchor="middle"
-        fill="#fff"
-        fontFamily="Georgia, 'Times New Roman', serif"
-        fontWeight="700"
-        fontSize={fontSize}
-      >
-        J
-      </text>
-    </svg>
+      {playing ? (
+        <iframe
+          className="absolute inset-0 h-full w-full"
+          src={`https://www.youtube.com/embed/${HERO_YT_ID}?autoplay=1&rel=0`}
+          title="See how BidClaw works in under 3 minutes"
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setPlaying(true)}
+          className="group absolute inset-0 h-full w-full cursor-pointer"
+          aria-label="Play hero video"
+        >
+          <img
+            src={`https://img.youtube.com/vi/${HERO_YT_ID}/maxresdefault.jpg`}
+            alt="Watch BidClaw in action"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+            loading="lazy"
+          />
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#C9A84C] text-white shadow-lg transition-transform group-hover:scale-110 sm:h-20 sm:w-20">
+              <Play className="ml-1 h-7 w-7 fill-current sm:h-9 sm:w-9" />
+            </span>
+          </span>
+        </button>
+      )}
+    </div>
   )
 }
 
-/* ------------------------------------------------------------------ */
-/*  PromoScreen — Branded cover page matching QuickCalc                */
-/* ------------------------------------------------------------------ */
+function FeatureCard({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: typeof Zap
+  title: string
+  body: string
+}) {
+  return (
+    <div className="flex flex-col items-start rounded-xl border border-brand-border bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-navy hover:shadow-[0_8px_24px_rgba(0,50,161,0.12)]">
+      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-brand-navy/10 text-brand-navy">
+        <Icon className="h-5 w-5" />
+      </div>
+      <h3 className="text-lg font-semibold tracking-tight text-brand-text">
+        {title}
+      </h3>
+      <p className="mt-2 text-sm leading-relaxed text-brand-text-muted">{body}</p>
+    </div>
+  )
+}
+
+function JamieValueCard({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: typeof Zap
+  title: string
+  body: string
+}) {
+  return (
+    <div className="flex flex-col items-start rounded-xl border border-brand-gold/40 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-gold hover:shadow-[0_8px_24px_rgba(201,168,76,0.18)]">
+      <div
+        className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg text-white"
+        style={{ background: 'linear-gradient(135deg, #C9A84C 0%, #A8872E 100%)' }}
+      >
+        <Icon className="h-5 w-5" />
+      </div>
+      <h3 className="text-lg font-semibold tracking-tight text-brand-text">
+        {title}
+      </h3>
+      <p className="mt-2 text-sm leading-relaxed text-brand-text-muted">{body}</p>
+    </div>
+  )
+}
+
+function PricingCard({
+  tier,
+  price,
+  perMonth,
+  description,
+  features,
+  ctaLabel,
+  variant,
+  popular,
+  onCta,
+}: {
+  tier: string
+  price: string
+  perMonth: string
+  description: string
+  features: string[]
+  ctaLabel: string
+  variant: 'free' | 'pro' | 'ai_pro'
+  popular?: boolean
+  onCta: () => void
+}) {
+  const topBar =
+    variant === 'free'
+      ? 'bg-brand-green'
+      : variant === 'pro'
+        ? 'bg-brand-gold'
+        : 'bg-brand-navy'
+
+  const ctaClasses =
+    variant === 'pro'
+      ? 'bg-brand-gold text-white hover:bg-brand-gold-dark'
+      : variant === 'ai_pro'
+        ? 'bg-brand-navy text-white hover:bg-brand-navy-dark'
+        : 'bg-brand-text text-white hover:bg-black'
+
+  return (
+    <div
+      className={`relative flex flex-col rounded-2xl border bg-white shadow-sm ${
+        popular
+          ? 'border-brand-gold shadow-[0_10px_30px_rgba(201,168,76,0.18)] lg:scale-[1.03]'
+          : 'border-brand-border'
+      }`}
+    >
+      <div className={`h-1.5 rounded-t-2xl ${topBar}`} />
+      {popular && (
+        <span
+          className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white shadow"
+          style={{ background: 'linear-gradient(135deg, #C9A84C 0%, #A8872E 100%)' }}
+        >
+          Popular
+        </span>
+      )}
+      <div className="flex flex-1 flex-col p-7">
+        <h3 className="text-lg font-bold tracking-tight text-brand-text">{tier}</h3>
+        <p className="mt-1 text-sm text-brand-text-muted">{description}</p>
+        <div className="mt-5 flex items-end gap-1">
+          <span
+            className="text-5xl font-extrabold tracking-tight text-brand-navy"
+            style={{ lineHeight: 1 }}
+          >
+            {price}
+          </span>
+          <span className="pb-1 text-sm font-semibold text-brand-text-muted">
+            {perMonth}
+          </span>
+        </div>
+
+        <ul className="mt-6 flex-1 space-y-2.5 text-sm text-brand-text">
+          {features.map((f) => (
+            <li key={f} className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-green" />
+              <span>{f}</span>
+            </li>
+          ))}
+        </ul>
+
+        <button
+          type="button"
+          onClick={onCta}
+          className={`mt-7 inline-flex w-full items-center justify-center gap-2 rounded-md px-5 py-3 text-sm font-semibold transition-colors ${ctaClasses}`}
+        >
+          {ctaLabel}
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ============================================================
+ * PromoScreen — public marketing page
+ * ============================================================ */
+
 export function PromoScreen() {
-  const { signIn, signUp } = useAuth()
-  const [isSignUp, setIsSignUp] = useState(false)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [signUpSuccess, setSignUpSuccess] = useState(false)
-  const [showReset, setShowReset] = useState(false)
-  const [resetSent, setResetSent] = useState(false)
+  const { status, user, sendMagicLink, signOut } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const loginRef = useRef<HTMLDivElement>(null)
 
-  /* ---------- handlers ---------- */
-  const handleResetPassword = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email) { setError('Please enter your email address'); return }
-    setLoading(true); setError(null)
-    const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}`,
-    })
-    if (resetErr) setError(resetErr.message)
-    else setResetSent(true)
-    setLoading(false)
+  // ── Login section state (unchanged behavior from Phase 1) ──
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  const callbackState = (location.state ?? {}) as {
+    allowlistRejected?: boolean
+    linkInvalid?: boolean
+  }
+  const [bounceMessage, setBounceMessage] = useState<string | null>(null)
+  useEffect(() => {
+    if (callbackState.allowlistRejected) {
+      setBounceMessage(
+        'That email is not authorized for BidClaw during the Phase 1 lockdown. You’ve been signed out.'
+      )
+      navigate(location.pathname, { replace: true })
+    } else if (callbackState.linkInvalid) {
+      setBounceMessage(
+        'That sign-in link is no longer valid — it may have expired or been used already. Request a new one.'
+      )
+      navigate(location.pathname, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Handlers ──
+  const scrollToLogin = () => {
+    loginRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setError(null); setLoading(true)
-    const err = isSignUp ? await signUp(email, password) : await signIn(email, password)
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    const err = await sendMagicLink(email)
     if (err) setError(err)
-    else if (isSignUp) setSignUpSuccess(true)
+    else setSent(true)
     setLoading(false)
   }
 
-  const scrollToLogin = () => {
-    loginRef.current?.scrollIntoView({ behavior: 'smooth' })
+  const goToApp = () => navigate('/app/projects')
+
+  const handleSignOutFromMarketing = async () => {
+    await signOut()
+    setSent(false)
+    setEmail('')
   }
 
-  /* ---------- render ---------- */
+  /* ============================================================
+   * Render
+   * ============================================================ */
+
   return (
-    <div className="min-h-screen bg-[#0c1428]">
-      {/* ====== HERO — Full-width dark section ====== */}
-      <div className="relative min-h-svh overflow-hidden">
-        {/* Background pattern */}
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgMGg2MHY2MEgweiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjMwIiBjeT0iMzAiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wMykiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IGZpbGw9InVybCgjZykiIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiLz48L3N2Zz4=')] opacity-60" />
-        {/* Gradient accents */}
-        <div className="absolute -top-40 -right-40 h-80 w-80 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7c3aed]/10 blur-3xl" />
-        <div className="absolute -bottom-20 -left-20 h-60 w-60 rounded-full bg-gradient-to-br from-[#0EA5E9]/10 to-[#2563EB]/10 blur-3xl" />
+    <div className="min-h-screen bg-white text-brand-text">
+      {/* ===================== HEADER ===================== */}
+      <header className="sticky top-0 z-40 border-b border-brand-border bg-white/90 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-8">
+          <a href="/" className="flex items-center gap-2.5">
+            <img
+              src="/bidclaw-logo.png"
+              alt="BidClaw"
+              className="h-10 w-10 rounded-md object-contain"
+            />
+            <span className="text-xl font-extrabold tracking-tight text-brand-navy">
+              BidClaw
+            </span>
+          </a>
+          <button
+            type="button"
+            onClick={scrollToLogin}
+            className="inline-flex items-center gap-1.5 rounded-md bg-brand-navy px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-navy-dark"
+          >
+            Try for Free / Sign In
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </header>
 
-        {/* Hero content — two-column on desktop, stacked on mobile */}
-        <div className="relative z-10 mx-auto max-w-7xl px-6 py-12 sm:px-10 lg:px-16">
-          <div className="flex flex-col items-center gap-10 lg:flex-row lg:items-center lg:gap-16">
+      {/* ===================== HERO ===================== */}
+      <section
+        className="relative overflow-hidden"
+        style={{
+          background:
+            'linear-gradient(145deg, #001A6E 0%, #0032A1 60%, #3A5FC8 100%)',
+        }}
+      >
+        <div className="absolute -top-32 -right-32 h-80 w-80 rounded-full bg-white/5 blur-3xl" />
+        <div className="absolute -bottom-32 -left-32 h-80 w-80 rounded-full bg-[#C9A84C]/15 blur-3xl" />
 
-            {/* ── Left column: Logo + Headline + Body + CTA ── */}
-            <div className="flex-1 text-center lg:text-left" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-              {/* Logo — 200×200 minimum */}
-              <img
-                src="/bidclaw-logo.png"
-                alt="BidClaw"
-                width={200}
-                height={200}
-                className="mx-auto mb-6 flex-shrink-0 rounded-xl object-contain lg:mx-0"
-                style={{ width: '200px', height: '200px', minWidth: '200px', minHeight: '200px' }}
-              />
+        <div className="relative z-10 mx-auto max-w-7xl px-4 py-20 sm:px-8 lg:py-28">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#C9A84C]">
+              Built by Contractors, for Contractors
+            </p>
+            <h1
+              className="mt-5 font-extrabold tracking-tight text-white"
+              style={{ fontSize: 'clamp(2.5rem, 6vw, 4rem)', lineHeight: 1.05 }}
+            >
+              Stop Guessing.
+              <br />
+              Start Estimating.
+            </h1>
+            <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-blue-100 sm:text-lg">
+              BidClaw is the fastest way for landscaping contractors to build
+              accurate, professional estimates — right from your phone, tablet,
+              or desktop. No spreadsheets. No guesswork. Just real numbers.
+            </p>
 
-              <h1 className="text-3xl font-bold leading-tight text-white sm:text-4xl lg:text-5xl xl:text-[3.4rem]">
-                The Estimating Engine<br />
-                <span className="bg-gradient-to-r from-[#2563EB] to-[#0EA5E9] bg-clip-text text-transparent">
-                  for BlueQuickCalc
-                </span>
-              </h1>
-
-              <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-slate-400 sm:text-lg lg:mx-0 lg:mt-6">
-                Upload your construction plans, let Jamie handle the takeoff, and push results
-                straight into QuickCalc — cutting hours off every estimate.
-              </p>
-
-              {/* CTA Button — lime green */}
+            <div className="mt-8 flex flex-col items-center gap-3">
               <button
+                type="button"
                 onClick={scrollToLogin}
-                style={{
-                  backgroundColor: '#a3e635',
-                  color: '#0f172a',
-                  fontWeight: 'bold',
-                  padding: '14px 28px',
-                  borderRadius: '8px',
-                  fontSize: '18px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  marginTop: '24px',
-                }}
-                className="inline-flex items-center gap-2 self-center transition-all hover:brightness-110 hover:shadow-lg hover:shadow-lime-400/25 lg:self-start"
+                className="inline-flex items-center gap-2 rounded-md bg-[#C9A84C] px-7 py-3.5 text-base font-bold text-white shadow-lg shadow-black/20 transition-all hover:bg-[#A8872E] hover:shadow-xl"
               >
-                Start Your Estimate →
+                Try for Free / Sign In
+                <ArrowRight className="h-5 w-5" />
               </button>
+              <p className="text-xs text-blue-200/80">
+                No credit card required. Free tier is forever free.
+              </p>
             </div>
 
-            {/* ── Right column: Jamie bubble + Video ── */}
-            <div className="w-full max-w-xl flex-shrink-0 lg:w-[48%]">
-              {/* Jamie bubble + avatar */}
-              <div className="mb-5 flex items-start gap-3">
-                <JamieAvatar size={44} />
-                <div className="rounded-xl bg-white/10 px-4 py-3 backdrop-blur-sm">
-                  <p className="text-sm leading-relaxed text-slate-300">
-                    "I'm Jamie — your estimating agent. Tell me about your project and
-                    I'll build a full estimate in minutes."
-                  </p>
-                </div>
-              </div>
-
-              {/* Video */}
-              <div className="relative w-full overflow-hidden rounded-xl border border-white/10 shadow-2xl">
-                <video
-                  src="/jamie-intro.mp4"
-                  controls
-                  playsInline
-                  preload="metadata"
-                  poster="/jamie-avatar.png"
-                  className="w-full rounded-xl"
-                  style={{ aspectRatio: '16/9' }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* How it works — 4 tiles (below hero columns) */}
-          <div className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:mt-14 lg:gap-4">
-            {[
-              { icon: Upload, label: 'Upload Plans', desc: 'PDFs, images, or scanned drawings' },
-              { icon: Brain, label: 'Jamie Takeoff', desc: 'Work areas, quantities, materials' },
-              { icon: ClipboardList, label: 'Review & Adjust', desc: 'Tweak quantities and scope' },
-              { icon: Send, label: 'Send to QuickCalc', desc: 'Push directly to your estimate' },
-            ].map((step, i) => {
-              const Icon = step.icon
-              return (
-                <div key={i} className="flex items-start gap-3 rounded-lg bg-white/5 p-3">
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#2563EB]/20 text-[#60A5FA]">
-                    <Icon size={16} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">{step.label}</p>
-                    <p className="text-[11px] text-slate-500">{step.desc}</p>
-                  </div>
-                </div>
-              )
-            })}
+            <p className="mt-6 text-sm text-blue-200/70">
+              Learn more about our firm and services at{' '}
+              <a
+                href="https://www.blueclawgroup.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-white underline-offset-4 hover:underline"
+              >
+                blueclawgroup.com
+              </a>
+            </p>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* ====== LOGIN SECTION — full-width dark ====== */}
-      <div ref={loginRef} className="bg-[#0c1428] px-6 py-12 sm:px-8 lg:py-16">
+      {/* ===================== HERO VIDEO ===================== */}
+      <section className="border-b border-brand-border bg-brand-surface py-16 sm:py-20">
+        <div className="mx-auto max-w-4xl px-4 sm:px-8">
+          <HeroYouTube />
+          <p className="mt-5 text-center text-sm font-semibold text-brand-text-muted">
+            See how BidClaw works in under 3 minutes
+          </p>
+        </div>
+      </section>
+
+      {/* ===================== WHY LANDSCAPERS LOVE BIDCLAW ===================== */}
+      <section className="py-20 sm:py-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-8">
+          <header className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-extrabold tracking-tight text-brand-text sm:text-4xl">
+              Why Landscapers Love BidClaw
+            </h2>
+          </header>
+          <div className="mt-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <FeatureCard
+              icon={Zap}
+              title="Estimates in Minutes"
+              body="Build detailed, multi-area estimates faster than any spreadsheet."
+            />
+            <FeatureCard
+              icon={Gauge}
+              title="Know Your Numbers"
+              body="Dial in your labor rates, overhead, and profit margins — so every bid is profitable."
+            />
+            <FeatureCard
+              icon={FileBadge}
+              title="Professional PDFs"
+              body="Send branded, client-ready proposals with one tap. No awkward email chains."
+            />
+            <FeatureCard
+              icon={ThumbsUp}
+              title="Client Approvals"
+              body="Clients approve estimates online. Track status in real time."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ===================== BRAD LEA BAND ===================== */}
+      <section
+        className="border-y border-white/5 py-12"
+        style={{ background: 'linear-gradient(180deg, #001A6E 0%, #002080 100%)' }}
+      >
+        <div className="mx-auto flex max-w-5xl flex-col items-center gap-6 px-4 text-center sm:px-8 md:flex-row md:justify-center md:gap-10 md:text-left">
+          <p
+            className="text-xs font-bold uppercase tracking-[0.18em] md:text-sm"
+            style={{ color: '#C9A84C' }}
+          >
+            As Seen On Dropping Bombs with Brad Lea!
+          </p>
+          <a
+            href="https://youtu.be/r9hLn1XKE_E"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block flex-shrink-0 overflow-hidden rounded-lg border border-white/15 shadow-lg transition-all hover:border-[#C9A84C]/60 hover:shadow-[0_8px_24px_rgba(201,168,76,0.25)]"
+          >
+            <img
+              src="/ian-brad-lea.jpg"
+              alt="Ian McCarthy with Brad Lea on Dropping Bombs podcast"
+              className="h-32 w-44 object-cover"
+            />
+          </a>
+        </div>
+      </section>
+
+      {/* ===================== JAMIE SECTION (NEW) ===================== */}
+      <section className="relative py-20 sm:py-24" style={{ background: '#FFFCF1' }}>
+        <div className="mx-auto max-w-6xl px-4 sm:px-8">
+          <header className="mx-auto max-w-2xl text-center">
+            <span
+              className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-white shadow"
+              style={{
+                background: 'linear-gradient(135deg, #C9A84C 0%, #A8872E 100%)',
+              }}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              New
+            </span>
+            <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-brand-text sm:text-4xl">
+              Meet Jamie. Your AI Estimating Partner.
+            </h2>
+            <p className="mt-4 text-base leading-relaxed text-brand-text-muted sm:text-lg">
+              Upload your plans. Jamie reads them, asks the right questions,
+              and builds a complete proposal — work areas, scope, line items,
+              pricing — using your own catalog and labor rates.
+            </p>
+          </header>
+
+          <div className="mx-auto mt-12 max-w-4xl">
+            <div
+              className="relative overflow-hidden rounded-2xl border border-brand-gold/40 bg-black shadow-xl"
+              style={{ aspectRatio: '16/9' }}
+            >
+              <video
+                src="/jamie-intro.mp4"
+                controls
+                playsInline
+                preload="metadata"
+                poster="/jamie-avatar.png"
+                className="absolute inset-0 h-full w-full"
+              />
+            </div>
+          </div>
+
+          <div className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-3">
+            <JamieValueCard
+              icon={Layers}
+              title="Plans In, Proposals Out"
+              body="Jamie does the takeoff, scope, and pricing work that used to eat your evenings."
+            />
+            <JamieValueCard
+              icon={Database}
+              title="Built on Your Numbers"
+              body="Pulls from your catalog, your rates, your markups — no generic AI guessing."
+            />
+            <JamieValueCard
+              icon={ShieldCheck}
+              title="You're Always In Control"
+              body="Review, edit, and approve every line. Jamie proposes, you decide."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ===================== $12M SECTION ===================== */}
+      <section className="border-y border-brand-border bg-brand-surface py-20 sm:py-24">
+        <div className="mx-auto max-w-4xl px-4 text-center sm:px-8">
+          <h2 className="text-3xl font-extrabold tracking-tight text-brand-text sm:text-4xl">
+            Built by a <span className="text-brand-navy">$12M</span> Landscaping Company
+          </h2>
+          <p className="mt-6 text-base leading-relaxed text-brand-text sm:text-lg">
+            BidClaw was built by Blue Claw Associates — a Cape Cod landscaping
+            company that grew to $12 million a year. We know the estimating
+            struggle firsthand: too many spreadsheets, too many missed margins,
+            too much time wasted on bids that should take minutes, not hours.
+          </p>
+          <p className="mt-5 text-base leading-relaxed text-brand-text sm:text-lg">
+            So we built the tool we always wished we had. BidClaw lets you plug
+            in your real numbers — labor burden, equipment rates, overhead,
+            profit targets — and instantly produce accurate estimates your
+            clients will take seriously. Whether you are a solo operator or
+            running multiple crews, BidClaw scales with you.
+          </p>
+
+          {/* Stats row */}
+          <div className="mx-auto mt-10 grid max-w-2xl grid-cols-3 gap-6">
+            <div>
+              <div
+                className="text-3xl font-extrabold text-brand-navy sm:text-4xl"
+                style={{ lineHeight: 1 }}
+              >
+                $12M+
+              </div>
+              <div className="mt-2 text-[10px] font-bold uppercase tracking-widest text-brand-text-muted">
+                Revenue Built
+              </div>
+            </div>
+            <div>
+              <div
+                className="text-3xl font-extrabold text-brand-navy sm:text-4xl"
+                style={{ lineHeight: 1 }}
+              >
+                6.5 yrs
+              </div>
+              <div className="mt-2 text-[10px] font-bold uppercase tracking-widest text-brand-text-muted">
+                To Build It
+              </div>
+            </div>
+            <div>
+              <div
+                className="text-3xl font-extrabold text-brand-navy sm:text-4xl"
+                style={{ lineHeight: 1 }}
+              >
+                30 yrs
+              </div>
+              <div className="mt-2 text-[10px] font-bold uppercase tracking-widest text-brand-text-muted">
+                Experience
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={scrollToLogin}
+            className="mt-10 inline-flex items-center gap-2 rounded-md bg-brand-navy px-7 py-3 text-base font-bold text-white shadow-md transition-colors hover:bg-brand-navy-dark"
+          >
+            Start Building Today
+            <ArrowRight className="h-5 w-5" />
+          </button>
+        </div>
+      </section>
+
+      {/* ===================== PRICING ===================== */}
+      <section className="py-20 sm:py-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-8">
+          <header className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-extrabold tracking-tight text-brand-text sm:text-4xl">
+              Start Free. Upgrade When You're Ready.
+            </h2>
+            <p className="mt-4 text-base text-brand-text-muted sm:text-lg">
+              No credit card. No commitment. Start free with 5 estimates a
+              month. Step up to Pro for unlimited estimates, projects, and
+              QuickBooks sync — or AI Pro to let Jamie handle the estimating.
+            </p>
+          </header>
+
+          <div className="mt-14 grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-stretch">
+            <PricingCard
+              variant="free"
+              tier="Free"
+              price="$0"
+              perMonth="Forever free"
+              description="Build estimates the manual way. Perfect for getting started."
+              features={[
+                '5 estimates per month',
+                'Item catalog',
+                'Manual pricing & markups',
+                'Mobile-friendly',
+                'Professional PDF proposals',
+              ]}
+              ctaLabel="Start Free"
+              onCta={scrollToLogin}
+            />
+            <PricingCard
+              variant="pro"
+              popular
+              tier="Pro"
+              price="$39"
+              perMonth="/ month"
+              description="Everything you need to run jobs end-to-end."
+              features={[
+                'Everything in Free, plus:',
+                'Unlimited estimates',
+                'Plan upload + measuring tool',
+                'Project workspace',
+                'Client approvals + e-sign',
+                'Branded PDF proposals',
+                'QuickBooks sync',
+                'WIP accounting',
+              ]}
+              ctaLabel="Start Pro Trial"
+              onCta={scrollToLogin}
+            />
+            <PricingCard
+              variant="ai_pro"
+              tier="AI Pro"
+              price="$199"
+              perMonth="/ month"
+              description="Let Jamie handle the estimating."
+              features={[
+                'Everything in Pro, plus:',
+                'Jamie AI plan reading',
+                'AI-generated proposals',
+                'AI takeoff',
+                'Priority support',
+              ]}
+              ctaLabel="Try AI Pro"
+              onCta={scrollToLogin}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ===================== LOGIN SECTION (PRESERVED FROM PHASE 1) ===================== */}
+      <section
+        ref={loginRef}
+        className="px-6 py-16 sm:px-8 lg:py-20"
+        style={{
+          background:
+            'linear-gradient(180deg, #001A6E 0%, #0032A1 50%, #002080 100%)',
+        }}
+      >
         <div className="mx-auto w-full max-w-sm">
-          {resetSent ? (
+          {status === 'authenticated' ? (
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#2563EB]/20 text-[#60A5FA]">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-white">
+                <CheckCircle2 className="h-6 w-6" />
+              </div>
+              <h2 className="text-xl font-bold text-white">You're signed in</h2>
+              <p className="mt-2 text-sm text-blue-100">
+                Welcome back, <strong className="text-white">{user?.email}</strong>.
+              </p>
+              <button
+                type="button"
+                onClick={goToApp}
+                className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#C9A84C] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#A8872E]"
+              >
+                Go to your projects
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleSignOutFromMarketing}
+                className="mt-3 text-xs font-medium text-blue-200 hover:text-white"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : sent ? (
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-white">
                 <Send className="h-6 w-6" />
               </div>
               <h2 className="text-xl font-bold text-white">Check your email</h2>
-              <p className="mt-2 text-sm text-slate-400">
-                We sent a password reset link to <strong className="text-white">{email}</strong>.
+              <p className="mt-2 text-sm text-blue-100">
+                We sent a sign-in link to{' '}
+                <strong className="text-white">{email}</strong>. Click it to
+                finish signing in.
               </p>
               <button
-                onClick={() => { setShowReset(false); setResetSent(false) }}
-                className="mt-6 text-sm font-medium text-[#60A5FA] hover:text-[#93C5FD]"
+                type="button"
+                onClick={() => {
+                  setSent(false)
+                  setError(null)
+                }}
+                className="mt-6 text-sm font-medium text-blue-200 hover:text-white"
               >
-                Back to sign in
-              </button>
-            </div>
-          ) : showReset ? (
-            <div>
-              <h2 className="mb-2 text-2xl font-bold text-white">Reset Password</h2>
-              <p className="mb-6 text-sm text-slate-400">
-                Enter your email and we'll send you a reset link.
-              </p>
-              <form onSubmit={handleResetPassword} className="space-y-4">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">Email</label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
-                    placeholder="you@company.com"
-                  />
-                </div>
-                {error && (
-                  <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
-                )}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-xl bg-[#2563EB] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-50"
-                >
-                  {loading ? 'Sending...' : 'Send Reset Link'}
-                </button>
-              </form>
-              <p className="mt-4 text-center text-sm text-slate-400">
-                <button onClick={() => { setShowReset(false); setError(null) }}
-                  className="font-medium text-[#60A5FA] hover:text-[#93C5FD]">
-                  Back to sign in
-                </button>
-              </p>
-            </div>
-          ) : signUpSuccess ? (
-            <div className="text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#2563EB]/20 text-[#60A5FA]">
-                <CheckCircle2 className="h-6 w-6" />
-              </div>
-              <h2 className="text-xl font-bold text-white">Check your email</h2>
-              <p className="mt-2 text-sm text-slate-400">
-                We sent a confirmation link to <strong className="text-white">{email}</strong>. Click it to activate your account.
-              </p>
-              <button
-                onClick={() => { setIsSignUp(false); setSignUpSuccess(false) }}
-                className="mt-6 text-sm font-medium text-[#60A5FA] hover:text-[#93C5FD]"
-              >
-                Back to sign in
+                Use a different email
               </button>
             </div>
           ) : (
             <>
-              <h2 className="mb-1 text-2xl font-bold text-white">
-                {isSignUp ? 'Create Account' : 'Welcome back'}
+              <h2 className="mb-1 text-center text-2xl font-bold text-white">
+                Welcome back
               </h2>
-              <p className="mb-8 text-sm text-slate-400">
-                {isSignUp
-                  ? 'Sign up with your QuickCalc email to get started.'
-                  : 'Sign in with your QuickCalc credentials.'}
+              <p className="mb-8 text-center text-sm text-blue-100">
+                Enter your email and we'll send you a sign-in link.
               </p>
+
+              {bounceMessage && (
+                <div className="mb-6 flex items-start gap-2 rounded-lg border border-red-300/40 bg-red-500/15 p-3">
+                  <AlertCircle
+                    size={16}
+                    className="mt-0.5 flex-shrink-0 text-red-200"
+                  />
+                  <p className="text-xs leading-relaxed text-red-50">
+                    {bounceMessage}
+                  </p>
+                </div>
+              )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">Email</label>
+                  <label className="mb-1.5 block text-sm font-medium text-blue-100">
+                    Email
+                  </label>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+                    className="w-full rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-blue-200/60 focus:border-[#C9A84C] focus:ring-2 focus:ring-[#C9A84C]/30"
                     placeholder="you@company.com"
                     autoFocus
                   />
                 </div>
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">Password</label>
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
-                    placeholder="••••••••"
-                  />
-                </div>
 
                 {error && (
-                  <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
+                  <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                    {error}
+                  </p>
                 )}
 
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full rounded-xl bg-[#2563EB] py-3 text-sm font-semibold text-white transition-all hover:bg-[#1D4ED8] hover:shadow-lg disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C9A84C] py-3 text-sm font-semibold text-white shadow-lg transition-all hover:bg-[#A8872E] hover:shadow-xl disabled:opacity-50"
                 >
-                  {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
+                  <LogIn className="h-4 w-4" />
+                  {loading ? 'Sending link…' : 'Send me a sign-in link'}
                 </button>
               </form>
 
-              <p className="mt-6 text-center text-sm text-slate-400">
-                {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-                <button
-                  onClick={() => { setIsSignUp(!isSignUp); setError(null) }}
-                  className="font-medium text-[#60A5FA] hover:text-[#93C5FD]"
-                >
-                  {isSignUp ? 'Sign in' : 'Sign up'}
-                </button>
-              </p>
-
-              {!isSignUp && (
-                <p className="mt-2 text-center">
-                  <button
-                    onClick={() => { setShowReset(true); setError(null) }}
-                    className="text-xs text-slate-500 hover:text-[#60A5FA]"
+              {/* Phase 1 lockdown note — INTENTIONALLY does not name the
+                  allowlisted email. Disclosing the email here would tell
+                  every visitor exactly which account has system access. */}
+              <div className="mt-8 flex items-start gap-3 rounded-lg border border-white/15 bg-white/5 p-3">
+                <ClipboardCheck
+                  size={16}
+                  className="mt-0.5 flex-shrink-0 text-[#C9A84C]"
+                />
+                <p className="text-xs leading-relaxed text-blue-100">
+                  BidClaw is in private Phase 1 testing. Open access arrives in
+                  a later phase. For early-access inquiries, contact{' '}
+                  <a
+                    href="mailto:info@blueclawgroup.com"
+                    className="font-semibold text-white underline-offset-4 hover:underline"
                   >
-                    Forgot your password?
-                  </button>
-                </p>
-              )}
-
-              {/* QuickCalc requirement note */}
-              <div className="mt-8 flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
-                <ArrowRight size={16} className="mt-0.5 flex-shrink-0 text-[#60A5FA]" />
-                <p className="text-xs leading-relaxed text-slate-400">
-                  BidClaw requires a <strong className="text-white">BlueQuickCalc</strong> account.
-                  Your catalog, production rates, and company profile sync automatically.
+                    info@blueclawgroup.com
+                  </a>
+                  .
                 </p>
               </div>
             </>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Bottom brand bar */}
-      <div className="border-t border-white/10 bg-[#0c1428] px-6 py-4 sm:px-12">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex items-center gap-6">
-            <a href="https://blueclawgroup.com/know-your-numbers/" target="_blank" rel="noopener noreferrer"
-              className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
-              Know Your Numbers
-            </a>
-            <a href="https://bluequickcalc.app" target="_blank" rel="noopener noreferrer"
-              className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
-              QuickCalc
-            </a>
-            <a href="https://blueclawgroup.com" target="_blank" rel="noopener noreferrer"
-              className="text-xs font-medium text-slate-500 hover:text-white transition-colors">
-              Blue Claw Group
-            </a>
+      {/* ===================== FOOTER ===================== */}
+      <footer className="bg-[#001A6E] text-white">
+        <div className="mx-auto max-w-7xl px-4 py-14 sm:px-8">
+          <div className="grid grid-cols-1 gap-10 md:grid-cols-3">
+            {/* Left — Brand */}
+            <div>
+              <div className="flex items-center gap-2.5">
+                <img
+                  src="/bidclaw-logo.png"
+                  alt="BidClaw"
+                  className="h-10 w-10 rounded-md object-contain"
+                />
+                <span className="text-xl font-extrabold tracking-tight text-white">
+                  BidClaw
+                </span>
+              </div>
+              <p className="mt-4 text-sm leading-relaxed text-blue-200">
+                A product of The Blue Claw Group — helping landscapers run
+                smarter, more profitable businesses through better systems and
+                real numbers.
+              </p>
+              <a
+                href="https://www.blueclawgroup.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#C9A84C] hover:text-white"
+              >
+                www.blueclawgroup.com
+                <ChevronRight className="h-4 w-4" />
+              </a>
+            </div>
+
+            {/* Middle — Get in Touch */}
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-widest text-[#C9A84C]">
+                Get in Touch
+              </h3>
+              <ul className="mt-4 space-y-2.5 text-sm text-blue-100">
+                <li>
+                  <a
+                    href="mailto:info@blueclawgroup.com"
+                    className="hover:text-white"
+                  >
+                    info@blueclawgroup.com
+                  </a>
+                </li>
+                <li>
+                  <a href="tel:+15089869998" className="hover:text-white">
+                    508-986-9998
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://www.blueclawgroup.com/know-your-numbers"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-white"
+                  >
+                    Take the Know Your Numbers online course
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            {/* Right — empty (reserved for future links) — keeps grid balance */}
+            <div className="hidden md:block" />
           </div>
-          <p className="text-[10px] text-slate-600">
-            &copy; {new Date().getFullYear()} Blue Claw Group
-          </p>
+
+          <div className="mt-12 border-t border-white/10 pt-6 text-center text-xs text-blue-200/70">
+            © {new Date().getFullYear()} The Blue Claw Group. All rights reserved.
+          </div>
         </div>
-      </div>
+      </footer>
     </div>
   )
 }

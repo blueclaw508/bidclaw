@@ -1,0 +1,168 @@
+import { useState } from 'react'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import {
+  ClipboardList,
+  Users,
+  BookOpen,
+  Settings as SettingsIcon,
+  LogOut,
+  Menu,
+  X,
+} from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
+import { MarketingBar } from '@/components/MarketingBar'
+import { cn } from '@/lib/utils'
+
+const navItems = [
+  { to: '/app/projects',  label: 'Projects',  icon: ClipboardList },
+  { to: '/app/customers', label: 'Customers', icon: Users },
+  { to: '/app/catalog',   label: 'Catalog',   icon: BookOpen },
+  { to: '/app/settings',  label: 'Settings',  icon: SettingsIcon },
+]
+
+export function AppShell() {
+  const { user, signOut } = useAuth()
+  const navigate = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+
+  const handleSignOut = async () => {
+    setUserMenuOpen(false)
+    await signOut()
+    navigate('/', { replace: true })
+  }
+
+  return (
+    <div className="flex min-h-svh flex-col bg-brand-surface">
+      {/* HEADER */}
+      <header className="sticky top-0 z-40 border-b border-brand-border bg-white">
+        <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-4 sm:px-6">
+          <Link
+            to="/app/projects"
+            className="flex shrink-0 items-center gap-2.5"
+          >
+            <img
+              src="/bidclaw-logo-sm.png"
+              alt="BidClaw"
+              className="h-9 w-9 rounded-md object-contain"
+            />
+            <span className="text-lg font-bold tracking-tight text-brand-navy">
+              BidClaw
+            </span>
+          </Link>
+
+          {/* Desktop nav */}
+          <nav className="hidden items-center gap-1 md:flex">
+            {navItems.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                    isActive
+                      ? 'bg-brand-navy/10 text-brand-navy'
+                      : 'text-brand-text-muted hover:bg-brand-surface hover:text-brand-text'
+                  )
+                }
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+
+          {/* User menu (desktop) */}
+          <div className="relative hidden md:block">
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen((v) => !v)}
+              className="flex items-center gap-2 rounded-md border border-brand-border bg-white px-3 py-1.5 text-xs font-medium text-brand-text-muted hover:border-brand-navy/40 hover:text-brand-text"
+            >
+              <span className="max-w-[180px] truncate">{user?.email ?? 'Signed in'}</span>
+            </button>
+            {userMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setUserMenuOpen(false)}
+                  aria-hidden="true"
+                />
+                <div className="absolute right-0 top-full z-40 mt-1 w-56 rounded-md border border-brand-border bg-white py-1 shadow-lg">
+                  <div className="border-b border-brand-border px-3 py-2 text-xs text-brand-text-muted">
+                    {user?.email}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-brand-text hover:bg-brand-surface"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sign out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Mobile hamburger */}
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-brand-border text-brand-text-muted md:hidden"
+            aria-label="Toggle menu"
+          >
+            {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
+
+        {/* Mobile menu */}
+        {menuOpen && (
+          <div className="border-t border-brand-border bg-white px-4 py-3 md:hidden">
+            <nav className="flex flex-col gap-1">
+              {navItems.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  onClick={() => setMenuOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold',
+                      isActive
+                        ? 'bg-brand-navy/10 text-brand-navy'
+                        : 'text-brand-text-muted hover:bg-brand-surface hover:text-brand-text'
+                    )
+                  }
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </NavLink>
+              ))}
+              <div className="mt-2 border-t border-brand-border pt-2">
+                <div className="px-3 py-1 text-xs text-brand-text-muted">{user?.email}</div>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-brand-text hover:bg-brand-surface"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign out
+                </button>
+              </div>
+            </nav>
+          </div>
+        )}
+      </header>
+
+      {/* MAIN */}
+      <main className="flex-1">
+        <div className="mx-auto w-full max-w-screen-2xl px-4 py-10 sm:px-6">
+          <Outlet />
+        </div>
+      </main>
+
+      {/* MARKETING BAR */}
+      <MarketingBar />
+    </div>
+  )
+}

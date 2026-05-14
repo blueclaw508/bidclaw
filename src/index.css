@@ -1,33 +1,35 @@
 @import "tailwindcss";
 
+/* ============================================================
+   BCG BRAND KIT — applied to the authenticated app shell.
+   The marketing page (PromoScreen.tsx) keeps its existing
+   navy/blue palette via inline hex values — preserved
+   byte-for-byte per Q9.
+   ============================================================ */
 @theme {
-  /* QuickCalc-matching palette (spec Section 2) */
-  --color-primary: #2563EB;
-  --color-primary-dark: #1D4ED8;
-  --color-primary-light: #DBEAFE;
-  --color-accent: #0EA5E9;
-  --color-success: #10B981;
-  --color-warning: #d4a843;
-  --color-danger: #EF4444;
-  --color-destructive: #EF4444;
-  --color-destructive-foreground: #ffffff;
+  /* Core brand palette */
+  --color-brand-navy: #0032A1;
+  --color-brand-navy-dark: #002080;
+  --color-brand-navy-light: #3A5FC8;
+  --color-brand-sky: #8AB8EB;
+  --color-brand-gold: #C9A84C;
+  --color-brand-gold-dark: #A8872E;
+  --color-brand-gold-pale: #F5EDD0;
+  --color-brand-green: #22C55E;
 
-  --color-background: #ffffff;
-  --color-foreground: #0c1428;
-  --color-muted: #F1F5F9;
-  --color-muted-foreground: #64748B;
-  --color-border: #E2E8F0;
-  --color-input: #E2E8F0;
-  --color-ring: #2563EB;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #F1F5F9;
-  --color-secondary-foreground: #0F172A;
-  --color-accent-foreground: #0F172A;
-  --color-success-foreground: #ffffff;
-  --color-card: #ffffff;
-  --color-card-foreground: #0F172A;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #0F172A;
+  /* Surfaces & text */
+  --color-brand-bg: #FFFFFF;
+  --color-brand-surface: #F4F6FA;
+  --color-brand-text: #1A1A2E;
+  --color-brand-text-muted: #5C6B8A;
+  --color-brand-border: #E2E8F4;
+
+  /* Semantic aliases — used by Tailwind utilities throughout the shell */
+  --color-background: #FFFFFF;
+  --color-foreground: #1A1A2E;
+  --color-muted: #F4F6FA;
+  --color-muted-foreground: #5C6B8A;
+  --color-border: #E2E8F4;
 
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -39,11 +41,7 @@
 }
 
 @layer base {
-  *,
-  *::before,
-  *::after {
-    border-color: var(--color-border);
-  }
+  *, *::before, *::after { border-color: var(--color-border); }
   body {
     margin: 0;
     background-color: var(--color-background);
@@ -52,7 +50,5 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  #root {
-    min-height: 100svh;
-  }
+  #root { min-height: 100svh; }
 }

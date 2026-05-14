@@ -1,38 +1,31 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
-  useCallback,
   type ReactNode,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import type { QCCompanyProfile, QCSettings } from '@/lib/types'
+import { isEmailAllowed } from '@/lib/authAllowlist'
 
-const FREE_ACCESS_EMAILS = (import.meta.env.VITE_BIDCLAW_FREE_ACCESS_EMAILS ?? '').split(',').filter(Boolean)
-
-export type SubscriptionTier = 'free' | 'pro' | 'bidclaw'
-
-// 'paid' = full access, 'trial' = 7-day trial (Push blocked), 'trial_expired' = blocked, 'none' = no access
-export type BidClawAccessLevel = 'paid' | 'trial' | 'trial_expired' | 'none'
+type AuthStatus =
+  | 'loading'           // initial session check in flight
+  | 'unauthenticated'   // no session
+  | 'authenticated'     // session present AND email passes allowlist
+  | 'forbidden'         // session present BUT email is not allowlisted (Layer 2 reject)
 
 interface AuthContextValue {
+  status: AuthStatus
   session: Session | null
   user: User | null
-  companyProfile: QCCompanyProfile | null
-  qcSettings: QCSettings | null
-  hasQCAccount: boolean
-  subscriptionTier: SubscriptionTier
-  canAccessBidClaw: boolean
-  bidclawAccessLevel: BidClawAccessLevel
-  trialDaysLeft: number
-  loading: boolean
-  signIn: (email: string, password: string) => Promise<string | null>
-  signUp: (email: string, password: string) => Promise<string | null>
+  /**
+   * Send a magic-link email. Returns null on success, or an error message
+   * suitable for showing to the user.
+   */
+  sendMagicLink: (email: string) => Promise<string | null>
   signOut: () => Promise<void>
-  refreshSettings: () => Promise<void>
-  startCheckout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -40,216 +33,76 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
-  const [companyProfile, setCompanyProfile] = useState<QCCompanyProfile | null>(null)
-  const [qcSettings, setQcSettings] = useState<QCSettings | null>(null)
-  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('free')
-  const [bidclawPaid, setBidclawPaid] = useState(false)
-  const [trialStartDate, setTrialStartDate] = useState<string | null>(null)
-  const [, setCheckoutLoading] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [status, setStatus] = useState<AuthStatus>('loading')
 
-  const fetchSettings = useCallback(async (userId: string, email?: string) => {
-    const { data } = await supabase
-      .from('kyn_user_settings')
-      .select('settings_data')
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    if (data?.settings_data) {
-      const settings = data.settings_data as QCSettings
-      setQcSettings(settings)
-      setCompanyProfile(settings.companyProfile ?? null)
-    } else {
-      setQcSettings(null)
-      setCompanyProfile(null)
+  // Apply Layer 2 enforcement: any session whose email is not allowlisted
+  // gets signed out immediately. This is the application-side counterpart to
+  // the Supabase trigger; both must agree.
+  const enforceAllowlist = useCallback(async (s: Session | null) => {
+    if (!s?.user) {
+      setSession(null)
+      setUser(null)
+      setStatus('unauthenticated')
+      return
     }
-
-    // Check subscription tier from kyn_user_settings table
-    const { data: tierData } = await supabase
-      .from('kyn_user_settings')
-      .select('subscription_tier')
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    let tier: SubscriptionTier = 'free'
-    if (tierData?.subscription_tier) {
-      tier = tierData.subscription_tier as SubscriptionTier
-    } else if (email && FREE_ACCESS_EMAILS.includes(email)) {
-      tier = 'bidclaw'
+    if (!isEmailAllowed(s.user.email)) {
+      // Forbidden — sign out and surface the rejection.
+      setStatus('forbidden')
+      setSession(null)
+      setUser(null)
+      await supabase.auth.signOut()
+      return
     }
-
-    // Fallback: if DB says free but user may have paid via Stripe,
-    // ask QuickCalc's manage-subscription edge function (checks Stripe directly).
-    if (tier === 'free' && email && !FREE_ACCESS_EMAILS.includes(email)) {
-      try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-        const res = await fetch(`${supabaseUrl}/functions/v1/manage-subscription`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: supabaseKey,
-          },
-          body: JSON.stringify({ action: 'check-usage', userId, email }),
-        })
-        if (res.ok) {
-          const usage = await res.json()
-          if (usage.isPro) {
-            tier = 'pro'
-            // Back-fill the DB so future loads are instant
-            await supabase
-              .from('kyn_user_settings')
-              .update({ subscription_tier: 'pro' })
-              .eq('user_id', userId)
-          }
-        }
-      } catch {
-        // Stripe check failed — keep tier as 'free'; user can retry on next load
-      }
-    }
-
-    setSubscriptionTier(tier)
-
-    // Fetch BidClaw access row
-    const { data: accessRow } = await supabase
-      .from('bidclaw_access')
-      .select('paid, trial_start_date')
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    if (accessRow) {
-      setBidclawPaid(accessRow.paid ?? false)
-      setTrialStartDate(accessRow.trial_start_date ?? null)
-    } else if (tier === 'pro') {
-      // Pro user's first visit — auto-start their 7-day trial
-      const now = new Date().toISOString()
-      const { error } = await supabase.from('bidclaw_access').insert({
-        user_id: userId,
-        trial_start_date: now,
-        paid: false,
-      })
-      if (!error) {
-        setTrialStartDate(now)
-        setBidclawPaid(false)
-      }
-    } else {
-      setBidclawPaid(false)
-      setTrialStartDate(null)
-    }
+    setSession(s)
+    setUser(s.user)
+    setStatus('authenticated')
   }, [])
 
-  const refreshSettings = useCallback(async () => {
-    if (user) await fetchSettings(user.id, user.email ?? undefined)
-  }, [user, fetchSettings])
-
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s)
-      setUser(s?.user ?? null)
-      if (s?.user) fetchSettings(s.user.id, s.user.email ?? undefined)
-      setLoading(false)
+    let cancelled = false
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return
+      void enforceAllowlist(data.session)
     })
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, s) => {
-      // TOKEN_REFRESHED fires on every tab refocus — do NOT update user/session
-      // state for token refreshes because it creates a new object reference that
-      // triggers downstream useEffect re-runs and can wipe estimate state.
-      if (event === 'TOKEN_REFRESHED') return
-
-      setSession(s)
-      setUser(s?.user ?? null)
-      if (s?.user) {
-        fetchSettings(s.user.id, s.user.email ?? undefined)
-      } else {
-        setQcSettings(null)
-        setCompanyProfile(null)
-        setSubscriptionTier('free')
-      }
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      void enforceAllowlist(s)
     })
 
-    return () => subscription.unsubscribe()
-  }, [fetchSettings])
+    return () => {
+      cancelled = true
+      sub.subscription.unsubscribe()
+    }
+  }, [enforceAllowlist])
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+  const sendMagicLink = useCallback(async (email: string): Promise<string | null> => {
+    const trimmed = email.trim().toLowerCase()
+    // Belt-and-suspenders: refuse to even send a link to a disallowed address.
+    // The DB trigger will reject signups anyway, but failing fast here avoids
+    // sending an email that can never actually grant access.
+    if (!isEmailAllowed(trimmed)) {
+      return 'This email is not authorized for BidClaw during the Phase 1 lockdown.'
+    }
+    const { error } = await supabase.auth.signInWithOtp({
+      email: trimmed,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
     return error?.message ?? null
-  }
+  }, [])
 
-  const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
-    return error?.message ?? null
-  }
-
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut()
-    setQcSettings(null)
-    setCompanyProfile(null)
-    setSubscriptionTier('free')
-    setBidclawPaid(false)
-    setTrialStartDate(null)
-  }
-
-  const startCheckout = async () => {
-    if (!user) return
-    setCheckoutLoading(true)
-    try {
-      const res = await fetch('/.netlify/functions/create-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_email: user.email, user_id: user.id }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Checkout failed')
-      if (data.url) window.location.href = data.url
-    } catch {
-      // Error handled silently — user can retry
-    } finally {
-      setCheckoutLoading(false)
-    }
-  }
-
-  // Compute access level
-  const isEmailWhitelisted = user?.email ? FREE_ACCESS_EMAILS.includes(user.email) : false
-
-  let bidclawAccessLevel: BidClawAccessLevel = 'none'
-  let trialDaysLeft = 0
-
-  if (subscriptionTier === 'bidclaw' || bidclawPaid || isEmailWhitelisted) {
-    bidclawAccessLevel = 'paid'
-  } else if (trialStartDate) {
-    const msElapsed = Date.now() - new Date(trialStartDate).getTime()
-    const daysElapsed = msElapsed / (1000 * 60 * 60 * 24)
-    if (daysElapsed <= 7) {
-      bidclawAccessLevel = 'trial'
-      trialDaysLeft = Math.ceil(7 - daysElapsed)
-    } else {
-      bidclawAccessLevel = 'trial_expired'
-    }
-  }
-
-  const canAccessBidClaw = bidclawAccessLevel === 'paid' || bidclawAccessLevel === 'trial'
+    setSession(null)
+    setUser(null)
+    setStatus('unauthenticated')
+  }, [])
 
   return (
     <AuthContext.Provider
-      value={{
-        session,
-        user,
-        companyProfile,
-        qcSettings,
-        hasQCAccount: qcSettings != null,
-        subscriptionTier,
-        canAccessBidClaw,
-        bidclawAccessLevel,
-        trialDaysLeft,
-        loading,
-        signIn,
-        signUp,
-        signOut,
-        refreshSettings,
-        startCheckout,
-      }}
+      value={{ status, session, user, sendMagicLink, signOut }}
     >
       {children}
     </AuthContext.Provider>
