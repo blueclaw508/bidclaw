@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
+import { BlurSaveInput, BlurSaveTextarea } from '@/components/InlineEdit'
 import type { Customer, Project } from '@/lib/types'
 
 type CustomerProject = Pick<Project, 'id' | 'name' | 'status' | 'created_at'>
@@ -267,68 +268,8 @@ export default function CustomerDetailPage() {
 }
 
 /* ============================================================
- * Inline edit helpers
+ * Inline edit helpers — shared in @/components/InlineEdit
  * ============================================================ */
-
-function BlurSaveInput({
-  value,
-  onSave,
-  type = 'text',
-  placeholder,
-  className,
-}: {
-  value: string
-  onSave: (next: string) => Promise<boolean> | void
-  type?: string
-  placeholder?: string
-  className?: string
-}) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  const handleBlur = () => {
-    if (draft === value) return
-    void onSave(draft)
-  }
-  return (
-    <input
-      type={type}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={handleBlur}
-      placeholder={placeholder}
-      className={className}
-    />
-  )
-}
-
-function BlurSaveTextarea({
-  value,
-  onSave,
-  rows,
-  placeholder,
-}: {
-  value: string
-  onSave: (next: string) => Promise<boolean> | void
-  rows: number
-  placeholder?: string
-}) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  const handleBlur = () => {
-    if (draft === value) return
-    void onSave(draft)
-  }
-  return (
-    <textarea
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={handleBlur}
-      rows={rows}
-      placeholder={placeholder}
-      className={inputClasses}
-    />
-  )
-}
 
 const inputClasses =
   'w-full rounded-md border border-brand-border bg-white px-3 py-2 text-sm text-brand-text outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'

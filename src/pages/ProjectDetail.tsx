@@ -17,6 +17,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewCustomerModal } from '@/components/NewCustomerModal'
+import { BlurSaveTextarea } from '@/components/InlineEdit'
 
 // Lazy-loaded so dnd-kit only ships when the Work Areas tab is opened.
 const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
@@ -512,44 +513,6 @@ function CustomerSelect({
         }}
       />
     </>
-  )
-}
-
-/**
- * Textarea that calls onSave when the user blurs the field and the value
- * has actually changed. Local state keeps typing snappy; the parent state
- * is only updated on the round-trip.
- */
-function BlurSaveTextarea({
-  value,
-  onSave,
-  rows,
-  placeholder,
-}: {
-  value: string
-  onSave: (next: string) => Promise<boolean> | void
-  rows: number
-  placeholder?: string
-}) {
-  const [draft, setDraft] = useState(value)
-  // If the parent value changes (e.g. from a different update), sync.
-  useEffect(() => setDraft(value), [value])
-
-  const handleBlur = () => {
-    const next = draft
-    if (next === value) return
-    void onSave(next)
-  }
-
-  return (
-    <textarea
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={handleBlur}
-      rows={rows}
-      placeholder={placeholder}
-      className="w-full rounded-md border border-brand-border bg-white px-3 py-2 text-sm text-brand-text outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
-    />
   )
 }
 

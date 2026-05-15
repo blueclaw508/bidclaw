@@ -28,6 +28,7 @@ import { supabase } from '@/lib/supabase'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewWorkAreaModal } from '@/components/project/NewWorkAreaModal'
+import { BlurSaveInput, BlurSaveTextarea } from '@/components/InlineEdit'
 import {
   WORK_AREA_STATUS_CONFIG,
   WORK_AREA_STATUS_ORDER,
@@ -394,57 +395,8 @@ function SortableRow({
 }
 
 /* ============================================================
- * Inline edit helpers (locally duplicated for now; extract in Phase 5
- * if the pattern shows up a third time outside ProjectDetail/CustomerDetail)
+ * Inline edit helpers — shared in @/components/InlineEdit
  * ============================================================ */
-
-function BlurSaveInput({
-  value,
-  onSave,
-  className,
-}: {
-  value: string
-  onSave: (next: string) => Promise<boolean> | void
-  className?: string
-}) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  return (
-    <input
-      type="text"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft !== value) void onSave(draft)
-      }}
-      className={className}
-    />
-  )
-}
-
-function BlurSaveTextarea({
-  value,
-  onSave,
-  rows,
-}: {
-  value: string
-  onSave: (next: string) => Promise<boolean> | void
-  rows: number
-}) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  return (
-    <textarea
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft !== value) void onSave(draft)
-      }}
-      rows={rows}
-      className={inputClasses}
-    />
-  )
-}
 
 const inputClasses =
   'w-full rounded-md border border-brand-border bg-white px-3 py-2 text-sm text-brand-text outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'
