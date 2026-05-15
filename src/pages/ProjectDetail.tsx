@@ -21,6 +21,8 @@ import { BlurSaveTextarea } from '@/components/InlineEdit'
 
 // Lazy-loaded so dnd-kit only ships when the Work Areas tab is opened.
 const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
+// Lazy-loaded so react-dropzone only ships when the Files tab is opened.
+const FilesTab = lazy(() => import('@/components/project/FilesTab'))
 import {
   PROJECT_STATUS_CONFIG,
   PROJECT_STATUS_ORDER,
@@ -219,7 +221,11 @@ export default function ProjectDetailPage() {
               <WorkAreasTab projectId={project.id} onChange={refreshCounts} />
             </Suspense>
           )}
-          {activeTab === 'files'      && <ComingSoonTab phase="Phase 6" />}
+          {activeTab === 'files'      && (
+            <Suspense fallback={<TabLoading />}>
+              <FilesTab projectId={project.id} onChange={refreshCounts} />
+            </Suspense>
+          )}
           {activeTab === 'proposals'  && <ComingSoonTab phase="a later phase" />}
         </div>
         <TotalsRail

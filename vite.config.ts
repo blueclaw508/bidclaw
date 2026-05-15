@@ -31,6 +31,7 @@ export default defineConfig({
           'vendor-supabase': ['@supabase/supabase-js'],
           'vendor-icons':    ['lucide-react'],
           'vendor-dnd':      ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+          'vendor-dropzone': ['react-dropzone'],
         },
       },
     },
