@@ -32,6 +32,11 @@ export default defineConfig({
           'vendor-icons':    ['lucide-react'],
           'vendor-dnd':      ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
           'vendor-dropzone': ['react-dropzone'],
+          // pdfjs-dist is ~300 kB raw — must split or any route that
+          // touches it (currently just /app/projects/:id/measure/:fileId)
+          // blows past the 50 kB chunk threshold. Lazy-loaded with the
+          // MeasureView route, so users who never measure don't pay.
+          'vendor-pdfjs':    ['pdfjs-dist'],
         },
       },
     },

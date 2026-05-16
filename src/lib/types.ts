@@ -97,3 +97,39 @@ export interface ProjectFile {
   uploaded_at: string
   created_at: string
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Measurements (manual measuring tool — Phase 1 Prompt 3)
+// ──────────────────────────────────────────────────────────────────────
+// The `measurements` table lands in 0001_phase1_foundation.sql but we
+// don't read/write rows until Phase 4 (the line tool). Defined here in
+// Phase 1 so MeasureView typing stays clean as later phases land.
+
+export type MeasurementToolType =
+  | 'line'
+  | 'area'
+  | 'count'
+  | 'freehand_polyline'
+  | 'freehand_drag'
+
+/**
+ * `points` shape is per-tool and lives entirely in JSONB. Phase 4+ will
+ * define discriminated-union types for each tool's `points`. For Phase 1
+ * we type it as `unknown` so nothing depends on a shape we haven't
+ * locked in yet.
+ */
+export interface Measurement {
+  id: string
+  project_id: string
+  work_area_id: string | null
+  tool_type: MeasurementToolType
+  label: string | null
+  points: unknown
+  pdf_page_number: number
+  source_file_id: string | null
+  calculated_value: number | null
+  calculated_unit: string | null
+  scale_factor: number
+  created_at: string
+  updated_at: string
+}

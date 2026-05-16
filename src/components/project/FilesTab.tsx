@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import {
   Download,
   FileText,
   FolderUp,
+  Ruler,
   Trash2,
   UploadCloud,
 } from 'lucide-react'
@@ -28,6 +30,7 @@ interface FilesTabProps {
 }
 
 export default function FilesTab({ projectId, onChange }: FilesTabProps) {
+  const navigate = useNavigate()
   const [rows, setRows] = useState<ProjectFile[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -263,6 +266,20 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
                         ))}
                       </select>
                       <div className="flex items-center gap-1">
+                        {file.mime_type === 'application/pdf' && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              navigate(
+                                `/app/projects/${projectId}/measure/${file.id}`
+                              )
+                            }
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-brand-text-muted hover:bg-brand-surface hover:text-brand-navy"
+                            title="Open measure tool"
+                          >
+                            <Ruler className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void handleOpen(file)}

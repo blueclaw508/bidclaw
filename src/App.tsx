@@ -18,6 +18,9 @@ const CustomersPage      = lazy(() => import('@/pages/Customers'))
 const CustomerDetailPage = lazy(() => import('@/pages/CustomerDetail'))
 const CatalogPage        = lazy(() => import('@/pages/Catalog'))
 const SettingsPage       = lazy(() => import('@/pages/Settings'))
+// MeasureView pulls in pdfjs-dist (~300 kB raw) — keeping it lazy so
+// nobody pays the cost until they actually open the measure tool.
+const MeasureViewPage    = lazy(() => import('@/pages/MeasureView'))
 
 export default function App() {
   return (
@@ -45,6 +48,10 @@ export default function App() {
                 <Route index element={<Navigate to="projects" replace />} />
                 <Route path="projects"      element={<ProjectsPage />} />
                 <Route path="projects/:id"  element={<ProjectDetailPage />} />
+                <Route
+                  path="projects/:projectId/measure/:fileId"
+                  element={<MeasureViewPage />}
+                />
                 <Route path="customers"     element={<CustomersPage />} />
                 <Route path="customers/:id" element={<CustomerDetailPage />} />
                 <Route path="catalog"       element={<CatalogPage />} />
