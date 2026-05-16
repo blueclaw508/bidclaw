@@ -105,6 +105,13 @@ export interface ProjectFile {
 // don't read/write rows until Phase 4 (the line tool). Defined here in
 // Phase 1 so MeasureView typing stays clean as later phases land.
 
+/**
+ * DB-persisted tool discriminator. Mirrors the CHECK constraint in
+ * 0001_phase1_foundation.sql.
+ *
+ * NOT the same as MeasureToolMode below — the toolbar has a 'select'
+ * mode that is purely a UI state and never reaches the database.
+ */
 export type MeasurementToolType =
   | 'line'
   | 'area'
@@ -113,10 +120,48 @@ export type MeasurementToolType =
   | 'freehand_drag'
 
 /**
- * `points` shape is per-tool and lives entirely in JSONB. Phase 4+ will
- * define discriminated-union types for each tool's `points`. For Phase 1
- * we type it as `unknown` so nothing depends on a shape we haven't
- * locked in yet.
+ * Toolbar mode in the measure UI. Includes 'select' (the pointer/idle
+ * state) which has no DB representation; 'freehand' covers both
+ * persistence variants (the disambiguation between freehand_polyline
+ * and freehand_drag happens at commit time, Phase 7).
+ */
+export type MeasureToolMode =
+  | 'select'
+  | 'line'
+  | 'count'
+  | 'area'
+  | 'freehand'
+
+/** A point in any coordinate space. See measureCoords.ts for which space. */
+export interface Point {
+  x: number
+  y: number
+}
+
+/** Two-point line measurement payload — stored in PDF page units. */
+export type LinePoints = readonly [Point, Point]
+
+/**
+ * Snapshot of the PDF render state, set once per page render by
+ * MeasureView. The overlay canvas + hit-test + render effect all depend
+ * on this — single source of truth so PDF and overlay can't desync.
+ */
+export interface RenderInfo {
+  /** Base PDF page width in PDF user units (typically 72 dpi). */
+  pdfWidth: number
+  /** Base PDF page height in PDF user units. */
+  pdfHeight: number
+  /** CSS px per PDF unit. fitScale × pdfWidth = canvas CSS width. */
+  fitScale: number
+  /** Device pixel ratio used for the canvas backing store (capped at 2). */
+  dpr: number
+}
+
+/**
+ * `points` shape is per-tool and lives in a JSONB column. We type the
+ * row's `points` as `unknown` and narrow per-tool via the parser
+ * helpers in measureCoords.ts (parseLinePoints, etc.). That keeps the
+ * row type simple and pushes shape validation to a single boundary.
  */
 export interface Measurement {
   id: string

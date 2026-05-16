@@ -1,21 +1,53 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { getDocument } from '@/lib/pdfjs'
 import type { PDFDocumentProxy, RenderTask } from '@/lib/pdfjs'
-import type { ProjectFile } from '@/lib/types'
+import { MeasureToolbar } from '@/components/measure/MeasureToolbar'
+import {
+  distancePointToSegment,
+  getMeasurementsForPage,
+  parseLinePoints,
+  pdfPageToCanvas,
+} from '@/lib/measureCoords'
+import { cn } from '@/lib/utils'
+import type {
+  Measurement,
+  MeasureToolMode,
+  ProjectFile,
+  RenderInfo,
+} from '@/lib/types'
 
 /**
- * Phase 1 of the manual measuring tool: render a project PDF onto a
- * single canvas with page navigation. No drawing, no scale, no
- * measurements — Phase 2+ layers an overlay canvas on top of this and
- * Phases 3–7 add the actual tools.
+ * Manual measuring tool.
  *
- * Lives inside AppShell (per approved plan): /app/projects/:projectId/measure/:fileId
+ * Phase 1 — PDF rendering foundation (shipped, commit 33afa08).
+ * Phase 2 — overlay canvas + coordinate system + selection.
+ * Phase 3+ — calibration, tools, polish.
+ *
+ * Lives inside AppShell at /app/projects/:projectId/measure/:fileId.
+ *
+ * Two-canvas stack: the PDF canvas (underneath, pointer-events: none) is
+ * a passive raster; the overlay canvas (on top, pointer-events: auto)
+ * carries measurements + interaction. Both canvases are sized identically
+ * in both backing-store and CSS dimensions via the SAME RenderInfo
+ * snapshot, so they can't drift.
  */
 
 type LoadState = 'fetching' | 'opening' | 'rendering' | 'ready' | 'error'
+
+// Brand-kit-bcg colors. Canvas-rendered geometry can't use Tailwind
+// classes, so we inline the hex values here.
+const BRAND_NAVY = '#0032A1'
+const BRAND_GOLD = '#C9A84C'
+
+/** Hit threshold for selecting a measurement, in CSS px. */
+const HIT_THRESHOLD = 6
+
+/** Phase 2 only enables the selection tool. Others render disabled. */
+const PHASE2_ENABLED_TOOLS: readonly MeasureToolMode[] = ['select']
 
 export default function MeasureView() {
   const { projectId, fileId } = useParams<{ projectId: string; fileId: string }>()
@@ -29,8 +61,20 @@ export default function MeasureView() {
   const [pageCount, setPageCount] = useState(0)
   const [pageNumber, setPageNumber] = useState(1)
 
+  // Phase 2 additions
+  const [tool, setTool] = useState<MeasureToolMode>('select')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [measurements, setMeasurements] = useState<Measurement[]>([])
+  /**
+   * Snapshot of the most recent successful PDF render. Single source of
+   * truth for overlay sizing + coord transforms. Null until the first
+   * page renders successfully; resets when the doc/page/width changes.
+   */
+  const [renderInfo, setRenderInfo] = useState<RenderInfo | null>(null)
+
   const measureRef = useRef<HTMLDivElement | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const renderTaskRef = useRef<RenderTask | null>(null)
   const [containerWidth, setContainerWidth] = useState(0)
 
@@ -38,17 +82,14 @@ export default function MeasureView() {
 
   // ──────────────────────────────────────────────────────────────────
   // 1. Fetch file row → validate → download bytes → parse with pdfjs.
-  //    Doing the whole download upfront (instead of letting pdfjs
-  //    range-request) means we don't have to worry about the 60-second
-  //    signed-URL expiring mid-session. Plan PDFs are capped at 50 MB
-  //    by the upload modal, so memory cost is bounded.
+  //    Upfront download means the 60-second signed URL doesn't have to
+  //    survive a long edit session — pdfjs holds the bytes in worker
+  //    memory once parsed.
   // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!projectId || !fileId) return
 
     let cancelled = false
-    // Track the doc this run produced so the cleanup can destroy it
-    // even before setDoc has flushed to state.
     let docToDestroy: PDFDocumentProxy | null = null
 
     async function load() {
@@ -58,10 +99,12 @@ export default function MeasureView() {
       setPageCount(0)
       setPageNumber(1)
       setFile(null)
+      setRenderInfo(null)
+      setSelectedId(null)
 
-      // RLS will return zero rows for files this user can't see, which
-      // looks identical to "doesn't exist". That's the right UX too —
-      // don't leak whether a fileId is real for some other user.
+      // RLS returns zero rows for files this user can't see, which looks
+      // identical to "doesn't exist". That's the right UX — don't leak
+      // whether a fileId is real for some other user.
       const { data: row, error } = await supabase
         .from('project_files')
         .select('*')
@@ -80,9 +123,6 @@ export default function MeasureView() {
         setLoadState('error')
         return
       }
-      // URL says projectId X but the file row says project_id Y →
-      // someone hand-edited the URL. Same error message as the RLS
-      // case: don't leak which side mismatched.
       if (row.project_id !== projectId) {
         setErrorMessage('File not found or not accessible.')
         setLoadState('error')
@@ -97,8 +137,6 @@ export default function MeasureView() {
       }
       setFile(row as ProjectFile)
 
-      // Short-lived signed URL just to GET the bytes. Once we have the
-      // ArrayBuffer, pdfjs holds them in worker memory — URL can expire.
       setLoadState('opening')
       const { data: signed, error: signErr } = await supabase.storage
         .from('project-files')
@@ -128,8 +166,6 @@ export default function MeasureView() {
       try {
         const loaded = await getDocument({ data: buffer }).promise
         if (cancelled) {
-          // Effect was cancelled while we were parsing — drop the doc
-          // immediately to release worker memory.
           await loaded.destroy()
           return
         }
@@ -155,7 +191,34 @@ export default function MeasureView() {
   }, [projectId, fileId])
 
   // ──────────────────────────────────────────────────────────────────
-  // 2. Track the rendering container's width via ResizeObserver so
+  // 2. Load measurements for this source file. Non-critical — toast on
+  //    error but don't tear down the view. Filter by pdf_page_number
+  //    happens at render time (in-memory) so page nav doesn't re-query.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!file?.id) return
+    let cancelled = false
+    async function load() {
+      const { data, error } = await supabase
+        .from('measurements')
+        .select('*')
+        .eq('source_file_id', file!.id)
+        .order('created_at', { ascending: true })
+      if (cancelled) return
+      if (error) {
+        toast.error(`Couldn't load measurements: ${error.message}`)
+        return
+      }
+      setMeasurements((data ?? []) as Measurement[])
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [file?.id])
+
+  // ──────────────────────────────────────────────────────────────────
+  // 3. Track the rendering container's width via ResizeObserver so
   //    fit-to-width re-renders on window resize / sidebar toggle.
   // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -171,16 +234,15 @@ export default function MeasureView() {
   }, [])
 
   // ──────────────────────────────────────────────────────────────────
-  // 3. Render the current page to canvas. Re-runs on doc/page/width
-  //    changes. Cancels any in-flight render task on change/unmount so
-  //    rapid page-flips don't pile up.
+  // 4. Render the current PDF page to canvas + publish renderInfo.
+  //    Re-runs on doc/page/width changes. Cancels any in-flight render
+  //    task so rapid page-flips don't pile up.
   // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!doc || containerWidth === 0) return
     let cancelled = false
 
     async function render() {
-      // Cancel any in-flight render (rapid page nav)
       if (renderTaskRef.current) {
         renderTaskRef.current.cancel()
         renderTaskRef.current = null
@@ -200,13 +262,13 @@ export default function MeasureView() {
       }
       if (cancelled) return
 
-      const canvas = canvasRef.current
+      const canvas = pdfCanvasRef.current
       if (!canvas) return
 
       const base = page.getViewport({ scale: 1 })
       const fitScale = containerWidth / base.width
-      // Cap DPR at 2 — beyond that canvas memory blows up with marginal
-      // visual gain (and many high-DPR phones already report 3+).
+      // Cap DPR at 2 — beyond that the canvas backing store blows up
+      // with marginal visual gain (and many phones report 3+).
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       const viewport = page.getViewport({ scale: fitScale * dpr })
 
@@ -218,19 +280,25 @@ export default function MeasureView() {
       const ctx = canvas.getContext('2d')
       if (!ctx) return
 
-      // pdfjs v5 requires `canvas` (not just `canvasContext`) for the
-      // OffscreenCanvas / accessibility-on-canvas path. Both must point
-      // at the same element.
+      // pdfjs v5 requires `canvas` alongside `canvasContext` (both point
+      // at the same element).
       const task = page.render({ canvasContext: ctx, viewport, canvas })
       renderTaskRef.current = task
 
       try {
         await task.promise
-        if (!cancelled) setLoadState('ready')
+        if (!cancelled) {
+          // Publish the snapshot AFTER successful render so the overlay
+          // never tries to size against a half-failed page.
+          setRenderInfo({
+            pdfWidth: base.width,
+            pdfHeight: base.height,
+            fitScale,
+            dpr,
+          })
+          setLoadState('ready')
+        }
       } catch (err) {
-        // Cancellation throws a named exception in pdfjs — that's the
-        // expected path when the user flips pages mid-render, NOT an
-        // error to surface.
         const name = (err as { name?: string } | null)?.name
         if (name !== 'RenderingCancelledException' && !cancelled) {
           setErrorMessage(`Render failed: ${(err as Error).message}`)
@@ -250,6 +318,117 @@ export default function MeasureView() {
       }
     }
   }, [doc, pageNumber, containerWidth])
+
+  // ──────────────────────────────────────────────────────────────────
+  // 5. Overlay render — re-runs whenever the underlying PDF render
+  //    changes (renderInfo), measurements change (data load + future
+  //    inserts), the user changes pages, or selection changes.
+  //
+  //    Sizes the overlay canvas to match the PDF canvas EXACTLY in both
+  //    backing-store and CSS dimensions. Uses ctx.scale(dpr, dpr) once
+  //    so all subsequent draw calls work in CSS px space.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current
+    if (!canvas || !renderInfo) return
+
+    const { fitScale, pdfWidth, pdfHeight, dpr } = renderInfo
+    const cssWidth = Math.floor(fitScale * pdfWidth)
+    const cssHeight = Math.floor(fitScale * pdfHeight)
+
+    canvas.width = Math.floor(cssWidth * dpr)
+    canvas.height = Math.floor(cssHeight * dpr)
+    canvas.style.width = `${cssWidth}px`
+    canvas.style.height = `${cssHeight}px`
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Reset any transform from a prior render — without this, every
+    // render compounds the dpr scale.
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.scale(dpr, dpr)
+
+    const visible = getMeasurementsForPage(measurements, pageNumber)
+    for (const m of visible) {
+      if (m.tool_type === 'line') {
+        const pts = parseLinePoints(m.points)
+        if (!pts) continue
+        const [a, b] = pts
+        const aCss = pdfPageToCanvas(a, fitScale)
+        const bCss = pdfPageToCanvas(b, fitScale)
+        ctx.strokeStyle = m.id === selectedId ? BRAND_GOLD : BRAND_NAVY
+        ctx.lineWidth = 2
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(aCss.x, aCss.y)
+        ctx.lineTo(bCss.x, bCss.y)
+        ctx.stroke()
+      }
+      // Other tool_types are no-op in Phase 2. Phases 5–7 add them.
+    }
+  }, [renderInfo, measurements, selectedId, pageNumber])
+
+  // ──────────────────────────────────────────────────────────────────
+  // 6. ESC anywhere clears the current selection. This is the universal
+  //    deselect — distinct from clicking empty canvas, which only
+  //    deselects when the click is > HIT_THRESHOLD from any measurement.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setSelectedId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // ──────────────────────────────────────────────────────────────────
+  // 7. Overlay pointer-down — hit-test in CSS canvas px space.
+  //
+  //    Deselect property (from Phase 2 plan): the deselect-on-empty-space
+  //    behavior only fires when the click is on the overlay canvas AND
+  //    > HIT_THRESHOLD from any measurement. Clicks on the toolbar,
+  //    page navigator, sub-header, or any other AppShell chrome do NOT
+  //    trigger deselect because pointer events on those elements never
+  //    reach this handler. Don't add a document-level handler for this.
+  // ──────────────────────────────────────────────────────────────────
+  const onOverlayPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!renderInfo) return
+      if (tool !== 'select') {
+        // Phase 4+ will wire up line/count/area/freehand creation here.
+        return
+      }
+
+      const canvas = e.currentTarget
+      const rect = canvas.getBoundingClientRect()
+      const cssX = e.clientX - rect.left
+      const cssY = e.clientY - rect.top
+
+      const visible = getMeasurementsForPage(measurements, pageNumber)
+      let hit: string | null = null
+      for (const m of visible) {
+        if (m.tool_type === 'line') {
+          const pts = parseLinePoints(m.points)
+          if (!pts) continue
+          const [a, b] = pts
+          const aCss = pdfPageToCanvas(a, renderInfo.fitScale)
+          const bCss = pdfPageToCanvas(b, renderInfo.fitScale)
+          const dist = distancePointToSegment({ x: cssX, y: cssY }, aCss, bCss)
+          if (dist < HIT_THRESHOLD) {
+            // Last-match-wins so the most-recently-drawn line wins ties
+            // (matches typical canvas-app expectations).
+            hit = m.id
+          }
+        }
+      }
+      // null when click was on canvas but > HIT_THRESHOLD from any
+      // measurement — that's the deselect path.
+      setSelectedId(hit)
+    },
+    [renderInfo, tool, measurements, pageNumber]
+  )
 
   // ──────────────────────────────────────────────────────────────────
   // Page navigator handlers
@@ -353,19 +532,49 @@ export default function MeasureView() {
 
       {/* Canvas area */}
       <div className="relative min-h-[300px] rounded-xl border border-brand-border bg-white p-3 shadow-sm">
-        {/* measureRef sits inside the padding so containerWidth is the
-            actual available canvas width (parent.clientWidth - 2*12px). */}
-        <div ref={measureRef}>
-          <canvas
-            ref={canvasRef}
-            className="mx-auto block bg-white"
-            aria-label={
-              file?.file_name
-                ? `Page ${pageNumber} of ${file.file_name}`
-                : 'PDF page'
-            }
+        {/* Floating tool toolbar — anchored top-left of the canvas area.
+            Z above the canvas so it stays interactive when canvases are
+            tall enough to scroll under it. */}
+        <div className="absolute left-5 top-5 z-10">
+          <MeasureToolbar
+            tool={tool}
+            onChange={setTool}
+            enabledTools={PHASE2_ENABLED_TOOLS}
           />
         </div>
+
+        {/* measureRef sits inside the padding so containerWidth is the
+            actual available canvas width (parent.clientWidth - 2*12px). */}
+        <div ref={measureRef} className="flex justify-center">
+          {/* Stacking container — relative positioning anchors the
+              overlay above the PDF canvas. inline-block shrink-wraps to
+              the PDF canvas's CSS dimensions, so the wrapper is always
+              exactly the same size as the canvas it contains (no inline
+              style needed; size is driven by the canvas itself). The
+              parent's flex justify-center centers this within the
+              measureRef. */}
+          <div className="relative inline-block">
+            <canvas
+              ref={pdfCanvasRef}
+              className="pointer-events-none block bg-white"
+              aria-label={
+                file?.file_name
+                  ? `Page ${pageNumber} of ${file.file_name}`
+                  : 'PDF page'
+              }
+            />
+            <canvas
+              ref={overlayCanvasRef}
+              onPointerDown={onOverlayPointerDown}
+              className={cn(
+                'absolute left-0 top-0 block touch-none',
+                tool !== 'select' && 'cursor-crosshair'
+              )}
+              aria-hidden="true"
+            />
+          </div>
+        </div>
+
         {loadState !== 'ready' && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2 text-sm text-brand-text-muted">

@@ -1,0 +1,129 @@
+// Pure coordinate math for the measure tool.
+//
+// THREE COORDINATE SPACES — these names appear everywhere in the
+// measure-tool code, treat them as a fixed vocabulary:
+//
+//   1. Screen px        — what pointer events give us (event.clientX/Y).
+//                         Origin = top-left of the browser viewport.
+//   2. CSS canvas px    — pixel space inside the overlay/PDF canvas as
+//                         the CSS box reports it. Origin = canvas top-left.
+//                         Hit-testing, selection thresholds, and on-screen
+//                         "feel" all live in this space.
+//   3. PDF page units   — the PDF's own coordinate system (typically 72 dpi).
+//                         INVARIANT across zoom, DPR, and resize — so
+//                         persisted measurements are stored in this space.
+//
+// DPR never appears in these helpers. It only matters when DRAWING to a
+// canvas backing store: in that path we set `ctx.scale(dpr, dpr)` once and
+// then all draw calls use CSS coords. Keeping DPR out of the coord layer
+// keeps the math testable and the call sites readable.
+
+import type {
+  LinePoints,
+  Measurement,
+  Point,
+  RenderInfo,
+} from '@/lib/types'
+
+// ──────────────────────────────────────────────────────────────────────
+// Coordinate transforms
+// ──────────────────────────────────────────────────────────────────────
+
+/** Screen px (event.clientX/Y) → CSS canvas px. */
+export function screenToCanvas(p: Point, canvasRect: DOMRect): Point {
+  return { x: p.x - canvasRect.left, y: p.y - canvasRect.top }
+}
+
+/** CSS canvas px → PDF page units (the invariant storage space). */
+export function canvasToPdfPage(p: Point, fitScale: number): Point {
+  return { x: p.x / fitScale, y: p.y / fitScale }
+}
+
+/** PDF page units → CSS canvas px (use at render time). */
+export function pdfPageToCanvas(p: Point, fitScale: number): Point {
+  return { x: p.x * fitScale, y: p.y * fitScale }
+}
+
+/** Composite: screen px straight to PDF page units. */
+export function screenToPdfPage(
+  p: Point,
+  canvasRect: DOMRect,
+  fitScale: number
+): Point {
+  return canvasToPdfPage(screenToCanvas(p, canvasRect), fitScale)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Geometry — perpendicular distance from a point to a line segment.
+// All three inputs must be in the SAME coord space; the result is in
+// that space too. Hit-testing uses this in CSS canvas px space.
+// ──────────────────────────────────────────────────────────────────────
+
+export function distancePointToSegment(
+  p: Point,
+  a: Point,
+  b: Point
+): number {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const lengthSq = dx * dx + dy * dy
+  if (lengthSq === 0) {
+    // Degenerate (zero-length) segment — distance to point a.
+    const dpx = p.x - a.x
+    const dpy = p.y - a.y
+    return Math.sqrt(dpx * dpx + dpy * dpy)
+  }
+  // Project p onto AB, clamp parametric t to the segment.
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq
+  if (t < 0) t = 0
+  else if (t > 1) t = 1
+  const closestX = a.x + t * dx
+  const closestY = a.y + t * dy
+  const distX = p.x - closestX
+  const distY = p.y - closestY
+  return Math.sqrt(distX * distX + distY * distY)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Defensive parsers — JSONB columns are `unknown` to TS, and a hand-
+// edited DB row could put anything in `points`. Parsers return null on
+// malformed data so the renderer can skip it without throwing.
+// ──────────────────────────────────────────────────────────────────────
+
+function isPoint(v: unknown): v is Point {
+  if (typeof v !== 'object' || v === null) return false
+  const pt = v as { x?: unknown; y?: unknown }
+  return (
+    typeof pt.x === 'number' &&
+    typeof pt.y === 'number' &&
+    Number.isFinite(pt.x) &&
+    Number.isFinite(pt.y)
+  )
+}
+
+/** Parse `points` for a line-tool measurement. Returns null if malformed. */
+export function parseLinePoints(raw: unknown): LinePoints | null {
+  if (!Array.isArray(raw)) return null
+  if (raw.length !== 2) return null
+  const [a, b] = raw
+  if (!isPoint(a) || !isPoint(b)) return null
+  return [a, b] as const
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Page filtering helper — called in TWO places (render effect and
+// hit-test handler). Centralized so the filter rule can't drift
+// between them.
+// ──────────────────────────────────────────────────────────────────────
+
+export function getMeasurementsForPage(
+  measurements: readonly Measurement[],
+  pageNumber: number
+): Measurement[] {
+  return measurements.filter((m) => m.pdf_page_number === pageNumber)
+}
+
+// Re-export RenderInfo for consumers that want to type a function that
+// takes a render snapshot. (It lives in types.ts because Phase 4+ will
+// reference it from outside the measure-tool subdir.)
+export type { RenderInfo }
