@@ -54,10 +54,39 @@ export function screenToPdfPage(
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Geometry — perpendicular distance from a point to a line segment.
-// All three inputs must be in the SAME coord space; the result is in
-// that space too. Hit-testing uses this in CSS canvas px space.
+// Geometry helpers — Euclidean distance + perpendicular point-to-segment.
+// Inputs must all be in the SAME coord space; the result is in that
+// space. Hit-testing uses point-to-segment in CSS canvas px space;
+// calibration uses point-to-point in PDF page units.
 // ──────────────────────────────────────────────────────────────────────
+
+/** Euclidean distance between two points. */
+export function distanceBetweenPoints(a: Point, b: Point): number {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
+/**
+ * Compute the scale_factor for a calibration: how many real-world
+ * units each PDF unit represents.
+ *
+ *   scale_factor = real_world_distance ÷ |p2 − p1|   (p1, p2 in PDF units)
+ *
+ * To convert a PDF distance D back to real-world: D × scale_factor.
+ * Throws if the two points are identical (zero-length calibration).
+ */
+export function computeScaleFactor(
+  p1: Point,
+  p2: Point,
+  realWorldDistance: number
+): number {
+  const pdfDistance = distanceBetweenPoints(p1, p2)
+  if (pdfDistance === 0) {
+    throw new Error('Calibration points must be distinct (zero distance)')
+  }
+  return realWorldDistance / pdfDistance
+}
 
 export function distancePointToSegment(
   p: Point,

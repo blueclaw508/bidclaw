@@ -5,18 +5,25 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { getDocument } from '@/lib/pdfjs'
 import type { PDFDocumentProxy, RenderTask } from '@/lib/pdfjs'
+import { CalibrationPanel } from '@/components/measure/CalibrationPanel'
 import { MeasureToolbar } from '@/components/measure/MeasureToolbar'
 import {
+  computeScaleFactor,
+  distanceBetweenPoints,
   distancePointToSegment,
   getMeasurementsForPage,
   parseLinePoints,
   pdfPageToCanvas,
+  screenToPdfPage,
 } from '@/lib/measureCoords'
 import { cn } from '@/lib/utils'
 import type {
   Measurement,
   MeasureToolMode,
+  PageScale,
+  Point,
   ProjectFile,
+  RealWorldUnit,
   RenderInfo,
 } from '@/lib/types'
 
@@ -46,8 +53,17 @@ const BRAND_GOLD = '#C9A84C'
 /** Hit threshold for selecting a measurement, in CSS px. */
 const HIT_THRESHOLD = 6
 
-/** Phase 2 only enables the selection tool. Others render disabled. */
-const PHASE2_ENABLED_TOOLS: readonly MeasureToolMode[] = ['select']
+/**
+ * Radius of the small dot rendered at each clicked calibration point
+ * (CSS px, drawn in PDF-canvas backing-store px scaled by dpr).
+ */
+const CALIBRATION_DOT_RADIUS = 4
+
+/**
+ * Phase 3 enables Select (Phase 2) + Calibrate (Phase 3). Others
+ * render disabled with "coming in Phase X" tooltips.
+ */
+const PHASE3_ENABLED_TOOLS: readonly MeasureToolMode[] = ['select', 'calibrate']
 
 export default function MeasureView() {
   const { projectId, fileId } = useParams<{ projectId: string; fileId: string }>()
@@ -71,6 +87,26 @@ export default function MeasureView() {
    * page renders successfully; resets when the doc/page/width changes.
    */
   const [renderInfo, setRenderInfo] = useState<RenderInfo | null>(null)
+
+  // Phase 3 additions
+  /**
+   * Accumulator for the two-click Calibrate flow. 0 points = idle,
+   * 1 = first point clicked (draw dot), 2 = both clicked (open modal).
+   * Stored in PDF page units, never CSS px — survives resize.
+   */
+  const [calibrationDraft, setCalibrationDraft] = useState<{
+    points: Point[]
+  }>({ points: [] })
+  /** Calibration row for the current (file, page). Null = not yet calibrated. */
+  const [pageScale, setPageScale] = useState<PageScale | null>(null)
+  /**
+   * Modal visibility. Driven by an effect that watches the draft so we
+   * can briefly delay the modal after the second click — that delay
+   * lets the overlay paint the second dot + dashed line first, giving
+   * the user visible feedback for their click before the modal covers
+   * the canvas.
+   */
+  const [showCalibrationModal, setShowCalibrationModal] = useState(false)
 
   const measureRef = useRef<HTMLDivElement | null>(null)
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -101,6 +137,8 @@ export default function MeasureView() {
       setFile(null)
       setRenderInfo(null)
       setSelectedId(null)
+      setCalibrationDraft({ points: [] })
+      setPageScale(null)
 
       // RLS returns zero rows for files this user can't see, which looks
       // identical to "doesn't exist". That's the right UX — don't leak
@@ -216,6 +254,62 @@ export default function MeasureView() {
       cancelled = true
     }
   }, [file?.id])
+
+  // ──────────────────────────────────────────────────────────────────
+  // 2b. Load the scale calibration for the current (file, page). Null
+  //     means "not calibrated yet". Re-runs on page nav. Non-critical
+  //     — toast on error but don't tear down the view.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!file?.id) {
+      setPageScale(null)
+      return
+    }
+    let cancelled = false
+    async function load() {
+      const { data, error } = await supabase
+        .from('page_scales')
+        .select('*')
+        .eq('source_file_id', file!.id)
+        .eq('pdf_page_number', pageNumber)
+        .maybeSingle()
+      if (cancelled) return
+      if (error) {
+        toast.error(`Couldn't load page scale: ${error.message}`)
+        return
+      }
+      setPageScale((data ?? null) as PageScale | null)
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [file?.id, pageNumber])
+
+  // Switching pages should also drop any in-progress calibration draft
+  // — points are PDF-page-units and would carry over invisibly to the
+  // new page. Same reasoning as the selection clear.
+  useEffect(() => {
+    setCalibrationDraft({ points: [] })
+    setSelectedId(null)
+  }, [pageNumber])
+
+  // Modal opens 250ms after the user clicks the second calibration
+  // point. That window lets the overlay render effect paint the
+  // second gold dot + dashed line so the user sees their click
+  // before the modal covers the canvas. If the draft is cleared
+  // (Esc / Cancel / submit) before the timer fires, the effect
+  // cleanup cancels the timer — no stale modal opens.
+  useEffect(() => {
+    if (calibrationDraft.points.length !== 2) {
+      setShowCalibrationModal(false)
+      return
+    }
+    const t = window.setTimeout(() => setShowCalibrationModal(true), 250)
+    return () => {
+      window.clearTimeout(t)
+    }
+  }, [calibrationDraft.points.length])
 
   // ──────────────────────────────────────────────────────────────────
   // 3. Track the rendering container's width via ResizeObserver so
@@ -368,20 +462,60 @@ export default function MeasureView() {
       }
       // Other tool_types are no-op in Phase 2. Phases 5–7 add them.
     }
-  }, [renderInfo, measurements, selectedId, pageNumber])
+
+    // Phase 3 — draw the in-progress calibration draft on top of any
+    // measurements. Dots are drawn for each clicked point; a connecting
+    // segment is drawn once both points exist (one render frame before
+    // the modal opens, so the user briefly sees their calibration).
+    const draftPoints = calibrationDraft.points
+    if (draftPoints.length > 0) {
+      ctx.fillStyle = BRAND_GOLD
+      ctx.strokeStyle = BRAND_GOLD
+      for (const p of draftPoints) {
+        const css = pdfPageToCanvas(p, fitScale)
+        ctx.beginPath()
+        ctx.arc(css.x, css.y, CALIBRATION_DOT_RADIUS, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      if (draftPoints.length === 2) {
+        const a = pdfPageToCanvas(draftPoints[0], fitScale)
+        const b = pdfPageToCanvas(draftPoints[1], fitScale)
+        ctx.lineWidth = 2
+        ctx.setLineDash([6, 4])
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+    }
+  }, [renderInfo, measurements, selectedId, pageNumber, calibrationDraft])
 
   // ──────────────────────────────────────────────────────────────────
-  // 6. ESC anywhere clears the current selection. This is the universal
-  //    deselect — distinct from clicking empty canvas, which only
-  //    deselects when the click is > HIT_THRESHOLD from any measurement.
+  // 6. ESC routing.
+  //
+  //    Priority (highest first):
+  //      1. Calibration in progress (1+ points clicked OR modal open)
+  //         → cancel calibration, revert to Select tool.
+  //      2. Otherwise → deselect any selected measurement.
+  //
+  //    Same handler covers all three (the modal traps its own focus
+  //    but doesn't swallow Esc when implemented via the project's
+  //    Modal component — verified separately).
   // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setSelectedId(null)
+      if (e.key !== 'Escape') return
+      if (calibrationDraft.points.length > 0) {
+        setCalibrationDraft({ points: [] })
+        setTool('select')
+        return
+      }
+      setSelectedId(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [calibrationDraft.points.length])
 
   // ──────────────────────────────────────────────────────────────────
   // 7. Overlay pointer-down — hit-test in CSS canvas px space.
@@ -396,13 +530,31 @@ export default function MeasureView() {
   const onOverlayPointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (!renderInfo) return
-      if (tool !== 'select') {
-        // Phase 4+ will wire up line/count/area/freehand creation here.
-        return
-      }
 
       const canvas = e.currentTarget
       const rect = canvas.getBoundingClientRect()
+
+      if (tool === 'calibrate') {
+        // Phase 3: accumulate two PDF-page-unit points. Second click
+        // triggers the modal (via the derived calibrationDraft.length).
+        // If we somehow get a 3rd click while 2 are buffered (e.g. the
+        // modal closed without resetting), ignore — modal owns the
+        // resolution.
+        if (calibrationDraft.points.length >= 2) return
+        const pdfPoint = screenToPdfPage(
+          { x: e.clientX, y: e.clientY },
+          rect,
+          renderInfo.fitScale
+        )
+        setCalibrationDraft((prev) => ({ points: [...prev.points, pdfPoint] }))
+        return
+      }
+
+      if (tool !== 'select') {
+        // Phase 4+ wires line/count/area/freehand creation here.
+        return
+      }
+
       const cssX = e.clientX - rect.left
       const cssY = e.clientY - rect.top
 
@@ -427,8 +579,68 @@ export default function MeasureView() {
       // measurement — that's the deselect path.
       setSelectedId(hit)
     },
-    [renderInfo, tool, measurements, pageNumber]
+    [renderInfo, tool, measurements, pageNumber, calibrationDraft.points.length]
   )
+
+  // ──────────────────────────────────────────────────────────────────
+  // Calibration submit + cancel.
+  //
+  // UPSERT pattern: one page_scales row per (source_file_id,
+  // pdf_page_number) — recalibration replaces the existing row.
+  // ──────────────────────────────────────────────────────────────────
+  const handleCalibrationSubmit = useCallback(
+    async (distance: number, unit: RealWorldUnit) => {
+      if (calibrationDraft.points.length !== 2) return
+      if (!file) return
+      const [p1, p2] = calibrationDraft.points
+      let scaleFactor: number
+      try {
+        scaleFactor = computeScaleFactor(p1, p2, distance)
+      } catch (err) {
+        toast.error((err as Error).message)
+        return
+      }
+      const payload = {
+        project_id: file.project_id,
+        source_file_id: file.id,
+        pdf_page_number: pageNumber,
+        calibration_points: calibrationDraft.points,
+        real_world_distance: distance,
+        real_world_unit: unit,
+        scale_factor: scaleFactor,
+      }
+      const { data, error } = await supabase
+        .from('page_scales')
+        .upsert(payload, { onConflict: 'source_file_id,pdf_page_number' })
+        .select()
+        .single()
+      if (error || !data) {
+        const msg = error?.message ?? 'No row returned from upsert'
+        toast.error(`Couldn't save calibration: ${msg}`)
+        throw new Error(msg)
+      }
+      setPageScale(data as PageScale)
+      setCalibrationDraft({ points: [] })
+      setTool('select')
+      toast.success(`Page calibrated: ${distance} ${unit}`)
+    },
+    [calibrationDraft.points, file, pageNumber]
+  )
+
+  const handleCalibrationCancel = useCallback(() => {
+    setCalibrationDraft({ points: [] })
+    setTool('select')
+  }, [])
+
+  // PDF-page-unit distance between the two clicked points, shown in the
+  // modal as info. Zero when fewer than 2 points are clicked.
+  const calibrationPdfDistance =
+    calibrationDraft.points.length === 2
+      ? distanceBetweenPoints(
+          calibrationDraft.points[0],
+          calibrationDraft.points[1]
+        )
+      : 0
 
   // ──────────────────────────────────────────────────────────────────
   // Page navigator handlers
@@ -492,6 +704,33 @@ export default function MeasureView() {
         >
           {file?.file_name ?? 'Loading…'}
         </div>
+
+        {/* Phase 3 status strip — calibration state for the current page.
+            Sits between filename and the page navigator. Compact so the
+            sub-header still works on narrow widths. */}
+        {file && (
+          <div className="shrink-0">
+            {pageScale ? (
+              <div
+                className="flex items-center gap-1.5 rounded-md bg-brand-surface px-2 py-1 text-xs"
+                title={`Scale: ${pageScale.real_world_distance} ${pageScale.real_world_unit} per ${distanceBetweenPoints(
+                  (pageScale.calibration_points as Point[])[0] ?? { x: 0, y: 0 },
+                  (pageScale.calibration_points as Point[])[1] ?? { x: 0, y: 0 }
+                ).toFixed(2)} PDF units`}
+              >
+                <span className="font-semibold text-brand-navy">Scale:</span>
+                <span className="tabular-nums text-brand-text">
+                  {pageScale.real_world_distance} {pageScale.real_world_unit}
+                </span>
+              </div>
+            ) : (
+              <div className="rounded-md border border-brand-gold/40 bg-brand-gold-pale px-2 py-1 text-xs font-semibold text-brand-gold-dark">
+                Not calibrated
+              </div>
+            )}
+          </div>
+        )}
+
         {pageCount > 0 && (
           <div className="flex shrink-0 items-center gap-1 text-sm">
             <button
@@ -539,7 +778,7 @@ export default function MeasureView() {
           <MeasureToolbar
             tool={tool}
             onChange={setTool}
-            enabledTools={PHASE2_ENABLED_TOOLS}
+            enabledTools={PHASE3_ENABLED_TOOLS}
           />
         </div>
 
@@ -585,6 +824,19 @@ export default function MeasureView() {
             </div>
           </div>
         )}
+
+        {/* Calibration form — non-modal floating panel, mirrors the
+            toolbar on the right side of the canvas area. Plan stays
+            fully visible so contractors can reference existing scale
+            annotations (e.g. "SCALE: 3/32\" = 1'0\"" in title blocks)
+            while entering their real-world distance. Opens 250ms
+            after the second calibration click. */}
+        <CalibrationPanel
+          open={showCalibrationModal}
+          onClose={handleCalibrationCancel}
+          onSubmit={handleCalibrationSubmit}
+          pdfDistance={calibrationPdfDistance}
+        />
       </div>
     </div>
   )

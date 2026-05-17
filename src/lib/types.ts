@@ -121,16 +121,45 @@ export type MeasurementToolType =
 
 /**
  * Toolbar mode in the measure UI. Includes 'select' (the pointer/idle
- * state) which has no DB representation; 'freehand' covers both
- * persistence variants (the disambiguation between freehand_polyline
- * and freehand_drag happens at commit time, Phase 7).
+ * state) and 'calibrate' (Phase 3 — set scale by clicking two points)
+ * which have no DB representation; 'freehand' covers both persistence
+ * variants (the disambiguation between freehand_polyline and
+ * freehand_drag happens at commit time, Phase 7).
  */
 export type MeasureToolMode =
   | 'select'
+  | 'calibrate'
   | 'line'
   | 'count'
   | 'area'
   | 'freehand'
+
+/**
+ * Real-world units the calibration UI offers. CHECK constraint in
+ * 0002_page_scales.sql mirrors this list verbatim — keep them in sync.
+ */
+export type RealWorldUnit = 'ft' | 'in' | 'm' | 'cm' | 'yd'
+
+/**
+ * One scale calibration per (source_file, pdf_page). The two clicked
+ * points are stored in PDF page units (invariant). scale_factor is
+ * denormalized as real_world_distance ÷ |p2 - p1| so reads don't
+ * recompute on every measurement render.
+ */
+export interface PageScale {
+  id: string
+  project_id: string
+  source_file_id: string
+  pdf_page_number: number
+  /** [Point, Point] in PDF page units. */
+  calibration_points: unknown
+  real_world_distance: number
+  real_world_unit: RealWorldUnit
+  /** real_world_units per PDF unit. Multiply a PDF distance by this to get the real-world distance. */
+  scale_factor: number
+  created_at: string
+  updated_at: string
+}
 
 /** A point in any coordinate space. See measureCoords.ts for which space. */
 export interface Point {

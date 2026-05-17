@@ -1,4 +1,11 @@
-import { Hash, Hexagon, Minus, MousePointer2, PenTool } from 'lucide-react'
+import {
+  Crosshair,
+  Hash,
+  Hexagon,
+  Minus,
+  MousePointer2,
+  PenTool,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { MeasureToolMode } from '@/lib/types'
 
@@ -21,13 +28,15 @@ interface ToolDef {
   comingIn: string
 }
 
-// Order matches the order they ship in. Select first, then by phase.
+// Order matches the order they ship in. Select first, Calibrate second
+// (it's the "set up before measuring" step that gates the others).
 const TOOLS: readonly ToolDef[] = [
-  { id: 'select',   label: 'Select',   icon: MousePointer2, comingIn: 'Phase 2' },
-  { id: 'line',     label: 'Line',     icon: Minus,         comingIn: 'Phase 4' },
-  { id: 'count',    label: 'Count',    icon: Hash,          comingIn: 'Phase 5' },
-  { id: 'area',     label: 'Area',     icon: Hexagon,       comingIn: 'Phase 6' },
-  { id: 'freehand', label: 'Freehand', icon: PenTool,       comingIn: 'Phase 7' },
+  { id: 'select',    label: 'Select',    icon: MousePointer2, comingIn: 'Phase 2' },
+  { id: 'calibrate', label: 'Calibrate', icon: Crosshair,     comingIn: 'Phase 3' },
+  { id: 'line',      label: 'Line',      icon: Minus,         comingIn: 'Phase 4' },
+  { id: 'count',     label: 'Count',     icon: Hash,          comingIn: 'Phase 5' },
+  { id: 'area',      label: 'Area',      icon: Hexagon,       comingIn: 'Phase 6' },
+  { id: 'freehand',  label: 'Freehand',  icon: PenTool,       comingIn: 'Phase 7' },
 ]
 
 export function MeasureToolbar({
