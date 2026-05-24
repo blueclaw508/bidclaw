@@ -18,6 +18,13 @@ interface MeasureToolbarProps {
    * but are disabled with a "coming in Phase X" tooltip.
    */
   enabledTools: readonly MeasureToolMode[]
+  /**
+   * Optional per-tool override for the disabled tooltip. Use this when
+   * a tool IS shipped but a precondition blocks it (e.g. line tool
+   * disabled because the page isn't calibrated yet). Falls back to
+   * "coming in Phase X" for tools that aren't shipped at all.
+   */
+  disabledReasons?: Partial<Record<MeasureToolMode, string>>
 }
 
 interface ToolDef {
@@ -43,6 +50,7 @@ export function MeasureToolbar({
   tool,
   onChange,
   enabledTools,
+  disabledReasons,
 }: MeasureToolbarProps) {
   return (
     <div
@@ -54,6 +62,10 @@ export function MeasureToolbar({
         const enabled = enabledTools.includes(t.id)
         const active = t.id === tool && enabled
         const Icon = t.icon
+        // Disabled tooltip prefers an explicit override (e.g. "Calibrate
+        // the page first") and falls back to the phase-coming text.
+        const disabledTitle =
+          disabledReasons?.[t.id] ?? `${t.label} — coming in ${t.comingIn}`
         return (
           <button
             key={t.id}
@@ -62,7 +74,7 @@ export function MeasureToolbar({
               if (enabled) onChange(t.id)
             }}
             disabled={!enabled}
-            title={enabled ? t.label : `${t.label} — coming in ${t.comingIn}`}
+            title={enabled ? t.label : disabledTitle}
             aria-pressed={active}
             className={cn(
               'inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition-colors',

@@ -67,6 +67,11 @@ export function distanceBetweenPoints(a: Point, b: Point): number {
   return Math.sqrt(dx * dx + dy * dy)
 }
 
+/** Midpoint of two points (any coord space). Used to anchor line labels. */
+export function midpoint(a: Point, b: Point): Point {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+}
+
 /**
  * Compute the scale_factor for a calibration: how many real-world
  * units each PDF unit represents.

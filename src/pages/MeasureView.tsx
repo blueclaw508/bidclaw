@@ -6,12 +6,15 @@ import { supabase } from '@/lib/supabase'
 import { getDocument } from '@/lib/pdfjs'
 import type { PDFDocumentProxy, RenderTask } from '@/lib/pdfjs'
 import { CalibrationPanel } from '@/components/measure/CalibrationPanel'
+import { MeasureSidebar } from '@/components/measure/MeasureSidebar'
 import { MeasureToolbar } from '@/components/measure/MeasureToolbar'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import {
   computeScaleFactor,
   distanceBetweenPoints,
   distancePointToSegment,
   getMeasurementsForPage,
+  midpoint,
   parseLinePoints,
   pdfPageToCanvas,
   screenToPdfPage,
@@ -25,6 +28,7 @@ import type {
   ProjectFile,
   RealWorldUnit,
   RenderInfo,
+  WorkArea,
 } from '@/lib/types'
 
 /**
@@ -60,10 +64,19 @@ const HIT_THRESHOLD = 6
 const CALIBRATION_DOT_RADIUS = 4
 
 /**
- * Phase 3 enables Select (Phase 2) + Calibrate (Phase 3). Others
- * render disabled with "coming in Phase X" tooltips.
+ * Phase 4 enables Select + Calibrate + Line (the latter only when
+ * pageScale exists — see `enabledToolsForPhase4` below). Count / Area
+ * / Freehand still render disabled.
  */
-const PHASE3_ENABLED_TOOLS: readonly MeasureToolMode[] = ['select', 'calibrate']
+const PHASE4_BASE_TOOLS: readonly MeasureToolMode[] = ['select', 'calibrate']
+
+/**
+ * Tooltip shown on the Line tool when it's disabled because the page
+ * isn't calibrated yet. Replaces the default "coming in Phase 4" text
+ * since line IS shipped — just precondition-blocked.
+ */
+const LINE_DISABLED_NO_SCALE =
+  'Calibrate the page first to enable line measurements'
 
 export default function MeasureView() {
   const { projectId, fileId } = useParams<{ projectId: string; fileId: string }>()
@@ -108,6 +121,29 @@ export default function MeasureView() {
    */
   const [showCalibrationModal, setShowCalibrationModal] = useState(false)
 
+  // Phase 4 additions
+  /** Right-column sidebar visibility. Default expanded. */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  /** Work areas for the parent project (NOT filtered by status — no archive
+   *  flag exists yet on work_areas; flag in handoff so future phases don't
+   *  assume one). */
+  const [workAreas, setWorkAreas] = useState<WorkArea[]>([])
+  /**
+   * Default work area applied to newly-committed line measurements.
+   * Null = "No work area" — preserved as a valid choice.
+   */
+  const [defaultWorkAreaId, setDefaultWorkAreaId] = useState<string | null>(null)
+  /**
+   * Line tool draft (same pattern as calibrationDraft). 0 = idle,
+   * 1 = first point clicked (draw dot), 2 = both clicked (commit on
+   * the same render cycle, then reset). Points in PDF page units.
+   */
+  const [lineDraft, setLineDraft] = useState<{ points: Point[] }>({
+    points: [],
+  })
+  /** Measurement queued for delete-confirm dialog. Null = no dialog. */
+  const [deleteTarget, setDeleteTarget] = useState<Measurement | null>(null)
+
   const measureRef = useRef<HTMLDivElement | null>(null)
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -139,6 +175,8 @@ export default function MeasureView() {
       setSelectedId(null)
       setCalibrationDraft({ points: [] })
       setPageScale(null)
+      setLineDraft({ points: [] })
+      setDeleteTarget(null)
 
       // RLS returns zero rows for files this user can't see, which looks
       // identical to "doesn't exist". That's the right UX — don't leak
@@ -286,13 +324,47 @@ export default function MeasureView() {
     }
   }, [file?.id, pageNumber])
 
-  // Switching pages should also drop any in-progress calibration draft
-  // — points are PDF-page-units and would carry over invisibly to the
-  // new page. Same reasoning as the selection clear.
+  // Switching pages should also drop any in-progress drafts — points
+  // are PDF-page-units and would carry over invisibly to the new page.
+  // Same reasoning as the selection clear.
   useEffect(() => {
     setCalibrationDraft({ points: [] })
+    setLineDraft({ points: [] })
     setSelectedId(null)
   }, [pageNumber])
+
+  // ──────────────────────────────────────────────────────────────────
+  // 2c. Load work areas for the project. Phase 4 picker shows ALL of
+  //     them ordered by sequence_order — there's no archive flag on
+  //     work_areas yet (flag in handoff). Re-runs when the file's
+  //     project changes.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!file?.project_id) {
+      setWorkAreas([])
+      setDefaultWorkAreaId(null)
+      return
+    }
+    let cancelled = false
+    async function load() {
+      const { data, error } = await supabase
+        .from('work_areas')
+        .select('*')
+        .eq('project_id', file!.project_id)
+        .order('sequence_order', { ascending: true })
+      if (cancelled) return
+      if (error) {
+        toast.error(`Couldn't load work areas: ${error.message}`)
+        setWorkAreas([])
+        return
+      }
+      setWorkAreas((data ?? []) as WorkArea[])
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [file?.project_id])
 
   // Modal opens 250ms after the user clicks the second calibration
   // point. That window lets the overlay render effect paint the
@@ -310,6 +382,79 @@ export default function MeasureView() {
       window.clearTimeout(t)
     }
   }, [calibrationDraft.points.length])
+
+  // ──────────────────────────────────────────────────────────────────
+  // Line-tool commit: when the draft has both points, give the user
+  // 250ms to see the rendered segment + dots, then INSERT into the DB.
+  // Mirror the calibration delay pattern for consistent feedback.
+  //
+  // Stored fields (per Measurement schema):
+  //   points          — [p1, p2] in PDF page units
+  //   pdf_page_number — current page
+  //   scale_factor    — captured at insert time (denormalized)
+  //   calculated_value/unit — populated for export/reporting, BUT the
+  //   UI never reads these. Labels are always recomputed at render
+  //   time from the LIVE pageScale (see realWorldDistanceFor in the
+  //   sidebar). That way recalibration immediately updates every label
+  //   without rewriting rows. If a future phase wants the stored value
+  //   for some reason, re-validate this decision — don't quietly start
+  //   reading it from the UI render path.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (tool !== 'line') return
+    if (lineDraft.points.length !== 2) return
+    if (!file || !pageScale) {
+      // Shouldn't reach — line tool is gated on pageScale — but be
+      // defensive so we don't ship a half-committed draft.
+      setLineDraft({ points: [] })
+      setTool('select')
+      return
+    }
+    let cancelled = false
+    const t = window.setTimeout(async () => {
+      if (cancelled) return
+      const [p1, p2] = lineDraft.points
+      const pdfDistance = distanceBetweenPoints(p1, p2)
+      const realWorld = pdfDistance * pageScale.scale_factor
+      const payload = {
+        project_id: file.project_id,
+        source_file_id: file.id,
+        pdf_page_number: pageNumber,
+        tool_type: 'line' as const,
+        points: lineDraft.points,
+        work_area_id: defaultWorkAreaId,
+        scale_factor: pageScale.scale_factor,
+        calculated_value: realWorld,
+        calculated_unit: pageScale.real_world_unit,
+      }
+      const { data, error } = await supabase
+        .from('measurements')
+        .insert(payload)
+        .select()
+        .single()
+      if (cancelled) return
+      if (error || !data) {
+        toast.error(`Couldn't save measurement: ${error?.message ?? 'no row returned'}`)
+        setLineDraft({ points: [] })
+        setTool('select')
+        return
+      }
+      setMeasurements((prev) => [...prev, data as Measurement])
+      setLineDraft({ points: [] })
+      setTool('select')
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
+  }, [
+    tool,
+    lineDraft,
+    file,
+    pageScale,
+    pageNumber,
+    defaultWorkAreaId,
+  ])
 
   // ──────────────────────────────────────────────────────────────────
   // 3. Track the rendering container's width via ResizeObserver so
@@ -463,6 +608,45 @@ export default function MeasureView() {
       // Other tool_types are no-op in Phase 2. Phases 5–7 add them.
     }
 
+    // Phase 4 — real-world distance labels on each line measurement.
+    // Read fitScale from renderInfo here; pageScale is the LIVE scale
+    // so recalibration repaints every label immediately. Skip when
+    // there's no scale yet (rare — labels would be meaningless).
+    if (pageScale) {
+      ctx.font = '600 11px Inter, system-ui, sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'center'
+      for (const m of visible) {
+        if (m.tool_type !== 'line') continue
+        const pts = parseLinePoints(m.points)
+        if (!pts) continue
+        const midPdf = midpoint(pts[0] as Point, pts[1] as Point)
+        const midCss = pdfPageToCanvas(midPdf, fitScale)
+        const pdfDistance = distanceBetweenPoints(
+          pts[0] as Point,
+          pts[1] as Point
+        )
+        const realWorld = pdfDistance * pageScale.scale_factor
+        const label = `${realWorld.toFixed(1)} ${pageScale.real_world_unit}`
+        const textWidth = ctx.measureText(label).width
+        const padX = 5
+        const padY = 3
+        const rectW = textWidth + padX * 2
+        const rectH = 11 + padY * 2
+        // Semi-opaque white rect so the label stays readable over any
+        // plan color underneath (greens, navy plan lines, photos, etc).
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.92)'
+        ctx.fillRect(
+          midCss.x - rectW / 2,
+          midCss.y - rectH / 2,
+          rectW,
+          rectH
+        )
+        ctx.fillStyle = '#5C6B8A' // brand-text-muted
+        ctx.fillText(label, midCss.x, midCss.y)
+      }
+    }
+
     // Phase 3 — draw the in-progress calibration draft on top of any
     // measurements. Dots are drawn for each clicked point; a connecting
     // segment is drawn once both points exist (one render frame before
@@ -489,7 +673,40 @@ export default function MeasureView() {
         ctx.setLineDash([])
       }
     }
-  }, [renderInfo, measurements, selectedId, pageNumber, calibrationDraft])
+
+    // Phase 4 — line tool draft. Navy (not gold) to distinguish from
+    // calibration. Solid line preview (not dashed) since this becomes
+    // a permanent measurement vs calibration's transient reference.
+    const linePts = lineDraft.points
+    if (linePts.length > 0) {
+      ctx.fillStyle = BRAND_NAVY
+      ctx.strokeStyle = BRAND_NAVY
+      for (const p of linePts) {
+        const css = pdfPageToCanvas(p, fitScale)
+        ctx.beginPath()
+        ctx.arc(css.x, css.y, CALIBRATION_DOT_RADIUS, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      if (linePts.length === 2) {
+        const a = pdfPageToCanvas(linePts[0], fitScale)
+        const b = pdfPageToCanvas(linePts[1], fitScale)
+        ctx.lineWidth = 2
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+      }
+    }
+  }, [
+    renderInfo,
+    measurements,
+    selectedId,
+    pageNumber,
+    calibrationDraft,
+    lineDraft,
+    pageScale,
+  ])
 
   // ──────────────────────────────────────────────────────────────────
   // 6. ESC routing.
@@ -506,8 +723,14 @@ export default function MeasureView() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return
+      // Priority order: calibration draft > line draft > deselect.
       if (calibrationDraft.points.length > 0) {
         setCalibrationDraft({ points: [] })
+        setTool('select')
+        return
+      }
+      if (lineDraft.points.length > 0) {
+        setLineDraft({ points: [] })
         setTool('select')
         return
       }
@@ -515,7 +738,27 @@ export default function MeasureView() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [calibrationDraft.points.length])
+  }, [calibrationDraft.points.length, lineDraft.points.length])
+
+  // ──────────────────────────────────────────────────────────────────
+  // Delete key on canvas/sidebar focus → open the delete-confirm dialog
+  // for the selected measurement. Excludes Backspace (browser-back
+  // collision) and ignores when the focused element is an input/select/
+  // textarea so typing a number into the calibration panel doesn't
+  // wipe a selected line.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Delete') return
+      if (selectedId === null) return
+      const target = e.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      const m = measurements.find((x) => x.id === selectedId)
+      if (m) setDeleteTarget(m)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedId, measurements])
 
   // ──────────────────────────────────────────────────────────────────
   // 7. Overlay pointer-down — hit-test in CSS canvas px space.
@@ -550,8 +793,28 @@ export default function MeasureView() {
         return
       }
 
+      if (tool === 'line') {
+        // Phase 4: accumulate two PDF-page-unit points. Second click
+        // commits via the delayed line-commit effect.
+        if (!pageScale) {
+          // Defensive — line tool is gated on pageScale so this should
+          // be unreachable. Defaulting to Select keeps the user out of
+          // a broken state.
+          setTool('select')
+          return
+        }
+        if (lineDraft.points.length >= 2) return
+        const pdfPoint = screenToPdfPage(
+          { x: e.clientX, y: e.clientY },
+          rect,
+          renderInfo.fitScale
+        )
+        setLineDraft((prev) => ({ points: [...prev.points, pdfPoint] }))
+        return
+      }
+
       if (tool !== 'select') {
-        // Phase 4+ wires line/count/area/freehand creation here.
+        // Phase 5+ wires count/area/freehand creation here.
         return
       }
 
@@ -579,7 +842,15 @@ export default function MeasureView() {
       // measurement — that's the deselect path.
       setSelectedId(hit)
     },
-    [renderInfo, tool, measurements, pageNumber, calibrationDraft.points.length]
+    [
+      renderInfo,
+      tool,
+      measurements,
+      pageNumber,
+      calibrationDraft.points.length,
+      lineDraft.points.length,
+      pageScale,
+    ]
   )
 
   // ──────────────────────────────────────────────────────────────────
@@ -631,6 +902,35 @@ export default function MeasureView() {
     setCalibrationDraft({ points: [] })
     setTool('select')
   }, [])
+
+  // ──────────────────────────────────────────────────────────────────
+  // Measurement delete — sidebar's Delete button + Delete key both
+  // route through here. Confirm dialog before the DB call.
+  // ──────────────────────────────────────────────────────────────────
+  const requestDeleteMeasurement = useCallback(
+    (id: string) => {
+      const m = measurements.find((x) => x.id === id)
+      if (m) setDeleteTarget(m)
+    },
+    [measurements]
+  )
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTarget) return
+    const target = deleteTarget
+    const { error } = await supabase
+      .from('measurements')
+      .delete()
+      .eq('id', target.id)
+    if (error) {
+      toast.error(`Couldn't delete measurement: ${error.message}`)
+      return
+    }
+    setMeasurements((prev) => prev.filter((m) => m.id !== target.id))
+    if (selectedId === target.id) setSelectedId(null)
+    setDeleteTarget(null)
+    toast.success('Measurement deleted.')
+  }, [deleteTarget, selectedId])
 
   // PDF-page-unit distance between the two clicked points, shown in the
   // modal as info. Zero when fewer than 2 points are clicked.
@@ -705,31 +1005,8 @@ export default function MeasureView() {
           {file?.file_name ?? 'Loading…'}
         </div>
 
-        {/* Phase 3 status strip — calibration state for the current page.
-            Sits between filename and the page navigator. Compact so the
-            sub-header still works on narrow widths. */}
-        {file && (
-          <div className="shrink-0">
-            {pageScale ? (
-              <div
-                className="flex items-center gap-1.5 rounded-md bg-brand-surface px-2 py-1 text-xs"
-                title={`Scale: ${pageScale.real_world_distance} ${pageScale.real_world_unit} per ${distanceBetweenPoints(
-                  (pageScale.calibration_points as Point[])[0] ?? { x: 0, y: 0 },
-                  (pageScale.calibration_points as Point[])[1] ?? { x: 0, y: 0 }
-                ).toFixed(2)} PDF units`}
-              >
-                <span className="font-semibold text-brand-navy">Scale:</span>
-                <span className="tabular-nums text-brand-text">
-                  {pageScale.real_world_distance} {pageScale.real_world_unit}
-                </span>
-              </div>
-            ) : (
-              <div className="rounded-md border border-brand-gold/40 bg-brand-gold-pale px-2 py-1 text-xs font-semibold text-brand-gold-dark">
-                Not calibrated
-              </div>
-            )}
-          </div>
-        )}
+        {/* Status strip moved to the sidebar in Phase 4 — page scale
+            now lives in MeasureSidebar's "Scale" section. */}
 
         {pageCount > 0 && (
           <div className="flex shrink-0 items-center gap-1 text-sm">
@@ -769,8 +1046,17 @@ export default function MeasureView() {
         )}
       </div>
 
-      {/* Canvas area */}
-      <div className="relative min-h-[300px] rounded-xl border border-brand-border bg-white p-3 shadow-sm">
+      {/* Canvas + sidebar row. Outer flex container owns the card
+          chrome (border, rounded, shadow); inner halves drop their own
+          borders. overflow-hidden clips the rounded corners.
+          min-w-0 on the canvas-area is mandatory — without it, the
+          canvas's explicit pixel width gives canvas-area an implicit
+          min-width: auto that lets it grow past its flex allotment,
+          pushing the sidebar (incl. its collapsed-state expand button)
+          off-screen and unreachable. */}
+      <div className="flex min-h-[300px] overflow-hidden rounded-xl border border-brand-border bg-white shadow-sm">
+        {/* Canvas area (left, grows) */}
+        <div className="relative min-w-0 flex-1 p-3">
         {/* Floating tool toolbar — anchored top-left of the canvas area.
             Z above the canvas so it stays interactive when canvases are
             tall enough to scroll under it. */}
@@ -778,7 +1064,12 @@ export default function MeasureView() {
           <MeasureToolbar
             tool={tool}
             onChange={setTool}
-            enabledTools={PHASE3_ENABLED_TOOLS}
+            enabledTools={
+              pageScale ? [...PHASE4_BASE_TOOLS, 'line'] : PHASE4_BASE_TOOLS
+            }
+            disabledReasons={
+              pageScale ? undefined : { line: LINE_DISABLED_NO_SCALE }
+            }
           />
         </div>
 
@@ -837,7 +1128,54 @@ export default function MeasureView() {
           onSubmit={handleCalibrationSubmit}
           pdfDistance={calibrationPdfDistance}
         />
+        </div>
+
+        {/* Sidebar (right) */}
+        <MeasureSidebar
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+          pageNumber={pageNumber}
+          pageScale={pageScale}
+          workAreas={workAreas}
+          defaultWorkAreaId={defaultWorkAreaId}
+          onDefaultWorkAreaChange={setDefaultWorkAreaId}
+          measurements={getMeasurementsForPage(measurements, pageNumber)}
+          selectedId={selectedId}
+          onSelectMeasurement={setSelectedId}
+          onDeleteMeasurement={requestDeleteMeasurement}
+        />
       </div>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+        title="Delete this measurement?"
+        description={
+          deleteTarget ? (
+            <>
+              The measurement{' '}
+              <strong className="text-brand-text">
+                {pageScale
+                  ? (() => {
+                      const pts = parseLinePoints(deleteTarget.points)
+                      if (!pts) return '(unknown distance)'
+                      const dist =
+                        distanceBetweenPoints(pts[0] as Point, pts[1] as Point) *
+                        pageScale.scale_factor
+                      return `${dist.toFixed(1)} ${pageScale.real_world_unit}`
+                    })()
+                  : '(distance pending calibration)'}
+              </strong>{' '}
+              will be permanently removed.
+            </>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel="Delete"
+        tone="danger"
+      />
     </div>
   )
 }
