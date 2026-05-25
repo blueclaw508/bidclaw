@@ -11,16 +11,18 @@ import { RouteLoading } from '@/components/RouteLoading'
 // they're on the critical path for / and /app/* respectively (and the
 // AppShell layout is shared across every /app/* route, so loading it
 // once is fine). Everything else is lazy.
-const AuthCallback       = lazy(() => import('@/pages/AuthCallback'))
-const ProjectsPage       = lazy(() => import('@/pages/Projects'))
-const ProjectDetailPage  = lazy(() => import('@/pages/ProjectDetail'))
-const CustomersPage      = lazy(() => import('@/pages/Customers'))
-const CustomerDetailPage = lazy(() => import('@/pages/CustomerDetail'))
-const CatalogPage        = lazy(() => import('@/pages/Catalog'))
-const SettingsPage       = lazy(() => import('@/pages/Settings'))
+const AuthCallback              = lazy(() => import('@/pages/AuthCallback'))
+const ProjectsPage              = lazy(() => import('@/pages/Projects'))
+const ProjectDetailPage         = lazy(() => import('@/pages/ProjectDetail'))
+const CustomersPage             = lazy(() => import('@/pages/Customers'))
+const CustomerDetailPage        = lazy(() => import('@/pages/CustomerDetail'))
+const CatalogPage               = lazy(() => import('@/pages/Catalog'))
+const SettingsPage                  = lazy(() => import('@/pages/Settings'))
+const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
+const EnterMyNumbersSettingsPage    = lazy(() => import('@/pages/EnterMyNumbersSettings'))
 // MeasureView pulls in pdfjs-dist (~300 kB raw) — keeping it lazy so
 // nobody pays the cost until they actually open the measure tool.
-const MeasureViewPage    = lazy(() => import('@/pages/MeasureView'))
+const MeasureViewPage           = lazy(() => import('@/pages/MeasureView'))
 
 export default function App() {
   return (
@@ -55,7 +57,9 @@ export default function App() {
                 <Route path="customers"     element={<CustomersPage />} />
                 <Route path="customers/:id" element={<CustomerDetailPage />} />
                 <Route path="catalog"       element={<CatalogPage />} />
-                <Route path="settings"      element={<SettingsPage />} />
+                <Route path="settings"                      element={<SettingsPage />} />
+                <Route path="settings/company-profile"      element={<CompanyProfileSettingsPage />} />
+                <Route path="settings/enter-my-numbers"     element={<EnterMyNumbersSettingsPage />} />
               </Route>
 
               {/* Anything else → marketing page */}

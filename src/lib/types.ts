@@ -207,3 +207,116 @@ export interface Measurement {
   created_at: string
   updated_at: string
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Company settings (Phase 2 Prompt 4 — setup wizard + Company Info + KYN)
+// ──────────────────────────────────────────────────────────────────────
+// Per-user business metadata + Know Your Numbers rates. 1:1 with
+// profiles via user_id. Row is auto-created at signup by the extended
+// handle_new_user trigger; setup_completed_at IS NULL is the wizard-
+// incomplete gate (data IS NOT the gate).
+
+/**
+ * QC-aligned shape after migration 0004. Three architectural pillars:
+ *
+ *   1. Identity + contact (single Address field, no DBA/EIN/etc).
+ *   2. PDF branding (primary color, footer, visibility toggles for
+ *      each contact-info line on the rendered proposal).
+ *   3. KYN multipliers (3 markups: Materials / Subs / Freight) +
+ *      default Terms & Conditions.
+ *
+ * Labor + equipment are NOT on this table — they're normalized into
+ * `company_labor_types` (5 slots) and `company_equipment_rates` (10
+ * slots). See those interfaces below.
+ */
+export interface CompanySettings {
+  id: string
+  user_id: string
+
+  // Identity + contact (Company Profile page)
+  company_legal_name: string | null
+  owner_name: string | null
+  /** Address split for QBO compatibility — Country defaults to US, not stored. */
+  company_address_line1: string | null
+  company_address_line2: string | null
+  company_address_city: string | null
+  company_address_state: string | null  // 2-letter postal code
+  company_address_zip: string | null
+  company_phone: string | null
+  company_email: string | null
+  company_website: string | null
+  /** Path inside the `company-assets` storage bucket. Signed URLs for display. */
+  company_logo_path: string | null
+
+  // PDF branding (Enter My Numbers page)
+  pdf_primary_color: string | null
+  pdf_footer_text: string | null
+  /** PDF visibility toggles — mirror QC's three (Payment Terms / Images / T&C). */
+  pdf_show_payment_terms: boolean
+  pdf_show_images: boolean
+  pdf_show_terms_and_conditions: boolean
+
+  // Markups — QC has TWO (Materials / Subs). Freight was Bidclaw scope
+  // creep dropped after QC source review.
+  markup_materials_percent: number | null
+  markup_subs_percent: number | null
+
+  // Proposal defaults
+  default_terms_and_conditions: string | null
+
+  /** NULL = wizard incomplete. ISO timestamp once "Complete Setup" clicked. */
+  setup_completed_at: string | null
+
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * One of 5 labor-type slots a contractor configures. Slots 1-5 are
+ * always present (auto-created at signup); `name` + `rate_per_hour`
+ * are nullable until the contractor fills them in.
+ *
+ * Architecture (Q3b): catalog labor line items reference one of these
+ * 5 slots by default, but the catalog item can override the rate
+ * inline. Proposals freeze the rate at creation time (Q3a).
+ */
+export interface CompanyLaborType {
+  id: string
+  user_id: string
+  slot_number: number // 1..5, enforced by CHECK constraint
+  name: string | null
+  rate_per_hour: number | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * One of 10 equipment-rate slots. Same shape + pattern as
+ * `CompanyLaborType` (slots 1..10 enforced by CHECK).
+ */
+export interface CompanyEquipmentRate {
+  id: string
+  user_id: string
+  slot_number: number // 1..10
+  name: string | null
+  rate_per_hour: number | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Wizard step discriminator. The wizard runs through these in order;
+ * each step has its own validation gate. Step 3 (confirmation) is a
+ * read-only review of what's already saved.
+ */
+export type WizardStep = 'company_info' | 'kyn' | 'confirmation'
+
+/**
+ * In-memory wizard view state. Form data is ALSO persisted to DB on
+ * every change (single source of truth) — this just tracks UI state.
+ */
+export interface WizardState {
+  currentStep: WizardStep
+  formData: Partial<CompanySettings>
+  hasUnsavedChanges: boolean
+}
