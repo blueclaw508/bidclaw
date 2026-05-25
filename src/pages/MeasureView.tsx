@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { getDocument } from '@/lib/pdfjs'
 import type { PDFDocumentProxy, RenderTask } from '@/lib/pdfjs'
 import { CalibrationPanel } from '@/components/measure/CalibrationPanel'
+import { CountLabelModal } from '@/components/measure/CountLabelModal'
+import { CountPanel } from '@/components/measure/CountPanel'
 import { MeasureSidebar } from '@/components/measure/MeasureSidebar'
 import { MeasureToolbar } from '@/components/measure/MeasureToolbar'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -15,8 +17,10 @@ import {
   distancePointToSegment,
   getMeasurementsForPage,
   midpoint,
+  parseCountPoints,
   parseLinePoints,
   pdfPageToCanvas,
+  pointInCircle,
   screenToPdfPage,
 } from '@/lib/measureCoords'
 import { cn } from '@/lib/utils'
@@ -64,11 +68,17 @@ const HIT_THRESHOLD = 6
 const CALIBRATION_DOT_RADIUS = 4
 
 /**
- * Phase 4 enables Select + Calibrate + Line (the latter only when
- * pageScale exists — see `enabledToolsForPhase4` below). Count / Area
- * / Freehand still render disabled.
+ * Phase 5 base tools — always enabled regardless of calibration state.
+ * Select + Calibrate are pre-Phase-4. Count is NEW in Phase 5 and is
+ * enabled UNCONDITIONALLY (NOT gated on pageScale) because counts are
+ * unitless — they don't need a scale to be meaningful. This diverges
+ * from line's gating (line needs pageScale to display real-world
+ * distance). Don't accidentally add pageScale gating to count.
+ *
+ * Line is appended dynamically when pageScale exists. Area / Freehand
+ * are still disabled (Phase 6 / 7).
  */
-const PHASE4_BASE_TOOLS: readonly MeasureToolMode[] = ['select', 'calibrate']
+const PHASE5_BASE_TOOLS: readonly MeasureToolMode[] = ['select', 'calibrate', 'count']
 
 /**
  * Tooltip shown on the Line tool when it's disabled because the page
@@ -77,6 +87,35 @@ const PHASE4_BASE_TOOLS: readonly MeasureToolMode[] = ['select', 'calibrate']
  */
 const LINE_DISABLED_NO_SCALE =
   'Calibrate the page first to enable line measurements'
+
+/** Visual radius of count markers, in CSS px. */
+const COUNT_MARKER_RADIUS = 9
+
+/**
+ * Build a short human description of a measurement for the delete
+ * confirm dialog. Type-aware so counts and lines both render
+ * sensibly.
+ */
+function describeMeasurementForDelete(
+  m: Measurement,
+  pageScale: PageScale | null
+): string {
+  if (m.tool_type === 'line') {
+    if (!pageScale) return '(distance pending calibration)'
+    const pts = parseLinePoints(m.points)
+    if (!pts) return '(unknown distance)'
+    const dist =
+      distanceBetweenPoints(pts[0] as Point, pts[1] as Point) *
+      pageScale.scale_factor
+    return `${dist.toFixed(1)} ${pageScale.real_world_unit}`
+  }
+  if (m.tool_type === 'count') {
+    const pts = parseCountPoints(m.points)
+    const n = pts?.length ?? 0
+    return m.label ? `${n} — ${m.label}` : `Count of ${n}`
+  }
+  return '(measurement)'
+}
 
 export default function MeasureView() {
   const { projectId, fileId } = useParams<{ projectId: string; fileId: string }>()
@@ -144,6 +183,21 @@ export default function MeasureView() {
   /** Measurement queued for delete-confirm dialog. Null = no dialog. */
   const [deleteTarget, setDeleteTarget] = useState<Measurement | null>(null)
 
+  // Phase 5 additions — count tool session.
+  /**
+   * Count session draft. Two-phase state machine:
+   *   - 'collecting'     — CountPanel visible, every canvas click
+   *                        appends a marker.
+   *   - 'awaiting_label' — markers locked, CountLabelModal visible,
+   *                        canvas clicks no-op until save/cancel.
+   *   - null             — no active session (default).
+   * Points in PDF page units. Marker numbering = index + 1.
+   */
+  const [countDraft, setCountDraft] = useState<{
+    points: Point[]
+    status: 'collecting' | 'awaiting_label'
+  } | null>(null)
+
   const measureRef = useRef<HTMLDivElement | null>(null)
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -177,6 +231,7 @@ export default function MeasureView() {
       setPageScale(null)
       setLineDraft({ points: [] })
       setDeleteTarget(null)
+      setCountDraft(null)
 
       // RLS returns zero rows for files this user can't see, which looks
       // identical to "doesn't exist". That's the right UX — don't leak
@@ -330,6 +385,7 @@ export default function MeasureView() {
   useEffect(() => {
     setCalibrationDraft({ points: [] })
     setLineDraft({ points: [] })
+    setCountDraft(null)
     setSelectedId(null)
   }, [pageNumber])
 
@@ -698,6 +754,49 @@ export default function MeasureView() {
         ctx.stroke()
       }
     }
+
+    // Phase 5 — saved count measurements. Each marker is a numbered
+    // circle. Whole-measurement selection (every marker in a selected
+    // count flips to gold) — the per-marker click just resolves to
+    // the parent measurement's id.
+    ctx.font = '700 11px Inter, system-ui, sans-serif'
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'center'
+    for (const m of visible) {
+      if (m.tool_type !== 'count') continue
+      const pts = parseCountPoints(m.points)
+      if (!pts) continue
+      const isSelected = m.id === selectedId
+      ctx.fillStyle = isSelected ? BRAND_GOLD : BRAND_NAVY
+      pts.forEach((p, i) => {
+        const css = pdfPageToCanvas(p, fitScale)
+        ctx.beginPath()
+        ctx.arc(css.x, css.y, COUNT_MARKER_RADIUS, 0, Math.PI * 2)
+        ctx.fill()
+        // White centered number on top of the circle fill.
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillText(String(i + 1), css.x, css.y + 0.5)
+        // Restore for next marker iteration.
+        ctx.fillStyle = isSelected ? BRAND_GOLD : BRAND_NAVY
+      })
+    }
+
+    // Phase 5 — count session draft (in-progress, not yet saved).
+    // Identical rendering to a saved count except always navy (drafts
+    // can't be selected). Stops appearing the instant the parent
+    // clears countDraft (save success or cancel).
+    if (countDraft && countDraft.points.length > 0) {
+      ctx.fillStyle = BRAND_NAVY
+      countDraft.points.forEach((p, i) => {
+        const css = pdfPageToCanvas(p, fitScale)
+        ctx.beginPath()
+        ctx.arc(css.x, css.y, COUNT_MARKER_RADIUS, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillText(String(i + 1), css.x, css.y + 0.5)
+        ctx.fillStyle = BRAND_NAVY
+      })
+    }
   }, [
     renderInfo,
     measurements,
@@ -706,6 +805,7 @@ export default function MeasureView() {
     calibrationDraft,
     lineDraft,
     pageScale,
+    countDraft,
   ])
 
   // ──────────────────────────────────────────────────────────────────
@@ -723,9 +823,17 @@ export default function MeasureView() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return
-      // Priority order: calibration draft > line draft > deselect.
+      // Priority order: calibration draft > count session (any state,
+      // including label modal) > line draft > deselect.
       if (calibrationDraft.points.length > 0) {
         setCalibrationDraft({ points: [] })
+        setTool('select')
+        return
+      }
+      if (countDraft !== null) {
+        // ESC during count fully discards the session, even from the
+        // label modal stage — no row inserted, all markers cleared.
+        setCountDraft(null)
         setTool('select')
         return
       }
@@ -738,7 +846,7 @@ export default function MeasureView() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [calibrationDraft.points.length, lineDraft.points.length])
+  }, [calibrationDraft.points.length, countDraft, lineDraft.points.length])
 
   // ──────────────────────────────────────────────────────────────────
   // Delete key on canvas/sidebar focus → open the delete-confirm dialog
@@ -813,8 +921,25 @@ export default function MeasureView() {
         return
       }
 
+      if (tool === 'count') {
+        // Phase 5: accumulate N PDF-page-unit points. Once the modal
+        // is up (status awaiting_label), the modal owns input — no
+        // more canvas clicks allowed.
+        if (countDraft?.status === 'awaiting_label') return
+        const pdfPoint = screenToPdfPage(
+          { x: e.clientX, y: e.clientY },
+          rect,
+          renderInfo.fitScale
+        )
+        setCountDraft((prev) => ({
+          points: prev ? [...prev.points, pdfPoint] : [pdfPoint],
+          status: 'collecting',
+        }))
+        return
+      }
+
       if (tool !== 'select') {
-        // Phase 5+ wires count/area/freehand creation here.
+        // Phase 6+ wires area/freehand creation here.
         return
       }
 
@@ -836,6 +961,26 @@ export default function MeasureView() {
             // (matches typical canvas-app expectations).
             hit = m.id
           }
+        } else if (m.tool_type === 'count') {
+          // Phase 5 — whole-measurement selection on a count: any
+          // marker click resolves to the parent count.id. Threshold
+          // = marker radius + standard HIT_THRESHOLD so the click
+          // area extends slightly past the visible circle edge.
+          const pts = parseCountPoints(m.points)
+          if (!pts) continue
+          for (const p of pts) {
+            const css = pdfPageToCanvas(p, renderInfo.fitScale)
+            if (
+              pointInCircle(
+                { x: cssX, y: cssY },
+                css,
+                COUNT_MARKER_RADIUS + HIT_THRESHOLD
+              )
+            ) {
+              hit = m.id
+              break // no need to check other markers of same count
+            }
+          }
         }
       }
       // null when click was on canvas but > HIT_THRESHOLD from any
@@ -849,6 +994,7 @@ export default function MeasureView() {
       pageNumber,
       calibrationDraft.points.length,
       lineDraft.points.length,
+      countDraft,
       pageScale,
     ]
   )
@@ -913,6 +1059,65 @@ export default function MeasureView() {
       if (m) setDeleteTarget(m)
     },
     [measurements]
+  )
+
+  // ──────────────────────────────────────────────────────────────────
+  // Count session handlers — Finish locks the markers and opens the
+  // label modal; Cancel + ESC fully discard; the label submit inserts
+  // the row and clears the session.
+  // ──────────────────────────────────────────────────────────────────
+  const handleCountFinish = useCallback(() => {
+    if (!countDraft || countDraft.points.length === 0) return
+    setCountDraft({ points: countDraft.points, status: 'awaiting_label' })
+  }, [countDraft])
+
+  const handleCountCancel = useCallback(() => {
+    setCountDraft(null)
+    setTool('select')
+  }, [])
+
+  const handleCountSubmitLabel = useCallback(
+    async (label: string | null) => {
+      if (!countDraft || countDraft.points.length === 0 || !file) return
+      const payload = {
+        project_id: file.project_id,
+        source_file_id: file.id,
+        pdf_page_number: pageNumber,
+        tool_type: 'count' as const,
+        points: countDraft.points,
+        work_area_id: defaultWorkAreaId,
+        label,
+        // scale_factor is NOT NULL — counts don't use it but the column
+        // requires a value. 1.0 keeps DB happy; UI never reads this
+        // for counts.
+        scale_factor: pageScale?.scale_factor ?? 1.0,
+        // calculated_value populated for export/reporting, but the UI
+        // reads count.points.length directly (live-state pattern from
+        // Phase 4). Same rule applies to count as to line.
+        calculated_value: countDraft.points.length,
+        calculated_unit: 'each',
+      }
+      const { data, error } = await supabase
+        .from('measurements')
+        .insert(payload)
+        .select()
+        .single()
+      if (error || !data) {
+        const msg = error?.message ?? 'No row returned from insert'
+        toast.error(`Couldn't save count: ${msg}`)
+        throw new Error(msg) // keeps the label modal open
+      }
+      setMeasurements((prev) => [...prev, data as Measurement])
+      setCountDraft(null)
+      setTool('select')
+      const noun = countDraft.points.length === 1 ? 'item' : 'items'
+      toast.success(
+        label
+          ? `Count saved: ${countDraft.points.length} ${noun} (${label})`
+          : `Count saved: ${countDraft.points.length} ${noun}`
+      )
+    },
+    [countDraft, file, pageNumber, defaultWorkAreaId, pageScale]
   )
 
   const handleConfirmDelete = useCallback(async () => {
@@ -1065,7 +1270,7 @@ export default function MeasureView() {
             tool={tool}
             onChange={setTool}
             enabledTools={
-              pageScale ? [...PHASE4_BASE_TOOLS, 'line'] : PHASE4_BASE_TOOLS
+              pageScale ? [...PHASE5_BASE_TOOLS, 'line'] : PHASE5_BASE_TOOLS
             }
             disabledReasons={
               pageScale ? undefined : { line: LINE_DISABLED_NO_SCALE }
@@ -1128,6 +1333,19 @@ export default function MeasureView() {
           onSubmit={handleCalibrationSubmit}
           pdfDistance={calibrationPdfDistance}
         />
+
+        {/* Count session panel — visible whenever the user is in count
+            mode AND the label modal isn't up yet. Mirrors the
+            CalibrationPanel positioning. */}
+        <CountPanel
+          open={
+            tool === 'count' &&
+            (countDraft === null || countDraft.status === 'collecting')
+          }
+          count={countDraft?.points.length ?? 0}
+          onFinish={handleCountFinish}
+          onCancel={handleCountCancel}
+        />
         </div>
 
         {/* Sidebar (right) */}
@@ -1146,6 +1364,17 @@ export default function MeasureView() {
         />
       </div>
 
+      {/* Count label modal — opens after the user clicks Finish in
+          CountPanel. Real modal (backdrop + center) because the form
+          is pure text entry; no plan reference needed underneath.
+          Cancel / X / Esc all fully discard the count session. */}
+      <CountLabelModal
+        open={countDraft?.status === 'awaiting_label'}
+        count={countDraft?.points.length ?? 0}
+        onSubmit={handleCountSubmitLabel}
+        onClose={handleCountCancel}
+      />
+
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
@@ -1156,16 +1385,7 @@ export default function MeasureView() {
             <>
               The measurement{' '}
               <strong className="text-brand-text">
-                {pageScale
-                  ? (() => {
-                      const pts = parseLinePoints(deleteTarget.points)
-                      if (!pts) return '(unknown distance)'
-                      const dist =
-                        distanceBetweenPoints(pts[0] as Point, pts[1] as Point) *
-                        pageScale.scale_factor
-                      return `${dist.toFixed(1)} ${pageScale.real_world_unit}`
-                    })()
-                  : '(distance pending calibration)'}
+                {describeMeasurementForDelete(deleteTarget, pageScale)}
               </strong>{' '}
               will be permanently removed.
             </>

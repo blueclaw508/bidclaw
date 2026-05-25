@@ -1,19 +1,24 @@
 import {
   ChevronLeft,
   ChevronRight,
+  Hash,
   Minus,
   PanelRightClose,
   Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { distanceBetweenPoints } from '@/lib/measureCoords'
+import {
+  distanceBetweenPoints,
+  parseCountPoints,
+  parseLinePoints,
+} from '@/lib/measureCoords'
 import type {
   Measurement,
+  MeasurementToolType,
   PageScale,
   Point,
   WorkArea,
 } from '@/lib/types'
-import { parseLinePoints } from '@/lib/measureCoords'
 
 /**
  * Right-column sidebar for the measure view. Houses:
@@ -85,9 +90,22 @@ export function MeasureSidebar({
   // a per-row find().
   const workAreaById = new Map(workAreas.map((wa) => [wa.id, wa]))
 
-  // Phase 4 only ships line measurements. Filter explicitly so the
-  // list doesn't break if a Phase 5+ tool lands data we don't render.
-  const lineMeasurements = measurements.filter((m) => m.tool_type === 'line')
+  // Phase 5 — group measurements by tool_type. GROUP_ORDER is an
+  // explicit constant so the rendering order is deterministic + the
+  // pattern extends cleanly when area / freehand land. Empty groups
+  // don't render their header.
+  const grouped: Record<MeasurementToolType, Measurement[]> = {
+    line: [],
+    count: [],
+    area: [],
+    freehand_polyline: [],
+    freehand_drag: [],
+  }
+  for (const m of measurements) {
+    grouped[m.tool_type].push(m)
+  }
+  const totalRendered =
+    grouped.line.length + grouped.count.length /* + area + freehand later */
 
   const selectedMeasurement =
     selectedId !== null
@@ -167,68 +185,59 @@ export function MeasureSidebar({
         </label>
       </section>
 
-      {/* Measurements list */}
+      {/* Measurements list — grouped by tool type. Empty groups
+          skip their headers; entirely-empty page shows the empty-state
+          hint. */}
       <section className="flex-1 overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-brand-border px-3 py-2.5">
-          <div className="text-xs font-bold uppercase tracking-wide text-brand-text-muted">
-            Measurements
-          </div>
-          <div className="text-xs tabular-nums text-brand-text-muted">
-            {lineMeasurements.length}
-          </div>
-        </div>
-
-        {lineMeasurements.length === 0 ? (
+        {totalRendered === 0 ? (
           <div className="px-3 py-4 text-xs text-brand-text-muted">
-            No measurements on this page yet. Pick the Line tool and
-            click two points to start.
+            No measurements on this page yet. Pick the Line or Count tool
+            and start clicking.
           </div>
         ) : (
-          <ul>
-            {lineMeasurements.map((m) => {
-              const distance = realWorldDistanceFor(m, pageScale)
-              const wa = m.work_area_id
-                ? workAreaById.get(m.work_area_id) ?? null
-                : null
-              const isSelected = m.id === selectedId
-              return (
-                <li key={m.id}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onSelectMeasurement(isSelected ? null : m.id)
+          <>
+            {grouped.line.length > 0 && (
+              <MeasurementGroup
+                heading="Lines"
+                count={grouped.line.length}
+                items={grouped.line}
+                selectedId={selectedId}
+                onSelect={onSelectMeasurement}
+                renderRow={(m, isSelected) => (
+                  <LineRow
+                    m={m}
+                    isSelected={isSelected}
+                    workArea={
+                      m.work_area_id
+                        ? workAreaById.get(m.work_area_id) ?? null
+                        : null
                     }
-                    className={cn(
-                      'flex w-full items-center gap-2 border-b border-brand-border/60 px-3 py-2 text-left transition-colors',
-                      isSelected
-                        ? 'bg-brand-gold-pale'
-                        : 'hover:bg-brand-surface'
-                    )}
-                  >
-                    <Minus
-                      className={cn(
-                        'h-3.5 w-3.5 shrink-0',
-                        isSelected ? 'text-brand-gold-dark' : 'text-brand-text-muted'
-                      )}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div
-                        className={cn(
-                          'truncate text-sm font-semibold tabular-nums',
-                          isSelected ? 'text-brand-gold-dark' : 'text-brand-text'
-                        )}
-                      >
-                        {distance ?? '—'}
-                      </div>
-                      <div className="truncate text-[11px] text-brand-text-muted">
-                        {wa?.name ?? 'No work area'}
-                      </div>
-                    </div>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+                    pageScale={pageScale}
+                  />
+                )}
+              />
+            )}
+            {grouped.count.length > 0 && (
+              <MeasurementGroup
+                heading="Counts"
+                count={grouped.count.length}
+                items={grouped.count}
+                selectedId={selectedId}
+                onSelect={onSelectMeasurement}
+                renderRow={(m, isSelected) => (
+                  <CountRow
+                    m={m}
+                    isSelected={isSelected}
+                    workArea={
+                      m.work_area_id
+                        ? workAreaById.get(m.work_area_id) ?? null
+                        : null
+                    }
+                  />
+                )}
+              />
+            )}
+          </>
         )}
       </section>
 
@@ -239,8 +248,14 @@ export function MeasureSidebar({
             Selected
           </div>
           <div className="mb-1 text-lg font-bold tabular-nums text-brand-text">
-            {realWorldDistanceFor(selectedMeasurement, pageScale) ?? '—'}
+            {primaryDisplayFor(selectedMeasurement, pageScale)}
           </div>
+          {selectedMeasurement.tool_type === 'count' &&
+            selectedMeasurement.label && (
+              <div className="mb-1 text-sm font-semibold text-brand-text">
+                {selectedMeasurement.label}
+              </div>
+            )}
           <div className="mb-3 text-xs text-brand-text-muted">
             {selectedMeasurement.work_area_id
               ? workAreaById.get(selectedMeasurement.work_area_id)?.name ??
@@ -259,6 +274,155 @@ export function MeasureSidebar({
       )}
     </aside>
   )
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Group + per-type row subcomponents.
+// ──────────────────────────────────────────────────────────────────────
+
+interface MeasurementGroupProps {
+  heading: string
+  count: number
+  items: readonly Measurement[]
+  selectedId: string | null
+  onSelect: (id: string | null) => void
+  renderRow: (m: Measurement, isSelected: boolean) => React.ReactNode
+}
+
+function MeasurementGroup({
+  heading,
+  count,
+  items,
+  selectedId,
+  onSelect,
+  renderRow,
+}: MeasurementGroupProps) {
+  return (
+    <div>
+      <div className="flex items-center justify-between border-y border-brand-border bg-brand-surface/60 px-3 py-1.5">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-brand-text-muted">
+          {heading}
+        </div>
+        <div className="text-[11px] tabular-nums text-brand-text-muted">
+          ({count})
+        </div>
+      </div>
+      <ul>
+        {items.map((m) => {
+          const isSelected = m.id === selectedId
+          return (
+            <li key={m.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(isSelected ? null : m.id)}
+                className={cn(
+                  'flex w-full items-center gap-2 border-b border-brand-border/60 px-3 py-2 text-left transition-colors',
+                  isSelected
+                    ? 'bg-brand-gold-pale'
+                    : 'hover:bg-brand-surface'
+                )}
+              >
+                {renderRow(m, isSelected)}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function LineRow({
+  m,
+  isSelected,
+  workArea,
+  pageScale,
+}: {
+  m: Measurement
+  isSelected: boolean
+  workArea: WorkArea | null
+  pageScale: PageScale | null
+}) {
+  const distance = realWorldDistanceFor(m, pageScale)
+  return (
+    <>
+      <Minus
+        className={cn(
+          'h-3.5 w-3.5 shrink-0',
+          isSelected ? 'text-brand-gold-dark' : 'text-brand-text-muted'
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            'truncate text-sm font-semibold tabular-nums',
+            isSelected ? 'text-brand-gold-dark' : 'text-brand-text'
+          )}
+        >
+          {distance ?? '—'}
+        </div>
+        <div className="truncate text-[11px] text-brand-text-muted">
+          {workArea?.name ?? 'No work area'}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function CountRow({
+  m,
+  isSelected,
+  workArea,
+}: {
+  m: Measurement
+  isSelected: boolean
+  workArea: WorkArea | null
+}) {
+  const pts = parseCountPoints(m.points)
+  const n = pts?.length ?? 0
+  return (
+    <>
+      <Hash
+        className={cn(
+          'h-3.5 w-3.5 shrink-0',
+          isSelected ? 'text-brand-gold-dark' : 'text-brand-text-muted'
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            'truncate text-sm font-semibold tabular-nums',
+            isSelected ? 'text-brand-gold-dark' : 'text-brand-text'
+          )}
+        >
+          {n}{' '}
+          <span className="text-[11px] font-normal text-brand-text-muted">
+            {n === 1 ? 'item' : 'items'}
+          </span>
+        </div>
+        <div className="truncate text-[11px] text-brand-text-muted">
+          {m.label ? `${m.label} · ` : ''}
+          {workArea?.name ?? 'No work area'}
+        </div>
+      </div>
+    </>
+  )
+}
+
+/**
+ * Primary display string for the Selected detail panel. Tool-aware
+ * so line shows distance and count shows N items.
+ */
+function primaryDisplayFor(
+  m: Measurement,
+  pageScale: PageScale | null
+): string {
+  if (m.tool_type === 'count') {
+    const pts = parseCountPoints(m.points)
+    const n = pts?.length ?? 0
+    return `${n} ${n === 1 ? 'item' : 'items'}`
+  }
+  return realWorldDistanceFor(m, pageScale) ?? '—'
 }
 
 /**

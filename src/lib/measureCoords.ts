@@ -144,6 +144,30 @@ export function parseLinePoints(raw: unknown): LinePoints | null {
   return [a, b] as const
 }
 
+/**
+ * Parse `points` for a count-tool measurement — any non-empty array of
+ * points. Returns null if malformed (empty array, non-array, bad point
+ * shapes). Marker numbering is array-index + 1, so order matters.
+ */
+export function parseCountPoints(raw: unknown): readonly Point[] | null {
+  if (!Array.isArray(raw)) return null
+  if (raw.length === 0) return null
+  for (const p of raw) {
+    if (!isPoint(p)) return null
+  }
+  return raw as readonly Point[]
+}
+
+/**
+ * True if point p is within `radius` of `center`. All three inputs
+ * must be in the SAME coord space (count hit-test uses CSS canvas px).
+ */
+export function pointInCircle(p: Point, center: Point, radius: number): boolean {
+  const dx = p.x - center.x
+  const dy = p.y - center.y
+  return dx * dx + dy * dy <= radius * radius
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Page filtering helper — called in TWO places (render effect and
 // hit-test handler). Centralized so the filter rule can't drift
