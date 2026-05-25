@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
-import { Building2, Calculator, ChevronRight } from 'lucide-react'
+import { Building2, Calculator, ChevronRight, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSetupGate } from '@/hooks/useSetupGate'
 
 /**
  * Settings index. Two clickable nav cards for the Phase 2 settings
@@ -57,6 +59,18 @@ function InfoSection({
 
 export default function SettingsPage() {
   const { user } = useAuth()
+  const { setupCompleted, gateAction } = useSetupGate()
+
+  // Phase 4 verification harness — a demo button wrapped via
+  // gateAction. When setup is incomplete: click toasts + opens the
+  // wizard (no action fires). When complete: click fires the action
+  // (toast + console.log). Remove in Prompt 4.5 cleanup once Prompt 6
+  // wires real consumers (New Proposal / Run Jamie buttons).
+  const handleGatedAction = gateAction(() => {
+    console.log('[useSetupGate demo] action ran — setup is complete')
+    toast.success('Gated action fired — setup is complete.')
+  })
+
   return (
     <div className="space-y-8">
       <header>
@@ -108,6 +122,37 @@ export default function SettingsPage() {
         >
           QBO sync arrives in Phase 3.
         </InfoSection>
+
+        {/* DEV / Phase 4 verification — remove in Prompt 4.5 cleanup. */}
+        <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/40 p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-wide text-amber-700">
+                Phase 4 verification harness
+              </h2>
+              <p className="mt-1 text-xs text-amber-900">
+                Demo of <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">useSetupGate</code>.
+                When setup is incomplete: clicking fires a toast and opens the wizard.
+                When setup is complete: clicking runs the action (toast + console.log).
+                Removed once Prompt 6 wires the real "New Proposal" button.
+              </p>
+              <p className="mt-2 text-[11px] text-amber-700">
+                Current gate state:{' '}
+                <span className="font-mono font-semibold">
+                  setupCompleted = {String(setupCompleted)}
+                </span>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleGatedAction}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Run gated action
+            </button>
+          </div>
+        </section>
       </div>
     </div>
   )

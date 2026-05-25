@@ -10,7 +10,9 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSetup } from '@/contexts/SetupContext'
 import { MarketingBar } from '@/components/MarketingBar'
+import { SetupBanner } from '@/components/setup/SetupBanner'
 import { WizardModal } from '@/components/setup/WizardModal'
 import { cn } from '@/lib/utils'
 
@@ -27,26 +29,43 @@ export function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
-  // Phase 3 — wizard trigger via ?wizard=1 query param. Phase 4 will
-  // add real first-login auto-open via SetupContext + sessionStorage.
-  // For Phase 3 verification, navigate to any /app/* route with
-  // ?wizard=1 to open it.
+  // Wizard control hoisted to SetupContext (Phase 4) so useSetupGate
+  // + first-login auto-open + ?wizard=1 query-param trigger can all
+  // request the wizard without prop-drilling.
+  const { loading: setupLoading, setupCompleted, wizardOpen, openWizard, closeWizard } = useSetup()
+
+  // Phase 4 — first-login auto-open. Fires once per session per user
+  // when authenticated AND setup is incomplete. Subsequent renders in
+  // the same tab respect the sessionStorage trip flag so the wizard
+  // doesn't re-open on every page navigation.
+  useEffect(() => {
+    if (setupLoading) return
+    if (!user) return
+    if (setupCompleted) return
+    const flagKey = `setup_wizard_auto_opened_${user.id}`
+    if (sessionStorage.getItem(flagKey) === '1') return
+    sessionStorage.setItem(flagKey, '1')
+    openWizard()
+  }, [setupLoading, user, setupCompleted, openWizard])
+
+  // Debug trigger — manual ?wizard=1 query-param override stays as a
+  // testing affordance. Bypasses the auto-open trip flag so a tester
+  // can re-open the wizard mid-session without clearing
+  // sessionStorage. Phase 4 closes Prompt 4 with this still in place.
   const [searchParams, setSearchParams] = useSearchParams()
-  const [wizardOpen, setWizardOpen] = useState(false)
   useEffect(() => {
     if (searchParams.get('wizard') === '1') {
-      setWizardOpen(true)
+      openWizard()
     }
-  }, [searchParams])
+  }, [searchParams, openWizard])
   const handleWizardClose = useCallback(() => {
-    setWizardOpen(false)
-    // Clear the query param so the wizard doesn't re-open on next render.
+    closeWizard()
     if (searchParams.get('wizard') === '1') {
       const next = new URLSearchParams(searchParams)
       next.delete('wizard')
       setSearchParams(next, { replace: true })
     }
-  }, [searchParams, setSearchParams])
+  }, [closeWizard, searchParams, setSearchParams])
 
   const handleSignOut = async () => {
     setUserMenuOpen(false)
@@ -175,6 +194,11 @@ export function AppShell() {
           </div>
         )}
       </header>
+
+      {/* SETUP BANNER — amber strip below the sticky header when the
+          user hasn't completed setup. Hidden when complete OR when
+          dismissed for this session via sessionStorage flag. */}
+      <SetupBanner />
 
       {/* MAIN */}
       <main className="flex-1">

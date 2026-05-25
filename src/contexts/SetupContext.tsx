@@ -22,6 +22,11 @@ import type { CompanySettings } from '@/lib/types'
  * Re-fetch behavior: loads ONCE on mount per authenticated session.
  * Explicit refreshSettings() re-loads when something changes (wizard
  * completion, settings page save). No per-route re-fetch.
+ *
+ * Wizard control (Phase 4): the context also owns the WizardModal's
+ * open state so useSetupGate (and the first-login auto-open effect)
+ * can request the wizard from anywhere in /app/* without prop-
+ * drilling through AppShell.
  */
 interface SetupContextValue {
   /** True when the user has explicitly completed onboarding. */
@@ -32,6 +37,12 @@ interface SetupContextValue {
   refreshSettings: () => Promise<void>
   /** True during the initial mount load. False after. */
   loading: boolean
+  /** WizardModal visibility — owned by the provider so any consumer can open it. */
+  wizardOpen: boolean
+  /** Request the wizard to open. */
+  openWizard: () => void
+  /** Close the wizard. Skip semantics are handled inside WizardModal. */
+  closeWizard: () => void
 }
 
 const SetupContext = createContext<SetupContextValue | null>(null)
@@ -40,6 +51,7 @@ export function SetupProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [loading, setLoading] = useState(true)
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   const refreshSettings = useCallback(async () => {
     try {
@@ -69,12 +81,23 @@ export function SetupProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, refreshSettings])
 
+  const openWizard = useCallback(() => setWizardOpen(true), [])
+  const closeWizard = useCallback(() => setWizardOpen(false), [])
+
   const setupCompleted = companySettings?.setup_completed_at !== null
     && companySettings?.setup_completed_at !== undefined
 
   return (
     <SetupContext.Provider
-      value={{ setupCompleted, companySettings, refreshSettings, loading }}
+      value={{
+        setupCompleted,
+        companySettings,
+        refreshSettings,
+        loading,
+        wizardOpen,
+        openWizard,
+        closeWizard,
+      }}
     >
       {children}
     </SetupContext.Provider>
