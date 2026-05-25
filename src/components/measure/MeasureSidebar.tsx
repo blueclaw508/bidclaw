@@ -2,6 +2,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Hash,
+  Hexagon,
   Minus,
   PanelRightClose,
   Trash2,
@@ -9,8 +10,11 @@ import {
 import { cn } from '@/lib/utils'
 import {
   distanceBetweenPoints,
+  parseAreaPoints,
   parseCountPoints,
   parseLinePoints,
+  polygonArea,
+  realWorldArea,
 } from '@/lib/measureCoords'
 import type {
   Measurement,
@@ -105,7 +109,9 @@ export function MeasureSidebar({
     grouped[m.tool_type].push(m)
   }
   const totalRendered =
-    grouped.line.length + grouped.count.length /* + area + freehand later */
+    grouped.line.length +
+    grouped.count.length +
+    grouped.area.length /* + freehand later */
 
   const selectedMeasurement =
     selectedId !== null
@@ -233,6 +239,27 @@ export function MeasureSidebar({
                         ? workAreaById.get(m.work_area_id) ?? null
                         : null
                     }
+                  />
+                )}
+              />
+            )}
+            {grouped.area.length > 0 && (
+              <MeasurementGroup
+                heading="Areas"
+                count={grouped.area.length}
+                items={grouped.area}
+                selectedId={selectedId}
+                onSelect={onSelectMeasurement}
+                renderRow={(m, isSelected) => (
+                  <AreaRow
+                    m={m}
+                    isSelected={isSelected}
+                    workArea={
+                      m.work_area_id
+                        ? workAreaById.get(m.work_area_id) ?? null
+                        : null
+                    }
+                    pageScale={pageScale}
                   />
                 )}
               />
@@ -409,9 +436,47 @@ function CountRow({
   )
 }
 
+function AreaRow({
+  m,
+  isSelected,
+  workArea,
+  pageScale,
+}: {
+  m: Measurement
+  isSelected: boolean
+  workArea: WorkArea | null
+  pageScale: PageScale | null
+}) {
+  const display = realWorldAreaFor(m, pageScale)
+  return (
+    <>
+      <Hexagon
+        className={cn(
+          'h-3.5 w-3.5 shrink-0',
+          isSelected ? 'text-brand-gold-dark' : 'text-brand-text-muted'
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            'truncate text-sm font-semibold tabular-nums',
+            isSelected ? 'text-brand-gold-dark' : 'text-brand-text'
+          )}
+        >
+          {display ?? '—'}
+        </div>
+        <div className="truncate text-[11px] text-brand-text-muted">
+          {m.label ? `${m.label} · ` : ''}
+          {workArea?.name ?? 'No work area'}
+        </div>
+      </div>
+    </>
+  )
+}
+
 /**
  * Primary display string for the Selected detail panel. Tool-aware
- * so line shows distance and count shows N items.
+ * so line shows distance, count shows N items, area shows sq-units.
  */
 function primaryDisplayFor(
   m: Measurement,
@@ -422,7 +487,31 @@ function primaryDisplayFor(
     const n = pts?.length ?? 0
     return `${n} ${n === 1 ? 'item' : 'items'}`
   }
+  if (m.tool_type === 'area') {
+    return realWorldAreaFor(m, pageScale) ?? '—'
+  }
   return realWorldDistanceFor(m, pageScale) ?? '—'
+}
+
+/**
+ * Live-state recompute for area rows: polygonArea × scale_factor²,
+ * formatted with thousand separators. Never reads measurement.
+ * calculated_value — same rule as line labels.
+ */
+function realWorldAreaFor(
+  m: Measurement,
+  pageScale: PageScale | null
+): string | null {
+  if (!pageScale) return null
+  if (m.tool_type !== 'area') return null
+  const verts = parseAreaPoints(m.points)
+  if (!verts) return null
+  const real = realWorldArea(polygonArea(verts), pageScale.scale_factor)
+  const formatted = new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  }).format(real)
+  return `${formatted} sq ${pageScale.real_world_unit}`
 }
 
 /**

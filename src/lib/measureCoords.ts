@@ -159,6 +159,86 @@ export function parseCountPoints(raw: unknown): readonly Point[] | null {
 }
 
 /**
+ * Parse `points` for an area-tool measurement — a polygon with ≥3
+ * vertices in PDF page units. Vertex order matters for shoelace; the
+ * polygon's edges connect consecutive entries and the last connects
+ * back to the first (closing edge implicit, not stored).
+ */
+export function parseAreaPoints(raw: unknown): readonly Point[] | null {
+  if (!Array.isArray(raw)) return null
+  if (raw.length < 3) return null
+  for (const p of raw) {
+    if (!isPoint(p)) return null
+  }
+  return raw as readonly Point[]
+}
+
+/**
+ * Shoelace formula — signed polygon area, in whatever coord space the
+ * vertices are in². Returns the absolute value so traversal direction
+ * (CW vs CCW) doesn't matter. Treats the polygon as closed (the edge
+ * from the last vertex back to the first is implicit).
+ *
+ * Self-intersecting polygons return a geometrically odd value (signed
+ * subareas can cancel). Phase 6 accepts this as user error; Phase 7
+ * polish could detect + warn.
+ */
+export function polygonArea(vertices: readonly Point[]): number {
+  const n = vertices.length
+  if (n < 3) return 0
+  let sum = 0
+  for (let i = 0; i < n; i++) {
+    const a = vertices[i]
+    const b = vertices[(i + 1) % n] // wraps last → first to close
+    sum += a.x * b.y - b.x * a.y
+  }
+  return Math.abs(sum) / 2
+}
+
+/**
+ * Convert a PDF-unit² polygon area to real-world area units.
+ *
+ *   real_world_area  =  polygon_area_in_pdf_units²  ×  scale_factor²
+ *
+ * THE SQUARED TERM IS LOAD-BEARING. Area scales QUADRATICALLY with
+ * linear scale — doubling the linear scale_factor quadruples the
+ * real-world area. Do NOT simplify to a single × scale_factor anywhere
+ * in the codebase. Every caller goes through this helper so the math
+ * lives in exactly one place. If a future phase needs the raw value
+ * for some reason, expose a new helper rather than reimplementing.
+ */
+export function realWorldArea(
+  pdfArea: number,
+  scaleFactor: number
+): number {
+  return pdfArea * scaleFactor * scaleFactor
+}
+
+/**
+ * Point-in-polygon test via ray casting. Classic algorithm: cast a
+ * horizontal ray to +∞ in x from p, count edge crossings. Odd =
+ * inside, even = outside. Uses the half-open `<` / `>=` convention
+ * to handle vertex-on-ray edge cases consistently.
+ *
+ * All inputs must be in the SAME coord space — area hit-test uses
+ * this in CSS canvas px space.
+ */
+export function pointInPolygon(p: Point, vertices: readonly Point[]): boolean {
+  const n = vertices.length
+  if (n < 3) return false
+  let inside = false
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const a = vertices[i]
+    const b = vertices[j]
+    const intersects =
+      a.y > p.y !== b.y > p.y &&
+      p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x
+    if (intersects) inside = !inside
+  }
+  return inside
+}
+
+/**
  * True if point p is within `radius` of `center`. All three inputs
  * must be in the SAME coord space (count hit-test uses CSS canvas px).
  */

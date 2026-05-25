@@ -5,6 +5,8 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { getDocument } from '@/lib/pdfjs'
 import type { PDFDocumentProxy, RenderTask } from '@/lib/pdfjs'
+import { AreaLabelModal } from '@/components/measure/AreaLabelModal'
+import { AreaPanel } from '@/components/measure/AreaPanel'
 import { CalibrationPanel } from '@/components/measure/CalibrationPanel'
 import { CountLabelModal } from '@/components/measure/CountLabelModal'
 import { CountPanel } from '@/components/measure/CountPanel'
@@ -17,10 +19,14 @@ import {
   distancePointToSegment,
   getMeasurementsForPage,
   midpoint,
+  parseAreaPoints,
   parseCountPoints,
   parseLinePoints,
   pdfPageToCanvas,
   pointInCircle,
+  pointInPolygon,
+  polygonArea,
+  realWorldArea,
   screenToPdfPage,
 } from '@/lib/measureCoords'
 import { cn } from '@/lib/utils'
@@ -88,8 +94,33 @@ const PHASE5_BASE_TOOLS: readonly MeasureToolMode[] = ['select', 'calibrate', 'c
 const LINE_DISABLED_NO_SCALE =
   'Calibrate the page first to enable line measurements'
 
+/** Same precondition tooltip for area (needs scale for sq-unit display). */
+const AREA_DISABLED_NO_SCALE =
+  'Calibrate the page first to enable area measurements'
+
 /** Visual radius of count markers, in CSS px. */
 const COUNT_MARKER_RADIUS = 9
+
+/** Visual radius of draft-area vertex dots, in CSS px. */
+const AREA_DRAFT_DOT_RADIUS = 3
+
+/** Translucent navy fill for unselected saved area polygons. */
+const AREA_FILL_UNSELECTED = 'rgba(0, 50, 161, 0.12)'
+/** Translucent gold fill for selected saved area polygons. */
+const AREA_FILL_SELECTED = 'rgba(201, 168, 76, 0.18)'
+
+/**
+ * Format a real-world area value with thousand separators + 1 decimal.
+ * "12476.3" → "12,476.3". Used for the label modal header, sidebar
+ * row, and on-canvas label.
+ */
+function formatArea(realWorldArea: number, unit: string): string {
+  const formatted = new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  }).format(realWorldArea)
+  return `${formatted} sq ${unit}`
+}
 
 /**
  * Build a short human description of a measurement for the delete
@@ -113,6 +144,14 @@ function describeMeasurementForDelete(
     const pts = parseCountPoints(m.points)
     const n = pts?.length ?? 0
     return m.label ? `${n} — ${m.label}` : `Count of ${n}`
+  }
+  if (m.tool_type === 'area') {
+    if (!pageScale) return '(area pending calibration)'
+    const verts = parseAreaPoints(m.points)
+    if (!verts) return '(unknown area)'
+    const real = realWorldArea(polygonArea(verts), pageScale.scale_factor)
+    const display = formatArea(real, pageScale.real_world_unit)
+    return m.label ? `${display} (${m.label})` : display
   }
   return '(measurement)'
 }
@@ -198,6 +237,17 @@ export default function MeasureView() {
     status: 'collecting' | 'awaiting_label'
   } | null>(null)
 
+  // Phase 6 additions — area tool session.
+  /**
+   * Area session draft. Same two-phase shape as countDraft but
+   * vertices form a polygon (order matters; closed implicitly).
+   * Minimum 3 vertices required to Finish.
+   */
+  const [areaDraft, setAreaDraft] = useState<{
+    points: Point[]
+    status: 'collecting' | 'awaiting_label'
+  } | null>(null)
+
   const measureRef = useRef<HTMLDivElement | null>(null)
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -232,6 +282,7 @@ export default function MeasureView() {
       setLineDraft({ points: [] })
       setDeleteTarget(null)
       setCountDraft(null)
+      setAreaDraft(null)
 
       // RLS returns zero rows for files this user can't see, which looks
       // identical to "doesn't exist". That's the right UX — don't leak
@@ -386,6 +437,7 @@ export default function MeasureView() {
     setCalibrationDraft({ points: [] })
     setLineDraft({ points: [] })
     setCountDraft(null)
+    setAreaDraft(null)
     setSelectedId(null)
   }, [pageNumber])
 
@@ -797,6 +849,90 @@ export default function MeasureView() {
         ctx.fillStyle = BRAND_NAVY
       })
     }
+
+    // Phase 6 — saved area polygons. Closed shape: outline + translucent
+    // fill. Selected: gold treatment. Vertices NOT individually drawn
+    // (clean look for shapes that may have many vertices).
+    if (pageScale) {
+      ctx.font = '600 11px Inter, system-ui, sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'center'
+      for (const m of visible) {
+        if (m.tool_type !== 'area') continue
+        const verts = parseAreaPoints(m.points)
+        if (!verts) continue
+        const isSelected = m.id === selectedId
+        ctx.beginPath()
+        verts.forEach((v, i) => {
+          const css = pdfPageToCanvas(v, fitScale)
+          if (i === 0) ctx.moveTo(css.x, css.y)
+          else ctx.lineTo(css.x, css.y)
+        })
+        ctx.closePath() // implicit closing edge from last vertex to first
+        ctx.fillStyle = isSelected ? AREA_FILL_SELECTED : AREA_FILL_UNSELECTED
+        ctx.fill()
+        ctx.strokeStyle = isSelected ? BRAND_GOLD : BRAND_NAVY
+        ctx.lineWidth = 2
+        ctx.lineJoin = 'round'
+        ctx.stroke()
+
+        // Area label at the polygon's centroid (average of vertices —
+        // fine for convex shapes; concave shapes may land label
+        // outside the polygon, Phase 7 polish could use a proper
+        // visual centroid). Same live-state pattern as line labels:
+        // recompute area × scale_factor² every render.
+        const cx =
+          verts.reduce((s, v) => s + v.x, 0) / verts.length
+        const cy =
+          verts.reduce((s, v) => s + v.y, 0) / verts.length
+        const centroidCss = pdfPageToCanvas({ x: cx, y: cy }, fitScale)
+        const realArea = realWorldArea(polygonArea(verts), pageScale.scale_factor)
+        const label = formatArea(realArea, pageScale.real_world_unit)
+        const textWidth = ctx.measureText(label).width
+        const padX = 5
+        const padY = 3
+        const rectW = textWidth + padX * 2
+        const rectH = 11 + padY * 2
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.92)'
+        ctx.fillRect(
+          centroidCss.x - rectW / 2,
+          centroidCss.y - rectH / 2,
+          rectW,
+          rectH
+        )
+        ctx.fillStyle = '#5C6B8A' // brand-text-muted
+        ctx.fillText(label, centroidCss.x, centroidCss.y)
+      }
+    }
+
+    // Phase 6 — area session draft. Open polygon (no closing edge to
+    // first vertex). Small navy dots at each vertex for visual
+    // feedback during collection. No fill while drafting.
+    if (areaDraft && areaDraft.points.length > 0) {
+      const pts = areaDraft.points
+      ctx.strokeStyle = BRAND_NAVY
+      ctx.fillStyle = BRAND_NAVY
+      ctx.lineWidth = 2
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      if (pts.length >= 2) {
+        ctx.beginPath()
+        pts.forEach((v, i) => {
+          const css = pdfPageToCanvas(v, fitScale)
+          if (i === 0) ctx.moveTo(css.x, css.y)
+          else ctx.lineTo(css.x, css.y)
+        })
+        // Intentionally NOT closePath — drafts render as OPEN polygons
+        // so the user sees they haven't finished yet.
+        ctx.stroke()
+      }
+      pts.forEach((v) => {
+        const css = pdfPageToCanvas(v, fitScale)
+        ctx.beginPath()
+        ctx.arc(css.x, css.y, AREA_DRAFT_DOT_RADIUS, 0, Math.PI * 2)
+        ctx.fill()
+      })
+    }
   }, [
     renderInfo,
     measurements,
@@ -806,6 +942,7 @@ export default function MeasureView() {
     lineDraft,
     pageScale,
     countDraft,
+    areaDraft,
   ])
 
   // ──────────────────────────────────────────────────────────────────
@@ -823,17 +960,22 @@ export default function MeasureView() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return
-      // Priority order: calibration draft > count session (any state,
-      // including label modal) > line draft > deselect.
+      // Priority order: calibration > count > area > line > deselect.
+      // Each tool's draft Esc cancels its session fully (no DB write),
+      // including from the label-modal stage. Only one draft is
+      // realistically active at a time given the tool-change reset.
       if (calibrationDraft.points.length > 0) {
         setCalibrationDraft({ points: [] })
         setTool('select')
         return
       }
       if (countDraft !== null) {
-        // ESC during count fully discards the session, even from the
-        // label modal stage — no row inserted, all markers cleared.
         setCountDraft(null)
+        setTool('select')
+        return
+      }
+      if (areaDraft !== null) {
+        setAreaDraft(null)
         setTool('select')
         return
       }
@@ -846,7 +988,12 @@ export default function MeasureView() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [calibrationDraft.points.length, countDraft, lineDraft.points.length])
+  }, [
+    calibrationDraft.points.length,
+    countDraft,
+    areaDraft,
+    lineDraft.points.length,
+  ])
 
   // ──────────────────────────────────────────────────────────────────
   // Delete key on canvas/sidebar focus → open the delete-confirm dialog
@@ -938,8 +1085,28 @@ export default function MeasureView() {
         return
       }
 
+      if (tool === 'area') {
+        // Phase 6: accumulate polygon vertices. ≥3 required to Finish
+        // (gated in AreaPanel). Modal-stage clicks ignored.
+        if (!pageScale) {
+          setTool('select')
+          return
+        }
+        if (areaDraft?.status === 'awaiting_label') return
+        const pdfPoint = screenToPdfPage(
+          { x: e.clientX, y: e.clientY },
+          rect,
+          renderInfo.fitScale
+        )
+        setAreaDraft((prev) => ({
+          points: prev ? [...prev.points, pdfPoint] : [pdfPoint],
+          status: 'collecting',
+        }))
+        return
+      }
+
       if (tool !== 'select') {
-        // Phase 6+ wires area/freehand creation here.
+        // Phase 7 wires freehand creation here.
         return
       }
 
@@ -981,6 +1148,32 @@ export default function MeasureView() {
               break // no need to check other markers of same count
             }
           }
+        } else if (m.tool_type === 'area') {
+          // Phase 6 — hit on point-in-polygon (click inside the
+          // shape) OR within HIT_THRESHOLD of any edge segment
+          // (click near the outline). Convert all vertices to CSS
+          // once.
+          const verts = parseAreaPoints(m.points)
+          if (!verts) continue
+          const vertsCss = verts.map((v) =>
+            pdfPageToCanvas(v, renderInfo.fitScale)
+          )
+          if (pointInPolygon({ x: cssX, y: cssY }, vertsCss)) {
+            hit = m.id
+            continue
+          }
+          // Edge-proximity check — last edge wraps last → first.
+          for (let i = 0; i < vertsCss.length; i++) {
+            const a = vertsCss[i]
+            const b = vertsCss[(i + 1) % vertsCss.length]
+            if (
+              distancePointToSegment({ x: cssX, y: cssY }, a, b) <
+              HIT_THRESHOLD
+            ) {
+              hit = m.id
+              break
+            }
+          }
         }
       }
       // null when click was on canvas but > HIT_THRESHOLD from any
@@ -995,6 +1188,7 @@ export default function MeasureView() {
       calibrationDraft.points.length,
       lineDraft.points.length,
       countDraft,
+      areaDraft,
       pageScale,
     ]
   )
@@ -1119,6 +1313,73 @@ export default function MeasureView() {
     },
     [countDraft, file, pageNumber, defaultWorkAreaId, pageScale]
   )
+
+  // ──────────────────────────────────────────────────────────────────
+  // Area session handlers — same shape as count but with the squared
+  // scale factor for the real-world area calculation.
+  // ──────────────────────────────────────────────────────────────────
+  const handleAreaFinish = useCallback(() => {
+    if (!areaDraft || areaDraft.points.length < 3) return
+    setAreaDraft({ points: areaDraft.points, status: 'awaiting_label' })
+  }, [areaDraft])
+
+  const handleAreaCancel = useCallback(() => {
+    setAreaDraft(null)
+    setTool('select')
+  }, [])
+
+  const handleAreaSubmitLabel = useCallback(
+    async (label: string | null) => {
+      if (!areaDraft || areaDraft.points.length < 3 || !file || !pageScale) {
+        return
+      }
+      const pdfArea = polygonArea(areaDraft.points)
+      const realArea = realWorldArea(pdfArea, pageScale.scale_factor)
+      const payload = {
+        project_id: file.project_id,
+        source_file_id: file.id,
+        pdf_page_number: pageNumber,
+        tool_type: 'area' as const,
+        points: areaDraft.points,
+        work_area_id: defaultWorkAreaId,
+        label,
+        scale_factor: pageScale.scale_factor,
+        // Stored for export/reporting. UI always recomputes via the
+        // realWorldArea helper from live pageScale — never reads this.
+        calculated_value: realArea,
+        calculated_unit: `sq ${pageScale.real_world_unit}`,
+      }
+      const { data, error } = await supabase
+        .from('measurements')
+        .insert(payload)
+        .select()
+        .single()
+      if (error || !data) {
+        const msg = error?.message ?? 'No row returned from insert'
+        toast.error(`Couldn't save area: ${msg}`)
+        throw new Error(msg)
+      }
+      setMeasurements((prev) => [...prev, data as Measurement])
+      setAreaDraft(null)
+      setTool('select')
+      const display = formatArea(realArea, pageScale.real_world_unit)
+      toast.success(
+        label ? `Area saved: ${display} (${label})` : `Area saved: ${display}`
+      )
+    },
+    [areaDraft, file, pageNumber, defaultWorkAreaId, pageScale]
+  )
+
+  // Pre-computed display string for the AreaLabelModal header. Uses
+  // the same live-state recompute (polygonArea × scale²) so what the
+  // modal shows matches what will be saved + later rendered.
+  const areaDraftDisplay =
+    areaDraft && areaDraft.status === 'awaiting_label' && pageScale
+      ? formatArea(
+          realWorldArea(polygonArea(areaDraft.points), pageScale.scale_factor),
+          pageScale.real_world_unit
+        )
+      : ''
 
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return
@@ -1270,10 +1531,17 @@ export default function MeasureView() {
             tool={tool}
             onChange={setTool}
             enabledTools={
-              pageScale ? [...PHASE5_BASE_TOOLS, 'line'] : PHASE5_BASE_TOOLS
+              pageScale
+                ? [...PHASE5_BASE_TOOLS, 'line', 'area']
+                : PHASE5_BASE_TOOLS
             }
             disabledReasons={
-              pageScale ? undefined : { line: LINE_DISABLED_NO_SCALE }
+              pageScale
+                ? undefined
+                : {
+                    line: LINE_DISABLED_NO_SCALE,
+                    area: AREA_DISABLED_NO_SCALE,
+                  }
             }
           />
         </div>
@@ -1346,6 +1614,18 @@ export default function MeasureView() {
           onFinish={handleCountFinish}
           onCancel={handleCountCancel}
         />
+
+        {/* Area session panel — same positioning + state pattern as
+            CountPanel. Finish gated on ≥3 vertices internally. */}
+        <AreaPanel
+          open={
+            tool === 'area' &&
+            (areaDraft === null || areaDraft.status === 'collecting')
+          }
+          vertexCount={areaDraft?.points.length ?? 0}
+          onFinish={handleAreaFinish}
+          onCancel={handleAreaCancel}
+        />
         </div>
 
         {/* Sidebar (right) */}
@@ -1373,6 +1653,16 @@ export default function MeasureView() {
         count={countDraft?.points.length ?? 0}
         onSubmit={handleCountSubmitLabel}
         onClose={handleCountCancel}
+      />
+
+      {/* Area label modal — same pattern as CountLabelModal. Header
+          shows pre-computed area string from the same live-state
+          recompute the canvas uses for rendering. */}
+      <AreaLabelModal
+        open={areaDraft?.status === 'awaiting_label'}
+        areaDisplay={areaDraftDisplay}
+        onSubmit={handleAreaSubmitLabel}
+        onClose={handleAreaCancel}
       />
 
       <ConfirmDialog
