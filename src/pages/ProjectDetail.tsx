@@ -6,8 +6,10 @@ import {
   ClipboardList,
   Database,
   FileText,
+  Hash,
   Pencil,
   Plus,
+  ShieldAlert,
   Sparkles,
   User,
 } from 'lucide-react'
@@ -148,7 +150,7 @@ export default function ProjectDetailPage() {
 
   if (loading && !project) {
     return (
-      <div className="rounded-xl border border-brand-border bg-white p-6 text-sm text-brand-text-muted">
+      <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
         Loading project…
       </div>
     )
@@ -164,7 +166,7 @@ export default function ProjectDetailPage() {
         </p>
         <Link
           to="/app/projects"
-          className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-navy hover:underline"
+          className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to projects
@@ -176,22 +178,25 @@ export default function ProjectDetailPage() {
   if (!project) return null
 
   return (
-    <div className="space-y-6">
-      {/* Top: back link */}
+    <div className="space-y-6 pb-8">
+      {/* Back link — gray with blue hover */}
       <Link
         to="/app/projects"
-        className="inline-flex items-center gap-1 text-sm font-semibold text-brand-text-muted hover:text-brand-navy"
+        className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-blue-600"
       >
-        <ArrowLeft className="h-4 w-4" />
+        <ArrowLeft className="h-3.5 w-3.5" />
         Back to projects
       </Link>
 
-      {/* Header: editable name + status */}
+      {/* Gradient project header — QC blue gradient with editable name +
+          customer line + status badge. Inline edit pattern preserved
+          (click name to edit) but styled to work on the colored
+          background (white-translucent input over gradient). */}
       <ProjectHeader project={project} onPatch={patch} />
 
-      {/* Tabs */}
+      {/* Tabs — underline pattern with QC blue active state */}
       <nav
-        className="flex flex-wrap gap-1 border-b border-brand-border"
+        className="flex flex-wrap gap-1 border-b border-gray-200"
         aria-label="Project sections"
       >
         {TABS.map((t) => (
@@ -202,8 +207,8 @@ export default function ProjectDetailPage() {
             className={cn(
               '-mb-px border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors',
               activeTab === t.id
-                ? 'border-brand-navy text-brand-navy'
-                : 'border-transparent text-brand-text-muted hover:text-brand-text'
+                ? 'border-blue-500 text-blue-700'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
             )}
             aria-current={activeTab === t.id ? 'page' : undefined}
           >
@@ -242,7 +247,7 @@ export default function ProjectDetailPage() {
         title="Archive this project?"
         description={
           <>
-            <strong className="text-brand-text">{project.name}</strong> will be
+            <strong className="text-gray-900">{project.name}</strong> will be
             set to <em>Archived</em> and hidden from your default project list.
             You can restore it by changing its status back from the Details tab.
           </>
@@ -255,7 +260,7 @@ export default function ProjectDetailPage() {
 }
 
 /* ============================================================
- * ProjectHeader — editable name + status badge + customer line
+ * ProjectHeader — QC blue gradient card with editable name + customer + status
  * ============================================================ */
 
 function ProjectHeader({
@@ -292,57 +297,64 @@ function ProjectHeader({
   }
 
   return (
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0 flex-1">
-        {editingName ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                inputRef.current?.blur()
-              } else if (e.key === 'Escape') {
-                e.preventDefault()
-                setNameDraft(project.name)
-                setEditingName(false)
-              }
-            }}
-            className="w-full rounded-md border border-brand-navy bg-white px-3 py-1.5 text-3xl font-extrabold tracking-tight text-brand-text outline-none focus:ring-2 focus:ring-brand-navy/20"
-            maxLength={200}
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditingName(true)}
-            className="group inline-flex max-w-full items-center gap-2 rounded-md px-1 py-0.5 text-left text-3xl font-extrabold tracking-tight text-brand-text hover:bg-brand-surface"
-            title="Click to edit"
-          >
-            <span className="truncate">{project.name}</span>
-            <Pencil className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
-          </button>
-        )}
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-brand-text-muted">
-          <User className="h-4 w-4" />
-          {project.customers ? (
-            <span className="font-medium text-brand-text">
-              {project.customers.name}
-            </span>
-          ) : (
-            <span className="italic">Unassigned</span>
-          )}
+    <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="bg-white/20 p-2 rounded-lg shrink-0">
+            <ClipboardList className="w-6 h-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            {editingName ? (
+              <input
+                ref={inputRef}
+                type="text"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    inputRef.current?.blur()
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setNameDraft(project.name)
+                    setEditingName(false)
+                  }
+                }}
+                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-1 text-2xl font-bold text-white placeholder-white/50 outline-none backdrop-blur-sm focus:border-white/70 focus:bg-white/20"
+                maxLength={200}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditingName(true)}
+                className="group inline-flex max-w-full items-center gap-2 rounded-md px-1 py-0.5 text-left text-2xl font-bold tracking-tight text-white hover:bg-white/10"
+                title="Click to edit"
+              >
+                <span className="truncate">{project.name}</span>
+                <Pencil className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
+              </button>
+            )}
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-blue-100">
+              <User className="h-4 w-4" />
+              {project.customers ? (
+                <span className="font-medium text-white">
+                  {project.customers.name}
+                </span>
+              ) : (
+                <span className="italic">Unassigned</span>
+              )}
+            </div>
+          </div>
         </div>
+        <StatusBadge kind="project" value={project.status} className="shrink-0 self-start" />
       </div>
-      <StatusBadge kind="project" value={project.status} className="shrink-0" />
-    </header>
+    </div>
   )
 }
 
 /* ============================================================
- * DetailsTab — fully functional this phase
+ * DetailsTab — QC pastel section cards
  * ============================================================ */
 
 function DetailsTab({
@@ -356,70 +368,92 @@ function DetailsTab({
 }) {
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border border-brand-border bg-white p-6 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-          Project information
-        </h2>
-        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
-          <Field label="Status">
-            <StatusSelect project={project} onPatch={onPatch} />
-          </Field>
-          <Field label="Customer">
-            <CustomerSelect project={project} onPatch={onPatch} />
-          </Field>
-          <Field label="Site address" className="sm:col-span-2">
-            <BlurSaveTextarea
-              value={project.site_address ?? ''}
-              onSave={(v) => onPatch({ site_address: v || null })}
-              rows={2}
-              placeholder="Street, city, state, zip"
-            />
-          </Field>
-          <Field label="Notes" className="sm:col-span-2">
-            <BlurSaveTextarea
-              value={project.notes ?? ''}
-              onSave={(v) => onPatch({ notes: v || null })}
-              rows={4}
-              placeholder="Anything worth remembering about this project."
-            />
-          </Field>
-        </dl>
-        <div className="mt-6 grid grid-cols-2 gap-4 border-t border-brand-border pt-4 text-xs text-brand-text-muted">
-          <div>
-            <span className="font-semibold uppercase tracking-wide">Created</span>
-            <div className="mt-0.5 text-sm font-normal normal-case text-brand-text">
-              {formatLongDate(project.created_at)}
-            </div>
+      {/* Project Information — indigo pastel */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-6 py-4 border-b border-indigo-100 flex items-center gap-3">
+          <div className="bg-indigo-100 p-2 rounded-lg">
+            <ClipboardList className="w-5 h-5 text-indigo-600" />
           </div>
           <div>
-            <span className="font-semibold uppercase tracking-wide">Updated</span>
-            <div className="mt-0.5 text-sm font-normal normal-case text-brand-text">
-              {formatLongDate(project.updated_at)}
+            <h2 className="font-semibold text-gray-900">Project Information</h2>
+            <p className="text-xs text-gray-500">
+              Status, customer assignment, site address, and notes.
+            </p>
+          </div>
+        </div>
+        <div className="p-6">
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+            <Field label="Status">
+              <StatusSelect project={project} onPatch={onPatch} />
+            </Field>
+            <Field label="Customer">
+              <CustomerSelect project={project} onPatch={onPatch} />
+            </Field>
+            <Field label="Site address" className="sm:col-span-2">
+              <BlurSaveTextarea
+                value={project.site_address ?? ''}
+                onSave={(v) => onPatch({ site_address: v || null })}
+                rows={2}
+                placeholder="Street, city, state, zip"
+              />
+            </Field>
+            <Field label="Notes" className="sm:col-span-2">
+              <BlurSaveTextarea
+                value={project.notes ?? ''}
+                onSave={(v) => onPatch({ notes: v || null })}
+                rows={4}
+                placeholder="Anything worth remembering about this project."
+              />
+            </Field>
+          </dl>
+          <div className="mt-6 grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 text-xs text-gray-500">
+            <div>
+              <span className="font-semibold uppercase tracking-wide">Created</span>
+              <div className="mt-0.5 text-sm font-normal normal-case text-gray-900">
+                {formatLongDate(project.created_at)}
+              </div>
+            </div>
+            <div>
+              <span className="font-semibold uppercase tracking-wide">Updated</span>
+              <div className="mt-0.5 text-sm font-normal normal-case text-gray-900">
+                {formatLongDate(project.updated_at)}
+              </div>
             </div>
           </div>
         </div>
-      </section>
+      </div>
 
-      <section className="rounded-xl border border-brand-border bg-white p-6 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-          Danger zone
-        </h2>
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-brand-text-muted">
-            Archive hides the project from your default list but keeps its data
-            intact. You can restore it by changing its status.
-          </p>
-          <button
-            type="button"
-            onClick={onArchive}
-            disabled={project.status === 'archived'}
-            className="inline-flex items-center gap-2 rounded-md border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-          >
-            <Archive className="h-4 w-4" />
-            {project.status === 'archived' ? 'Already archived' : 'Archive project'}
-          </button>
+      {/* Danger Zone — rose pastel */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-gradient-to-r from-rose-50 to-pink-50 px-6 py-4 border-b border-rose-100 flex items-center gap-3">
+          <div className="bg-rose-100 p-2 rounded-lg">
+            <ShieldAlert className="w-5 h-5 text-rose-600" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">Danger Zone</h2>
+            <p className="text-xs text-gray-500">
+              Archiving hides the project but preserves its data.
+            </p>
+          </div>
         </div>
-      </section>
+        <div className="p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-gray-600">
+              Archive hides the project from your default list but keeps its
+              data intact. You can restore it by changing its status.
+            </p>
+            <button
+              type="button"
+              onClick={onArchive}
+              disabled={project.status === 'archived'}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+            >
+              <Archive className="h-4 w-4" />
+              {project.status === 'archived' ? 'Already archived' : 'Archive project'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -435,7 +469,7 @@ function StatusSelect({
     <select
       value={project.status}
       onChange={(e) => void onPatch({ status: e.target.value as ProjectStatus })}
-      className="w-full rounded-md border border-brand-border bg-white px-3 py-2 text-sm font-medium text-brand-text outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-gray-900 outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
     >
       {PROJECT_STATUS_ORDER.map((s) => (
         <option key={s} value={s}>
@@ -485,7 +519,7 @@ function CustomerSelect({
           value={project.customer_id ?? ''}
           onChange={(e) => void onPatch({ customer_id: e.target.value || null })}
           disabled={loading}
-          className="flex-1 rounded-md border border-brand-border bg-white px-3 py-2 text-sm text-brand-text outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20 disabled:bg-brand-surface"
+          className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20 disabled:bg-gray-50"
         >
           <option value="">{loading ? 'Loading…' : 'Unassigned'}</option>
           {customers.map((c) => (
@@ -498,7 +532,7 @@ function CustomerSelect({
           type="button"
           onClick={() => setNewCustomerOpen(true)}
           title="Create new customer"
-          className="inline-flex items-center gap-1 rounded-md border border-brand-border bg-white px-3 py-2 text-xs font-semibold text-brand-text hover:bg-brand-surface"
+          className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
         >
           <Plus className="h-3.5 w-3.5" />
           New
@@ -523,15 +557,15 @@ function CustomerSelect({
 }
 
 /* ============================================================
- * Tab content placeholders (Phases 4 / 6 / later)
+ * Tab content placeholders
  * ============================================================ */
 
 function ComingSoonTab({ phase }: { phase: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-brand-border bg-white p-10 text-center">
+    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
       <Sparkles className="mx-auto h-8 w-8 text-brand-gold" />
-      <h3 className="mt-3 text-base font-semibold text-brand-text">Coming in {phase}</h3>
-      <p className="mt-1 text-sm text-brand-text-muted">
+      <h3 className="mt-3 text-base font-semibold text-gray-900">Coming in {phase}</h3>
+      <p className="mt-1 text-sm text-gray-500">
         This section is reserved — the foundation is in place but the UI lands later.
       </p>
     </div>
@@ -541,14 +575,14 @@ function ComingSoonTab({ phase }: { phase: string }) {
 /** Suspense fallback for lazy-loaded tab content (e.g. WorkAreasTab + dnd-kit). */
 function TabLoading() {
   return (
-    <div className="rounded-xl border border-brand-border bg-white p-10 text-center text-sm text-brand-text-muted">
+    <div className="rounded-xl border border-gray-200 bg-white p-10 text-center text-sm text-gray-500 shadow-sm">
       Loading…
     </div>
   )
 }
 
 /* ============================================================
- * Totals rail — placeholder counts wired in later phases
+ * Totals rail — QC pastel section cards
  * ============================================================ */
 
 function TotalsRail({
@@ -564,28 +598,41 @@ function TotalsRail({
   // still waits for proposal line items.
   const fmt = (n: number | null) => (n === null ? '—' : String(n))
   return (
-    <aside className="space-y-3">
-      <section className="rounded-xl border border-brand-border bg-white p-5 shadow-sm">
-        <h3 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-          Project totals
-        </h3>
-        <dl className="mt-4 space-y-3 text-sm">
-          <TotalRow icon={ClipboardList} label="Work areas"     value={fmt(workAreaCount)} />
-          <TotalRow icon={FileText}      label="Files uploaded" value={fmt(fileCount)} />
-          <TotalRow icon={Database}      label="Estimated value" value="$0" />
-        </dl>
-        <p className="mt-4 text-[11px] italic leading-relaxed text-brand-text-muted">
-          Estimated value comes online when proposal line items land.
-        </p>
-      </section>
-      <section className="rounded-xl border border-brand-border bg-white p-5 shadow-sm">
-        <h3 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-          ID
-        </h3>
-        <p className="mt-2 font-mono text-[11px] text-brand-text-muted break-all">
-          {project.id}
-        </p>
-      </section>
+    <aside className="space-y-4">
+      {/* Project Totals — slate pastel */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-gradient-to-r from-slate-50 to-gray-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+          <div className="bg-slate-100 p-1.5 rounded-md">
+            <Database className="w-4 h-4 text-slate-600" />
+          </div>
+          <h3 className="font-semibold text-gray-900 text-sm">Project Totals</h3>
+        </div>
+        <div className="p-5">
+          <dl className="space-y-3 text-sm">
+            <TotalRow icon={ClipboardList} label="Work areas"     value={fmt(workAreaCount)} />
+            <TotalRow icon={FileText}      label="Files uploaded" value={fmt(fileCount)} />
+            <TotalRow icon={Database}      label="Estimated value" value="$0" />
+          </dl>
+          <p className="mt-4 text-[11px] italic leading-relaxed text-gray-400">
+            Estimated value comes online when proposal line items land.
+          </p>
+        </div>
+      </div>
+
+      {/* ID — gray pastel, compact */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-gray-50 px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+          <div className="bg-gray-100 p-1.5 rounded-md">
+            <Hash className="w-4 h-4 text-gray-500" />
+          </div>
+          <h3 className="font-semibold text-gray-900 text-sm">ID</h3>
+        </div>
+        <div className="p-5">
+          <p className="font-mono text-[11px] text-gray-500 break-all">
+            {project.id}
+          </p>
+        </div>
+      </div>
     </aside>
   )
 }
@@ -601,11 +648,11 @@ function TotalRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="flex items-center gap-2 text-brand-text-muted">
+      <span className="flex items-center gap-2 text-gray-500">
         <Icon className="h-4 w-4" />
         {label}
       </span>
-      <span className="font-semibold text-brand-text">{value}</span>
+      <span className="font-semibold text-gray-900">{value}</span>
     </div>
   )
 }
@@ -625,7 +672,7 @@ function Field({
 }) {
   return (
     <div className={className}>
-      <dt className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-brand-text-muted">
+      <dt className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
         {label}
       </dt>
       <dd>{children}</dd>

@@ -73,28 +73,36 @@ export default function ProjectsPage() {
   const hasNoProjects = totalCount === 0
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-brand-text">
-            Projects
-          </h1>
-          <p className="mt-1 text-sm text-brand-text-muted">
-            Every job, from first estimate to signed proposal to done.
-          </p>
+    <div className="space-y-6 pb-8">
+      {/* Gradient page header — QC blue gradient for visual consistency
+          with QC's chrome. Brand-navy stays for primary action buttons
+          across BidClaw; gradient HEADERS use QC's blue. */}
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-2 rounded-lg">
+              <ClipboardList className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Projects</h1>
+              <p className="text-blue-100 text-sm mt-0.5">
+                Every job, from first proposal to signed agreement to done.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNewOpen(true)}
+            className="inline-flex items-center gap-2 self-start rounded-lg bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
+          >
+            <Plus className="h-4 w-4" />
+            New project
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setNewOpen(true)}
-          className="inline-flex items-center gap-2 self-start rounded-md bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
-        >
-          <Plus className="h-4 w-4" />
-          New project
-        </button>
-      </header>
+      </div>
 
-      {/* Filter / sort / search controls (hidden when zero projects) */}
+      {/* Filter / sort / search controls (hidden when zero projects).
+          Icon-prefix search input (QC pattern). */}
       {!hasNoProjects && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
@@ -122,13 +130,13 @@ export default function ProjectsPage() {
             />
           </div>
           <label className="relative block w-full sm:w-72">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-text-muted" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input
               type="search"
               placeholder="Search by project name…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-md border border-brand-border bg-white py-2 pl-9 pr-3 text-sm outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+              className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-9 pr-3 text-sm outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
             />
           </label>
         </div>
@@ -145,7 +153,7 @@ export default function ProjectsPage() {
       )}
 
       {!loadError && rows === null && (
-        <div className="rounded-xl border border-brand-border bg-white p-6 text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
           Loading projects…
         </div>
       )}
@@ -161,7 +169,7 @@ export default function ProjectsPage() {
       )}
 
       {!loadError && rows && !hasNoProjects && visible && visible.length === 0 && (
-        <div className="rounded-xl border border-dashed border-brand-border bg-white p-10 text-center text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
           No projects match the current filter.
         </div>
       )}
@@ -182,14 +190,17 @@ export default function ProjectsPage() {
 }
 
 /* ============================================================
- * ProjectList — table-like rows on desktop, stacked cards on mobile.
+ * ProjectList — one big QC-style card with bordered rows.
+ * slate-50 table header on desktop; stacked mobile rows.
  * ============================================================ */
 
 function ProjectList({ rows }: { rows: ProjectRow[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-brand-border bg-white shadow-sm">
-      {/* Header row — desktop only */}
-      <div className="hidden grid-cols-[1fr_minmax(0,200px)_120px_120px_120px] gap-4 border-b border-brand-border bg-brand-surface px-5 py-3 text-xs font-semibold uppercase tracking-wide text-brand-text-muted lg:grid">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* slate-50 header row — desktop only. Neutral pastel because
+          list pages aren't semantically color-coded like QC's settings
+          cards. */}
+      <div className="hidden grid-cols-[1fr_minmax(0,200px)_120px_120px_120px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
         <div>Project</div>
         <div>Customer</div>
         <div>Status</div>
@@ -197,43 +208,43 @@ function ProjectList({ rows }: { rows: ProjectRow[] }) {
         <div>Updated</div>
       </div>
 
-      <ul className="divide-y divide-brand-border">
+      <ul className="divide-y divide-gray-100">
         {rows.map((p) => (
           <li key={p.id}>
             <Link
               to={`/app/projects/${p.id}`}
-              className="block transition-colors hover:bg-brand-surface focus:bg-brand-surface focus:outline-none"
+              className="block transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
             >
               {/* Desktop layout */}
-              <div className="hidden grid-cols-[1fr_minmax(0,200px)_120px_120px_120px] items-center gap-4 px-5 py-4 lg:grid">
+              <div className="hidden grid-cols-[1fr_minmax(0,200px)_120px_120px_120px] items-center gap-4 px-6 py-4 lg:grid">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-brand-text">{p.name}</div>
+                  <div className="truncate text-sm font-semibold text-gray-900">{p.name}</div>
                   {p.site_address && (
-                    <div className="truncate text-xs text-brand-text-muted">{p.site_address}</div>
+                    <div className="truncate text-xs text-gray-500">{p.site_address}</div>
                   )}
                 </div>
-                <div className="truncate text-sm text-brand-text-muted">
-                  {p.customers?.name ?? <span className="italic">Unassigned</span>}
+                <div className="truncate text-sm text-gray-600">
+                  {p.customers?.name ?? <span className="italic text-gray-400">Unassigned</span>}
                 </div>
                 <div>
                   <StatusBadge kind="project" value={p.status} />
                 </div>
-                <div className="text-sm text-brand-text-muted">{formatShortDate(p.created_at)}</div>
-                <div className="text-sm text-brand-text-muted">{formatShortDate(p.updated_at)}</div>
+                <div className="text-sm text-gray-500">{formatShortDate(p.created_at)}</div>
+                <div className="text-sm text-gray-500">{formatShortDate(p.updated_at)}</div>
               </div>
 
               {/* Mobile layout */}
               <div className="flex flex-col gap-2 px-4 py-4 lg:hidden">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-brand-text">{p.name}</div>
+                    <div className="truncate text-sm font-semibold text-gray-900">{p.name}</div>
                     {p.site_address && (
-                      <div className="truncate text-xs text-brand-text-muted">{p.site_address}</div>
+                      <div className="truncate text-xs text-gray-500">{p.site_address}</div>
                     )}
                   </div>
                   <StatusBadge kind="project" value={p.status} className="shrink-0" />
                 </div>
-                <div className="flex items-center justify-between text-xs text-brand-text-muted">
+                <div className="flex items-center justify-between text-xs text-gray-500">
                   <span>{p.customers?.name ?? 'Unassigned'}</span>
                   <span>Updated {formatShortDate(p.updated_at)}</span>
                 </div>
@@ -261,7 +272,7 @@ function FilterSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border border-brand-border bg-white px-3 py-2 text-sm font-medium text-brand-text outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+      className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-gray-700 outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>

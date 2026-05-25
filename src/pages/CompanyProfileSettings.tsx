@@ -142,7 +142,7 @@ export default function CompanyProfileSettingsPage() {
           className={`flex-[2] flex items-center justify-center gap-2 rounded-xl px-6 py-3.5 font-semibold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${
             saved
               ? 'bg-green-500 text-white'
-              : 'bg-blue-600 text-white hover:bg-blue-700'
+              : 'bg-brand-navy text-white hover:bg-brand-navy-dark'
           }`}
         >
           {saving ? (

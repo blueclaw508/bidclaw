@@ -454,7 +454,7 @@ export function WizardModal({ open, onClose }: WizardModalProps) {
                   type="button"
                   onClick={() => void handleComplete()}
                   disabled={saving}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 px-5 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy hover:bg-brand-navy-dark px-5 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
                 >
                   {saving ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -468,7 +468,7 @@ export function WizardModal({ open, onClose }: WizardModalProps) {
                   type="button"
                   onClick={() => void handleContinue()}
                   disabled={!canContinue}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 px-5 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy hover:bg-brand-navy-dark px-5 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
                 >
                   {saving ? 'Saving…' : 'Continue'}
                   {!saving && <ArrowRight className="w-4 h-4" />}

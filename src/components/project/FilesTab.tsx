@@ -148,25 +148,33 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
 
   return (
     <div className="space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-            Files
-          </h2>
-          <p className="text-xs text-brand-text-muted">
-            Plans, proposals, invoices, change orders. Stored privately, viewed
-            via short-lived signed URLs.
-          </p>
+      {/* Slate pastel section header — matches QC project-detail section card. */}
+      <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200">
+              <FolderUp className="h-4 w-4 text-slate-700" />
+            </span>
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                Files
+              </h2>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Plans, proposals, invoices, change orders. Stored privately,
+                viewed via short-lived signed URLs.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={openFileDialog}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-navy-dark"
+          >
+            <FolderUp className="h-4 w-4" />
+            Browse files
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={openFileDialog}
-          className="inline-flex items-center gap-1.5 rounded-md bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-navy-dark"
-        >
-          <FolderUp className="h-4 w-4" />
-          Browse files
-        </button>
-      </header>
+      </section>
 
       {/* Drop zone (always present; users can drop OR use Browse button) */}
       <div
@@ -175,20 +183,20 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
           'flex flex-col items-center justify-center rounded-xl border-2 border-dashed bg-white px-6 py-10 text-center transition-colors',
           isDragActive
             ? 'border-brand-navy bg-brand-navy/5'
-            : 'border-brand-border hover:border-brand-navy/40'
+            : 'border-gray-300 hover:border-brand-navy/40'
         )}
       >
         <input {...getInputProps()} />
         <UploadCloud
           className={cn(
             'h-8 w-8',
-            isDragActive ? 'text-brand-navy' : 'text-brand-text-muted'
+            isDragActive ? 'text-brand-navy' : 'text-gray-400'
           )}
         />
-        <p className="mt-3 text-sm font-semibold text-brand-text">
+        <p className="mt-3 text-sm font-semibold text-gray-900">
           {isDragActive ? 'Drop files here…' : 'Drag and drop files here'}
         </p>
-        <p className="mt-1 text-xs text-brand-text-muted">
+        <p className="mt-1 text-xs text-gray-500">
           PDF, images, Word, Excel, CSV. Up to 50 MB each. Click <strong>Browse files</strong> for the picker.
         </p>
       </div>
@@ -204,13 +212,13 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
       )}
 
       {!loadError && loading && rows.length === 0 && (
-        <div className="rounded-xl border border-brand-border bg-white p-6 text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
           Loading files…
         </div>
       )}
 
       {!loadError && !loading && rows.length === 0 && (
-        <div className="rounded-xl border border-dashed border-brand-border bg-white p-6 text-center text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
           No files uploaded yet. Drag-drop above or click Browse files.
         </div>
       )}
@@ -222,30 +230,30 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
             if (!inGroup || inGroup.length === 0) return null
             return (
               <section key={type}>
-                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-text-muted">
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
                   {FILE_TYPE_LABEL[type]}{' '}
-                  <span className="ml-1 text-brand-text-muted/70">({inGroup.length})</span>
+                  <span className="ml-1 text-gray-400">({inGroup.length})</span>
                 </h3>
-                <ul className="overflow-hidden rounded-xl border border-brand-border bg-white shadow-sm">
+                <ul className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
                   {inGroup.map((file, idx) => (
                     <li
                       key={file.id}
                       className={cn(
-                        idx < inGroup.length - 1 && 'border-b border-brand-border',
+                        idx < inGroup.length - 1 && 'border-b border-gray-100',
                         'flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4'
                       )}
                     >
-                      <FileText className="h-4 w-4 shrink-0 text-brand-text-muted" />
+                      <FileText className="h-4 w-4 shrink-0 text-gray-400" />
                       <div className="min-w-0 flex-1">
                         <button
                           type="button"
                           onClick={() => void handleOpen(file)}
-                          className="block truncate text-left text-sm font-semibold text-brand-text hover:text-brand-navy hover:underline"
+                          className="block truncate text-left text-sm font-semibold text-gray-900 hover:text-brand-navy hover:underline"
                           title={file.file_name}
                         >
                           {file.file_name}
                         </button>
-                        <div className="mt-0.5 text-xs text-brand-text-muted">
+                        <div className="mt-0.5 text-xs text-gray-500">
                           {formatFileSize(file.file_size_bytes ?? 0)} ·
                           uploaded {formatUploadDate(file.uploaded_at)}
                           {file.version_number > 1 && ` · v${file.version_number}`}
@@ -256,7 +264,7 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
                         onChange={(e) =>
                           void patchFileType(file.id, e.target.value as ProjectFileType)
                         }
-                        className="rounded-md border border-brand-border bg-white px-2 py-1 text-xs text-brand-text outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20 sm:w-44"
+                        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20 sm:w-44"
                         title="Recategorize"
                       >
                         {FILE_TYPE_ORDER.map((t) => (
@@ -274,7 +282,7 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
                                 `/app/projects/${projectId}/measure/${file.id}`
                               )
                             }
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-brand-text-muted hover:bg-brand-surface hover:text-brand-navy"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-brand-navy"
                             title="Open measure tool"
                           >
                             <Ruler className="h-4 w-4" />
@@ -283,7 +291,7 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
                         <button
                           type="button"
                           onClick={() => void handleOpen(file)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-brand-text-muted hover:bg-brand-surface hover:text-brand-navy"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-brand-navy"
                           title="Open in new tab (signed URL, 60s)"
                         >
                           <Download className="h-4 w-4" />
@@ -291,7 +299,7 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
                         <button
                           type="button"
                           onClick={() => setDeleteTarget(file)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-brand-text-muted hover:bg-rose-50 hover:text-rose-700"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-rose-50 hover:text-rose-700"
                           title="Delete file"
                         >
                           <Trash2 className="h-4 w-4" />

@@ -1,8 +1,6 @@
 import { Link } from 'react-router-dom'
-import { Building2, Calculator, ChevronRight, Sparkles } from 'lucide-react'
-import { toast } from 'sonner'
+import { Building2, Calculator, ChevronRight, Settings as SettingsIcon } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useSetupGate } from '@/hooks/useSetupGate'
 
 /**
  * Settings index. Two clickable nav cards for the Phase 2 settings
@@ -21,16 +19,16 @@ function NavCard({ to, icon: Icon, title, description }: NavCardProps) {
   return (
     <Link
       to={to}
-      className="group flex items-start gap-4 rounded-xl border border-brand-border bg-white p-5 shadow-sm transition-colors hover:border-brand-navy/40 hover:bg-brand-surface"
+      className="group flex items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-brand-navy/40 hover:bg-blue-50/30"
     >
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand-navy/10 text-brand-navy">
         <Icon className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1">
-        <h2 className="text-sm font-bold text-brand-text">{title}</h2>
-        <p className="mt-1 text-xs text-brand-text-muted">{description}</p>
+        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+        <p className="mt-1 text-xs text-gray-500">{description}</p>
       </div>
-      <ChevronRight className="h-5 w-5 shrink-0 text-brand-text-muted/60 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-navy" />
+      <ChevronRight className="h-5 w-5 shrink-0 text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-navy" />
     </Link>
   )
 }
@@ -45,13 +43,13 @@ function InfoSection({
   children?: React.ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-brand-border bg-white p-6 shadow-sm">
-      <h2 className="text-base font-semibold tracking-tight text-brand-text">
+    <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <h2 className="text-base font-semibold tracking-tight text-gray-900">
         {title}
       </h2>
-      <p className="mt-1 text-sm text-brand-text-muted">{description}</p>
+      <p className="mt-1 text-sm text-gray-500">{description}</p>
       {children && (
-        <div className="mt-4 text-sm text-brand-text-muted">{children}</div>
+        <div className="mt-4 text-sm text-gray-600">{children}</div>
       )}
     </section>
   )
@@ -59,28 +57,23 @@ function InfoSection({
 
 export default function SettingsPage() {
   const { user } = useAuth()
-  const { setupCompleted, gateAction } = useSetupGate()
-
-  // Phase 4 verification harness — a demo button wrapped via
-  // gateAction. When setup is incomplete: click toasts + opens the
-  // wizard (no action fires). When complete: click fires the action
-  // (toast + console.log). Remove in Prompt 4.5 cleanup once Prompt 6
-  // wires real consumers (New Proposal / Run Jamie buttons).
-  const handleGatedAction = gateAction(() => {
-    console.log('[useSetupGate demo] action ran — setup is complete')
-    toast.success('Gated action fired — setup is complete.')
-  })
 
   return (
-    <div className="space-y-8">
-      <header>
-        <h1 className="text-3xl font-extrabold tracking-tight text-brand-text">
-          Settings
-        </h1>
-        <p className="mt-1 text-sm text-brand-text-muted">
-          Company profile, pricing fundamentals, and integrations.
-        </p>
-      </header>
+    <div className="space-y-6 pb-8">
+      {/* Gradient page header — QC blue. */}
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="bg-white/20 p-2 rounded-lg">
+            <SettingsIcon className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">Settings</h1>
+            <p className="text-blue-100 text-sm mt-0.5">
+              Company profile, pricing fundamentals, and integrations.
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* Active settings surfaces */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -103,10 +96,10 @@ export default function SettingsPage() {
         <InfoSection title="Account" description="Profile and sign-in details.">
           <div className="space-y-1">
             <div>
-              <span className="font-medium text-brand-text">Email:</span>{' '}
+              <span className="font-medium text-gray-900">Email:</span>{' '}
               {user?.email ?? '—'}
             </div>
-            <div className="text-xs italic text-brand-text-muted">
+            <div className="text-xs italic text-gray-500">
               Full profile editing arrives in a later phase.
             </div>
           </div>
@@ -122,37 +115,6 @@ export default function SettingsPage() {
         >
           QBO sync arrives in Phase 3.
         </InfoSection>
-
-        {/* DEV / Phase 4 verification — remove in Prompt 4.5 cleanup. */}
-        <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/40 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xs font-bold uppercase tracking-wide text-amber-700">
-                Phase 4 verification harness
-              </h2>
-              <p className="mt-1 text-xs text-amber-900">
-                Demo of <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">useSetupGate</code>.
-                When setup is incomplete: clicking fires a toast and opens the wizard.
-                When setup is complete: clicking runs the action (toast + console.log).
-                Removed once Prompt 6 wires the real "New Proposal" button.
-              </p>
-              <p className="mt-2 text-[11px] text-amber-700">
-                Current gate state:{' '}
-                <span className="font-mono font-semibold">
-                  setupCompleted = {String(setupCompleted)}
-                </span>
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleGatedAction}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Run gated action
-            </button>
-          </div>
-        </section>
       </div>
     </div>
   )

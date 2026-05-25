@@ -156,24 +156,32 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
 
   return (
     <div className="space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-            Work areas
-          </h2>
-          <p className="text-xs text-brand-text-muted">
-            Each discrete scope of work. Drag the grip to reorder.
-          </p>
+      {/* Slate pastel section header — matches QC project-detail section card. */}
+      <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200">
+              <ClipboardList className="h-4 w-4 text-slate-700" />
+            </span>
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                Work areas
+              </h2>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Each discrete scope of work. Drag the grip to reorder.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNewOpen(true)}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-navy-dark"
+          >
+            <Plus className="h-4 w-4" />
+            Add work area
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setNewOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-navy-dark"
-        >
-          <Plus className="h-4 w-4" />
-          Add work area
-        </button>
-      </header>
+      </section>
 
       {loadError && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
@@ -185,25 +193,25 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
       )}
 
       {!loadError && loading && rows.length === 0 && (
-        <div className="rounded-xl border border-brand-border bg-white p-6 text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
           Loading work areas…
         </div>
       )}
 
       {!loadError && !loading && rows.length === 0 && (
-        <div className="flex flex-col items-center rounded-xl border border-dashed border-brand-border bg-white p-10 text-center">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-surface text-brand-navy">
+        <div className="flex flex-col items-center rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600">
             <ClipboardList className="h-6 w-6" />
           </div>
-          <h3 className="text-base font-semibold text-brand-text">No work areas yet</h3>
-          <p className="mt-1 max-w-xs text-sm text-brand-text-muted">
+          <h3 className="text-base font-semibold text-gray-900">No work areas yet</h3>
+          <p className="mt-1 max-w-xs text-sm text-gray-500">
             Add work areas to break this project into discrete scopes. Each one
             can have its own measurements and line items.
           </p>
           <button
             type="button"
             onClick={() => setNewOpen(true)}
-            className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-brand-navy px-4 py-2 text-sm font-semibold text-white hover:bg-brand-navy-dark"
+            className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark"
           >
             <Plus className="h-4 w-4" />
             Add work area
@@ -217,7 +225,7 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
             items={rows.map((w) => w.id)}
             strategy={verticalListSortingStrategy}
           >
-            <ul className="overflow-hidden rounded-xl border border-brand-border bg-white shadow-sm">
+            <ul className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
               {rows.map((wa) => (
                 <SortableRow
                   key={wa.id}
@@ -300,7 +308,7 @@ function SortableRow({
     <li
       ref={setNodeRef}
       style={style}
-      className="border-b border-brand-border last:border-b-0"
+      className="border-b border-gray-100 last:border-b-0"
     >
       {/* Row header: grip + chevron-toggle + name + status */}
       <div className="flex items-center gap-2 px-3 py-2.5">
@@ -308,32 +316,32 @@ function SortableRow({
           {...listeners}
           {...attributes}
           aria-label="Drag to reorder"
-          className="flex h-8 w-6 cursor-grab touch-none items-center justify-center rounded text-brand-text-muted hover:bg-brand-surface hover:text-brand-text active:cursor-grabbing"
+          className="flex h-8 w-6 cursor-grab touch-none items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 active:cursor-grabbing"
         >
           <GripVertical className="h-4 w-4" />
         </button>
         <button
           type="button"
           onClick={onToggle}
-          className="flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-brand-surface focus:bg-brand-surface focus:outline-none"
+          className="flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
         >
           {expanded ? (
-            <ChevronDown className="h-4 w-4 shrink-0 text-brand-text-muted" />
+            <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
           ) : (
-            <ChevronRight className="h-4 w-4 shrink-0 text-brand-text-muted" />
+            <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />
           )}
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold text-brand-text">
+            <span className="block truncate text-sm font-semibold text-gray-900">
               {workArea.name}
             </span>
             {workArea.description && !expanded && (
-              <span className="block truncate text-xs text-brand-text-muted">
+              <span className="block truncate text-xs text-gray-500">
                 {workArea.description}
               </span>
             )}
           </span>
         </button>
-        <span className="shrink-0 font-mono text-[11px] text-brand-text-muted">
+        <span className="shrink-0 font-mono text-[11px] text-gray-400">
           #{workArea.sequence_order + 1}
         </span>
         <StatusBadge kind="work_area" value={workArea.status} className="shrink-0" />
@@ -341,7 +349,7 @@ function SortableRow({
 
       {/* Accordion body */}
       {expanded && (
-        <div className="space-y-4 border-t border-brand-border bg-brand-surface px-5 py-4">
+        <div className="space-y-4 border-t border-gray-100 bg-slate-50 px-5 py-4">
           <Field label="Name">
             <BlurSaveInput
               value={workArea.name}
@@ -399,7 +407,7 @@ function SortableRow({
  * ============================================================ */
 
 const inputClasses =
-  'w-full rounded-md border border-brand-border bg-white px-3 py-2 text-sm text-brand-text outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'
+  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'
 
 function Field({
   label,
@@ -410,7 +418,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-brand-text-muted">
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
         {label}
       </span>
       {children}

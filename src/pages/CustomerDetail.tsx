@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Database,
+  ClipboardList,
+  ShieldAlert,
+  Trash2,
+  User as UserIcon,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -86,7 +93,7 @@ export default function CustomerDetailPage() {
 
   if (loading && !customer) {
     return (
-      <div className="rounded-xl border border-brand-border bg-white p-6 text-sm text-brand-text-muted">
+      <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
         Loading customer…
       </div>
     )
@@ -113,45 +120,59 @@ export default function CustomerDetailPage() {
   if (!customer) return null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-8">
       <Link
         to="/app/customers"
-        className="inline-flex items-center gap-1 text-sm font-semibold text-brand-text-muted hover:text-brand-navy"
+        className="inline-flex items-center gap-1 text-sm font-semibold text-gray-500 hover:text-blue-600"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to customers
       </Link>
 
-      {/* Name as page heading. Editing handled inline via BlurSaveInput. */}
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <BlurSaveInput
-            value={customer.name}
-            onSave={async (v) => {
-              const next = v.trim()
-              if (!next) {
-                toast.error('Customer name cannot be empty.')
-                return false
-              }
-              return patch({ name: next })
-            }}
-            className="block w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-3xl font-extrabold tracking-tight text-brand-text outline-none hover:border-brand-border focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
-            placeholder="Customer name"
-          />
-          {customer.email && (
-            <p className="mt-1 text-sm text-brand-text-muted">{customer.email}</p>
-          )}
+      {/* Gradient page header — QC blue. Editable name inline via
+          BlurSaveInput on white-translucent input over the gradient. */}
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="bg-white/20 p-2 rounded-lg shrink-0">
+              <UserIcon className="w-6 h-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <BlurSaveInput
+                value={customer.name}
+                onSave={async (v) => {
+                  const next = v.trim()
+                  if (!next) {
+                    toast.error('Customer name cannot be empty.')
+                    return false
+                  }
+                  return patch({ name: next })
+                }}
+                className="block w-full rounded-md border border-white/40 bg-white/10 px-2 py-1 text-2xl font-bold text-white outline-none placeholder:text-blue-100 hover:bg-white/15 focus:bg-white/20 focus:border-white/60"
+                placeholder="Customer name"
+              />
+              {customer.email && (
+                <p className="mt-1 truncate text-blue-100 text-sm">{customer.email}</p>
+              )}
+            </div>
+          </div>
+          <span className="shrink-0 self-start rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">
+            {projects.length} project{projects.length === 1 ? '' : 's'}
+          </span>
         </div>
-        <span className="rounded-full bg-brand-surface px-3 py-1 text-xs font-semibold text-brand-text-muted">
-          {projects.length} project{projects.length === 1 ? '' : 's'}
-        </span>
-      </header>
+      </div>
 
-      <section className="rounded-xl border border-brand-border bg-white p-6 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-          Contact information
-        </h2>
-        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+      {/* Contact information — indigo pastel section card */}
+      <section className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-6 shadow-sm">
+        <header className="mb-4 flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100">
+            <UserIcon className="h-4 w-4 text-indigo-600" />
+          </span>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-indigo-900">
+            Contact information
+          </h2>
+        </header>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
           <Field label="Email">
             <BlurSaveInput
               type="email"
@@ -197,25 +218,31 @@ export default function CustomerDetailPage() {
         </dl>
       </section>
 
-      <section className="rounded-xl border border-brand-border bg-white p-6 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-          Projects
-        </h2>
+      {/* Projects list — slate pastel section card */}
+      <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 shadow-sm">
+        <header className="mb-4 flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200">
+            <ClipboardList className="h-4 w-4 text-slate-700" />
+          </span>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+            Projects
+          </h2>
+        </header>
         {projects.length === 0 ? (
-          <p className="mt-3 text-sm text-brand-text-muted">
+          <p className="text-sm text-gray-500">
             No projects yet for this customer.
           </p>
         ) : (
-          <ul className="mt-4 divide-y divide-brand-border">
+          <ul className="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
             {projects.map((p) => (
               <li key={p.id}>
                 <Link
                   to={`/app/projects/${p.id}`}
-                  className="flex items-center justify-between gap-4 px-1 py-3 hover:bg-brand-surface focus:bg-brand-surface focus:outline-none"
+                  className="flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-brand-text">{p.name}</div>
-                    <div className="text-xs text-brand-text-muted">
+                    <div className="truncate text-sm font-semibold text-gray-900">{p.name}</div>
+                    <div className="text-xs text-gray-500">
                       Created {formatShortDate(p.created_at)}
                     </div>
                   </div>
@@ -227,19 +254,40 @@ export default function CustomerDetailPage() {
         )}
       </section>
 
-      <section className="rounded-xl border border-brand-border bg-white p-6 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
-          Danger zone
-        </h2>
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-brand-text-muted">
+      {/* Stats summary — gray pastel card */}
+      <section className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-6 shadow-sm">
+        <header className="mb-4 flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-200">
+            <Database className="h-4 w-4 text-gray-700" />
+          </span>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-700">
+            Customer ID
+          </h2>
+        </header>
+        <code className="block break-all rounded-md border border-gray-200 bg-white px-3 py-2 font-mono text-xs text-gray-600">
+          {customer.id}
+        </code>
+      </section>
+
+      {/* Danger zone — rose pastel section card */}
+      <section className="rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50/60 to-white p-6 shadow-sm">
+        <header className="mb-4 flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-100">
+            <ShieldAlert className="h-4 w-4 text-rose-600" />
+          </span>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-rose-900">
+            Danger zone
+          </h2>
+        </header>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-rose-900/80">
             Deleting this customer is permanent. Their projects stay, but their
             customer link will be cleared.
           </p>
           <button
             type="button"
             onClick={() => setDeleteOpen(true)}
-            className="inline-flex items-center gap-2 rounded-md border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
           >
             <Trash2 className="h-4 w-4" />
             Delete customer
@@ -272,7 +320,7 @@ export default function CustomerDetailPage() {
  * ============================================================ */
 
 const inputClasses =
-  'w-full rounded-md border border-brand-border bg-white px-3 py-2 text-sm text-brand-text outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'
+  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'
 
 function Field({
   label,
@@ -285,7 +333,7 @@ function Field({
 }) {
   return (
     <div className={className}>
-      <dt className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-brand-text-muted">
+      <dt className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
         {label}
       </dt>
       <dd>{children}</dd>

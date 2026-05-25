@@ -87,26 +87,31 @@ export default function CatalogPage() {
   const hasNone = totalCount === 0
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-brand-text">
-            Item Catalog
-          </h1>
-          <p className="mt-1 text-sm text-brand-text-muted">
-            Your master list of labor rates, materials, equipment, and disposal lines.
-          </p>
+    <div className="space-y-6 pb-8">
+      {/* Gradient page header — QC blue */}
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-2 rounded-lg">
+              <BookOpen className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Item Catalog</h1>
+              <p className="text-blue-100 text-sm mt-0.5">
+                Your master list of labor rates, materials, equipment, and disposal lines.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNewOpen(true)}
+            className="inline-flex items-center gap-2 self-start rounded-lg bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
+          >
+            <Plus className="h-4 w-4" />
+            New item
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setNewOpen(true)}
-          className="inline-flex items-center gap-2 self-start rounded-md bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
-        >
-          <Plus className="h-4 w-4" />
-          New item
-        </button>
-      </header>
+      </div>
 
       {/* Category filter chips */}
       {!hasNone && (
@@ -128,21 +133,21 @@ export default function CatalogPage() {
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <label className="relative block w-full sm:w-96">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-text-muted" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="search"
                 placeholder="Search by name…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-md border border-brand-border bg-white py-2 pl-9 pr-3 text-sm outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+                className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-9 pr-3 text-sm outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
               />
             </label>
-            <label className="flex items-center gap-2 text-xs font-semibold text-brand-text-muted">
+            <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
               <input
                 type="checkbox"
                 checked={showInactive}
                 onChange={(e) => setShowInactive(e.target.checked)}
-                className="h-4 w-4 rounded border-brand-border text-brand-navy focus:ring-brand-navy"
+                className="h-4 w-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy"
               />
               Show inactive items
             </label>
@@ -161,7 +166,7 @@ export default function CatalogPage() {
       )}
 
       {!loadError && rows === null && (
-        <div className="rounded-xl border border-brand-border bg-white p-6 text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
           Loading catalog…
         </div>
       )}
@@ -170,14 +175,14 @@ export default function CatalogPage() {
         <EmptyState
           icon={BookOpen}
           title="No catalog items yet"
-          description="Build your catalog so estimates auto-price. Labor and equipment go in once; every project pulls from here."
+          description="Build your catalog so proposals auto-price. Labor and equipment go in once; every project pulls from here."
           ctaLabel="Add item"
           onCta={() => setNewOpen(true)}
         />
       )}
 
       {!loadError && rows && !hasNone && visible && visible.length === 0 && (
-        <div className="rounded-xl border border-dashed border-brand-border bg-white p-10 text-center text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
           No catalog items match the current filter.
         </div>
       )}
@@ -201,7 +206,7 @@ export default function CatalogPage() {
 }
 
 /* ============================================================
- * ItemList — accordion rows
+ * ItemList — accordion rows in one QC-style card
  * ============================================================ */
 
 function ItemList({
@@ -216,12 +221,12 @@ function ItemList({
   onPatch: (id: string, changes: Partial<CatalogItem>) => Promise<boolean>
 }) {
   return (
-    <ul className="overflow-hidden rounded-xl border border-brand-border bg-white shadow-sm">
+    <ul className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       {rows.map((item, idx) => (
         <li
           key={item.id}
           className={cn(
-            idx < rows.length - 1 && 'border-b border-brand-border',
+            idx < rows.length - 1 && 'border-b border-gray-100',
             !item.active && 'opacity-60'
           )}
         >
@@ -253,34 +258,34 @@ function ItemRow({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-brand-surface focus:bg-brand-surface focus:outline-none"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 shrink-0 text-brand-text-muted" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
         ) : (
-          <ChevronRight className="h-4 w-4 shrink-0 text-brand-text-muted" />
+          <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-brand-text">{item.name}</span>
+            <span className="truncate text-sm font-semibold text-gray-900">{item.name}</span>
             {item.needs_pricing && (
               <span title="Needs pricing">
                 <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
               </span>
             )}
             {!item.active && (
-              <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                 Inactive
               </span>
             )}
           </div>
           {item.description && (
-            <p className="truncate text-xs text-brand-text-muted">{item.description}</p>
+            <p className="truncate text-xs text-gray-500">{item.description}</p>
           )}
         </div>
         <StatusBadge kind="category" value={item.category} className="shrink-0" />
-        <div className="hidden shrink-0 text-right text-xs text-brand-text-muted sm:block">
-          <div className="font-semibold text-brand-text">
+        <div className="hidden shrink-0 text-right text-xs text-gray-500 sm:block">
+          <div className="font-semibold text-gray-900">
             {formatCurrency(item.unit_cost)} / {item.unit}
           </div>
           <div>{Number(item.markup_percent).toFixed(1)}% markup</div>
@@ -288,7 +293,7 @@ function ItemRow({
       </button>
 
       {expanded && (
-        <div className="space-y-4 border-t border-brand-border bg-brand-surface px-5 py-4">
+        <div className="space-y-4 border-t border-gray-100 bg-slate-50 px-5 py-4">
           <Field label="Name">
             <BlurSaveInput
               value={item.name}
@@ -365,31 +370,31 @@ function ItemRow({
               />
             </Field>
           </div>
-          <div className="space-y-2.5 rounded-md border border-brand-border bg-white p-3">
-            <label className="flex items-center gap-2 text-sm text-brand-text">
+          <div className="space-y-2.5 rounded-lg border border-gray-200 bg-white p-3">
+            <label className="flex items-center gap-2 text-sm text-gray-900">
               <input
                 type="checkbox"
                 checked={item.active}
                 onChange={(e) => void onPatch({ active: e.target.checked })}
-                className="h-4 w-4 rounded border-brand-border text-brand-navy focus:ring-brand-navy"
+                className="h-4 w-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy"
               />
               <span>
                 <strong className="font-semibold">Active</strong>
-                <span className="text-brand-text-muted">
+                <span className="text-gray-500">
                   {' '}— uncheck to soft-delete (item stays in DB for historical proposals)
                 </span>
               </span>
             </label>
-            <label className="flex items-center gap-2 text-sm text-brand-text">
+            <label className="flex items-center gap-2 text-sm text-gray-900">
               <input
                 type="checkbox"
                 checked={item.needs_pricing}
                 onChange={(e) => void onPatch({ needs_pricing: e.target.checked })}
-                className="h-4 w-4 rounded border-brand-border text-brand-navy focus:ring-brand-navy"
+                className="h-4 w-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy"
               />
               <span>
                 <strong className="font-semibold">Needs pricing</strong>
-                <span className="text-brand-text-muted"> — flagged for Jamie in Phase 2</span>
+                <span className="text-gray-500"> — flagged for Jamie in Phase 2</span>
               </span>
             </label>
           </div>
@@ -420,7 +425,7 @@ function FilterChip({
         'rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
         active
           ? 'bg-brand-navy text-white'
-          : 'border border-brand-border bg-white text-brand-text hover:bg-brand-surface'
+          : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
       )}
     >
       {label}
@@ -437,7 +442,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-brand-text-muted">
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
         {label}
       </span>
       {children}
@@ -457,4 +462,4 @@ function formatCurrency(value: number | string): string {
 }
 
 const inputClasses =
-  'w-full rounded-md border border-brand-border bg-white px-3 py-2 text-sm text-brand-text outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'
+  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'

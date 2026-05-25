@@ -54,35 +54,41 @@ export default function CustomersPage() {
   const hasNone = totalCount === 0
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-brand-text">
-            Customers
-          </h1>
-          <p className="mt-1 text-sm text-brand-text-muted">
-            Your contact list. Linked to every project they own.
-          </p>
+    <div className="space-y-6 pb-8">
+      {/* Gradient page header — QC blue */}
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-2 rounded-lg">
+              <Users className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Customers</h1>
+              <p className="text-blue-100 text-sm mt-0.5">
+                Your contact list. Linked to every project they own.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNewOpen(true)}
+            className="inline-flex items-center gap-2 self-start rounded-lg bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
+          >
+            <Plus className="h-4 w-4" />
+            New customer
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setNewOpen(true)}
-          className="inline-flex items-center gap-2 self-start rounded-md bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
-        >
-          <Plus className="h-4 w-4" />
-          New customer
-        </button>
-      </header>
+      </div>
 
       {!hasNone && (
         <label className="relative block w-full sm:w-96">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-text-muted" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="search"
             placeholder="Search by name or email…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-brand-border bg-white py-2 pl-9 pr-3 text-sm outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+            className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-9 pr-3 text-sm outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
           />
         </label>
       )}
@@ -97,7 +103,7 @@ export default function CustomersPage() {
       )}
 
       {!loadError && rows === null && (
-        <div className="rounded-xl border border-brand-border bg-white p-6 text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
           Loading customers…
         </div>
       )}
@@ -113,7 +119,7 @@ export default function CustomersPage() {
       )}
 
       {!loadError && rows && !hasNone && visible && visible.length === 0 && (
-        <div className="rounded-xl border border-dashed border-brand-border bg-white p-10 text-center text-sm text-brand-text-muted">
+        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
           No customers match your search.
         </div>
       )}
@@ -132,13 +138,13 @@ export default function CustomersPage() {
 }
 
 /* ============================================================
- * CustomerList — table on desktop, stacked cards on mobile
+ * CustomerList — one big QC-style card with slate-50 header
  * ============================================================ */
 
 function CustomerList({ rows }: { rows: CustomerRow[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-brand-border bg-white shadow-sm">
-      <div className="hidden grid-cols-[1.5fr_1.5fr_1fr_1fr_80px_120px] gap-4 border-b border-brand-border bg-brand-surface px-5 py-3 text-xs font-semibold uppercase tracking-wide text-brand-text-muted lg:grid">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="hidden grid-cols-[1.5fr_1.5fr_1fr_1fr_80px_120px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
         <div>Name</div>
         <div>Email</div>
         <div>Phone</div>
@@ -147,44 +153,44 @@ function CustomerList({ rows }: { rows: CustomerRow[] }) {
         <div>Updated</div>
       </div>
 
-      <ul className="divide-y divide-brand-border">
+      <ul className="divide-y divide-gray-100">
         {rows.map((c) => (
           <li key={c.id}>
             <Link
               to={`/app/customers/${c.id}`}
-              className="block transition-colors hover:bg-brand-surface focus:bg-brand-surface focus:outline-none"
+              className="block transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
             >
               {/* Desktop */}
-              <div className="hidden grid-cols-[1.5fr_1.5fr_1fr_1fr_80px_120px] items-center gap-4 px-5 py-4 lg:grid">
-                <div className="truncate text-sm font-semibold text-brand-text">{c.name}</div>
-                <div className="truncate text-sm text-brand-text-muted">
-                  {c.email ?? <span className="italic">—</span>}
+              <div className="hidden grid-cols-[1.5fr_1.5fr_1fr_1fr_80px_120px] items-center gap-4 px-6 py-4 lg:grid">
+                <div className="truncate text-sm font-semibold text-gray-900">{c.name}</div>
+                <div className="truncate text-sm text-gray-600">
+                  {c.email ?? <span className="italic text-gray-400">—</span>}
                 </div>
-                <div className="truncate text-sm text-brand-text-muted">
-                  {c.phone ?? <span className="italic">—</span>}
+                <div className="truncate text-sm text-gray-600">
+                  {c.phone ?? <span className="italic text-gray-400">—</span>}
                 </div>
-                <div className="truncate text-sm text-brand-text-muted">
-                  {c.site_address ?? <span className="italic">—</span>}
+                <div className="truncate text-sm text-gray-600">
+                  {c.site_address ?? <span className="italic text-gray-400">—</span>}
                 </div>
-                <div className="text-sm text-brand-text">{c.projects.length}</div>
-                <div className="text-sm text-brand-text-muted">{formatShortDate(c.updated_at)}</div>
+                <div className="text-sm text-gray-900">{c.projects.length}</div>
+                <div className="text-sm text-gray-500">{formatShortDate(c.updated_at)}</div>
               </div>
 
               {/* Mobile */}
               <div className="flex flex-col gap-1 px-4 py-4 lg:hidden">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="truncate text-sm font-semibold text-brand-text">{c.name}</div>
-                  <span className="shrink-0 rounded-full bg-brand-surface px-2 py-0.5 text-xs font-semibold text-brand-text-muted">
+                  <div className="truncate text-sm font-semibold text-gray-900">{c.name}</div>
+                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
                     {c.projects.length} project{c.projects.length === 1 ? '' : 's'}
                   </span>
                 </div>
-                <div className="text-xs text-brand-text-muted">
+                <div className="text-xs text-gray-500">
                   {c.email ?? ''}
                   {c.email && c.phone ? ' · ' : ''}
                   {c.phone ?? ''}
                 </div>
                 {c.site_address && (
-                  <div className="truncate text-xs text-brand-text-muted">{c.site_address}</div>
+                  <div className="truncate text-xs text-gray-500">{c.site_address}</div>
                 )}
               </div>
             </Link>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ClipboardList,
@@ -13,8 +13,14 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useSetup } from '@/contexts/SetupContext'
 import { MarketingBar } from '@/components/MarketingBar'
 import { SetupBanner } from '@/components/setup/SetupBanner'
-import { WizardModal } from '@/components/setup/WizardModal'
 import { cn } from '@/lib/utils'
+
+// Lazy-load the setup wizard — it's ~34 kB and only mounts when
+// setup is incomplete (first-login auto-open or ?wizard=1 trigger).
+// Pull it out of the main bundle to keep the /app/* shell fast.
+const WizardModal = lazy(() =>
+  import('@/components/setup/WizardModal').then((m) => ({ default: m.WizardModal }))
+)
 
 const navItems = [
   { to: '/app/projects',  label: 'Projects',  icon: ClipboardList },
@@ -211,8 +217,14 @@ export function AppShell() {
       <MarketingBar />
 
       {/* Setup wizard — Phase 3. Overlay-mounted via portal so it
-          appears above everything else in /app/* routes. */}
-      <WizardModal open={wizardOpen} onClose={handleWizardClose} />
+          appears above everything else in /app/* routes. Lazy-loaded
+          (Prompt 4.5) so the ~34 kB wizard bundle doesn't ship with
+          the main app shell — only fetched when actually needed. */}
+      {wizardOpen && (
+        <Suspense fallback={null}>
+          <WizardModal open={wizardOpen} onClose={handleWizardClose} />
+        </Suspense>
+      )}
     </div>
   )
 }
