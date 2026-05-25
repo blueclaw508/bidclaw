@@ -31,6 +31,8 @@ interface ToolDef {
   id: MeasureToolMode
   label: string
   icon: typeof MousePointer2
+  /** Single-letter keyboard shortcut (Phase 7). Shown in tooltip. */
+  shortcut: string
   /** Used only in the disabled-state tooltip. */
   comingIn: string
 }
@@ -38,12 +40,12 @@ interface ToolDef {
 // Order matches the order they ship in. Select first, Calibrate second
 // (it's the "set up before measuring" step that gates the others).
 const TOOLS: readonly ToolDef[] = [
-  { id: 'select',    label: 'Select',    icon: MousePointer2, comingIn: 'Phase 2' },
-  { id: 'calibrate', label: 'Calibrate', icon: Crosshair,     comingIn: 'Phase 3' },
-  { id: 'line',      label: 'Line',      icon: Minus,         comingIn: 'Phase 4' },
-  { id: 'count',     label: 'Count',     icon: Hash,          comingIn: 'Phase 5' },
-  { id: 'area',      label: 'Area',      icon: Hexagon,       comingIn: 'Phase 6' },
-  { id: 'freehand',  label: 'Freehand',  icon: PenTool,       comingIn: 'Phase 7' },
+  { id: 'select',    label: 'Select',    icon: MousePointer2, shortcut: 'V', comingIn: 'Phase 2' },
+  { id: 'calibrate', label: 'Calibrate', icon: Crosshair,     shortcut: 'K', comingIn: 'Phase 3' },
+  { id: 'line',      label: 'Line',      icon: Minus,         shortcut: 'L', comingIn: 'Phase 4' },
+  { id: 'count',     label: 'Count',     icon: Hash,          shortcut: 'C', comingIn: 'Phase 5' },
+  { id: 'area',      label: 'Area',      icon: Hexagon,       shortcut: 'A', comingIn: 'Phase 6' },
+  { id: 'freehand',  label: 'Freehand',  icon: PenTool,       shortcut: 'F', comingIn: 'Phase 7' },
 ]
 
 export function MeasureToolbar({
@@ -66,6 +68,9 @@ export function MeasureToolbar({
         // the page first") and falls back to the phase-coming text.
         const disabledTitle =
           disabledReasons?.[t.id] ?? `${t.label} — coming in ${t.comingIn}`
+        // Enabled tooltip appends the keyboard shortcut letter so the
+        // shortcut is discoverable (Phase 7 polish).
+        const enabledTitle = `${t.label} (${t.shortcut})`
         return (
           <button
             key={t.id}
@@ -74,7 +79,7 @@ export function MeasureToolbar({
               if (enabled) onChange(t.id)
             }}
             disabled={!enabled}
-            title={enabled ? t.label : disabledTitle}
+            title={enabled ? enabledTitle : disabledTitle}
             aria-pressed={active}
             className={cn(
               'inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition-colors',

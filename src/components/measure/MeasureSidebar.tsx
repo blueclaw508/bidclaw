@@ -5,6 +5,7 @@ import {
   Hexagon,
   Minus,
   PanelRightClose,
+  PenTool,
   Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -13,7 +14,9 @@ import {
   parseAreaPoints,
   parseCountPoints,
   parseLinePoints,
+  parsePolylinePoints,
   polygonArea,
+  polylinePerimeter,
   realWorldArea,
 } from '@/lib/measureCoords'
 import type {
@@ -111,7 +114,8 @@ export function MeasureSidebar({
   const totalRendered =
     grouped.line.length +
     grouped.count.length +
-    grouped.area.length /* + freehand later */
+    grouped.area.length +
+    grouped.freehand_polyline.length
 
   const selectedMeasurement =
     selectedId !== null
@@ -252,6 +256,27 @@ export function MeasureSidebar({
                 onSelect={onSelectMeasurement}
                 renderRow={(m, isSelected) => (
                   <AreaRow
+                    m={m}
+                    isSelected={isSelected}
+                    workArea={
+                      m.work_area_id
+                        ? workAreaById.get(m.work_area_id) ?? null
+                        : null
+                    }
+                    pageScale={pageScale}
+                  />
+                )}
+              />
+            )}
+            {grouped.freehand_polyline.length > 0 && (
+              <MeasurementGroup
+                heading="Polylines"
+                count={grouped.freehand_polyline.length}
+                items={grouped.freehand_polyline}
+                selectedId={selectedId}
+                onSelect={onSelectMeasurement}
+                renderRow={(m, isSelected) => (
+                  <PolylineRow
                     m={m}
                     isSelected={isSelected}
                     workArea={
@@ -474,9 +499,48 @@ function AreaRow({
   )
 }
 
+function PolylineRow({
+  m,
+  isSelected,
+  workArea,
+  pageScale,
+}: {
+  m: Measurement
+  isSelected: boolean
+  workArea: WorkArea | null
+  pageScale: PageScale | null
+}) {
+  const display = realWorldPolylineFor(m, pageScale)
+  return (
+    <>
+      <PenTool
+        className={cn(
+          'h-3.5 w-3.5 shrink-0',
+          isSelected ? 'text-brand-gold-dark' : 'text-brand-text-muted'
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            'truncate text-sm font-semibold tabular-nums',
+            isSelected ? 'text-brand-gold-dark' : 'text-brand-text'
+          )}
+        >
+          {display ?? '—'}
+        </div>
+        <div className="truncate text-[11px] text-brand-text-muted">
+          {m.label ? `${m.label} · ` : ''}
+          {workArea?.name ?? 'No work area'}
+        </div>
+      </div>
+    </>
+  )
+}
+
 /**
- * Primary display string for the Selected detail panel. Tool-aware
- * so line shows distance, count shows N items, area shows sq-units.
+ * Primary display string for the Selected detail panel. Tool-aware:
+ * line shows distance, count shows N items, area shows sq-units,
+ * polyline shows perimeter (+ area when closed).
  */
 function primaryDisplayFor(
   m: Measurement,
@@ -490,7 +554,41 @@ function primaryDisplayFor(
   if (m.tool_type === 'area') {
     return realWorldAreaFor(m, pageScale) ?? '—'
   }
+  if (m.tool_type === 'freehand_polyline') {
+    return realWorldPolylineFor(m, pageScale) ?? '—'
+  }
   return realWorldDistanceFor(m, pageScale) ?? '—'
+}
+
+/**
+ * Live-state recompute for polyline rows. Open polyline → just
+ * perimeter. Closed → perimeter + area (area uses Phase 6's
+ * realWorldArea helper — single source for quadratic scale).
+ * Never reads measurement.calculated_value.
+ */
+function realWorldPolylineFor(
+  m: Measurement,
+  pageScale: PageScale | null
+): string | null {
+  if (!pageScale) return null
+  if (m.tool_type !== 'freehand_polyline') return null
+  const parsed = parsePolylinePoints(m.points)
+  if (!parsed) return null
+  const perim =
+    polylinePerimeter(parsed.points, parsed.closed) * pageScale.scale_factor
+  const perimStr = `${perim.toFixed(1)} ${pageScale.real_world_unit}`
+  if (!parsed.closed) {
+    return `Perim ${perimStr}`
+  }
+  const realArea = realWorldArea(
+    polygonArea(parsed.points),
+    pageScale.scale_factor
+  )
+  const areaStr = new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  }).format(realArea)
+  return `Perim ${perimStr} · ${areaStr} sq ${pageScale.real_world_unit}`
 }
 
 /**

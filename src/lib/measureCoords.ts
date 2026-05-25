@@ -215,6 +215,64 @@ export function realWorldArea(
 }
 
 /**
+ * Parse `points` for a freehand polyline measurement. Encoding:
+ *   - Open polyline:   [p1, p2, …, pN]            (≥2 points)
+ *   - Closed polyline: [p1, p2, …, pN, p1]        (≥4 entries, last ≈ first)
+ *
+ * Storing closed polylines with the first vertex duplicated at the end
+ * is the simplest way to encode the closed/open distinction without a
+ * schema migration or JSONB envelope. The parser detects the
+ * duplication and returns the polyline with the closing duplicate
+ * REMOVED so callers see a clean N-vertex array + a closed flag.
+ *
+ * Returns null on malformed data: non-array, < 2 vertices, any bad
+ * point shape.
+ */
+export function parsePolylinePoints(
+  raw: unknown
+): { points: readonly Point[]; closed: boolean } | null {
+  if (!Array.isArray(raw)) return null
+  if (raw.length < 2) return null
+  for (const p of raw) {
+    if (!isPoint(p)) return null
+  }
+  const pts = raw as Point[]
+  const first = pts[0]
+  const last = pts[pts.length - 1]
+  // Need at least 3 distinct vertices to be a meaningful closed shape;
+  // the duplicated first makes the stored length ≥ 4.
+  const closed =
+    pts.length >= 4 &&
+    Math.abs(first.x - last.x) < 1e-6 &&
+    Math.abs(first.y - last.y) < 1e-6
+  return {
+    points: closed ? pts.slice(0, -1) : pts,
+    closed,
+  }
+}
+
+/**
+ * Sum of edge lengths along an ordered vertex polyline, in whatever
+ * coord space the vertices are in. Closed mode adds the wrap-around
+ * edge from last vertex back to first. Multiply the result by
+ * scale_factor for real-world linear units.
+ */
+export function polylinePerimeter(
+  vertices: readonly Point[],
+  closed: boolean
+): number {
+  if (vertices.length < 2) return 0
+  let total = 0
+  for (let i = 0; i < vertices.length - 1; i++) {
+    total += distanceBetweenPoints(vertices[i], vertices[i + 1])
+  }
+  if (closed && vertices.length >= 3) {
+    total += distanceBetweenPoints(vertices[vertices.length - 1], vertices[0])
+  }
+  return total
+}
+
+/**
  * Point-in-polygon test via ray casting. Classic algorithm: cast a
  * horizontal ray to +∞ in x from p, count edge crossings. Odd =
  * inside, even = outside. Uses the half-open `<` / `>=` convention

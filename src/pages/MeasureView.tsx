@@ -12,6 +12,9 @@ import { CountLabelModal } from '@/components/measure/CountLabelModal'
 import { CountPanel } from '@/components/measure/CountPanel'
 import { MeasureSidebar } from '@/components/measure/MeasureSidebar'
 import { MeasureToolbar } from '@/components/measure/MeasureToolbar'
+import { MobileWarning } from '@/components/measure/MobileWarning'
+import { PolylineLabelModal } from '@/components/measure/PolylineLabelModal'
+import { PolylinePanel } from '@/components/measure/PolylinePanel'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import {
   computeScaleFactor,
@@ -22,10 +25,12 @@ import {
   parseAreaPoints,
   parseCountPoints,
   parseLinePoints,
+  parsePolylinePoints,
   pdfPageToCanvas,
   pointInCircle,
   pointInPolygon,
   polygonArea,
+  polylinePerimeter,
   realWorldArea,
   screenToPdfPage,
 } from '@/lib/measureCoords'
@@ -98,6 +103,28 @@ const LINE_DISABLED_NO_SCALE =
 const AREA_DISABLED_NO_SCALE =
   'Calibrate the page first to enable area measurements'
 
+/** Same precondition tooltip for freehand polyline. */
+const FREEHAND_DISABLED_NO_SCALE =
+  'Calibrate the page first to enable freehand measurements'
+
+/** Min viewport width for the measure tool. Below this, MobileWarning replaces everything. */
+const MIN_VIEWPORT_WIDTH = 1024
+
+/**
+ * Close-detection radius for polyline first-vertex click, in CSS px.
+ * Generous enough to be easy to hit, small enough to avoid early-collection
+ * false positives (combined with min-vertices + distance-moved gates).
+ */
+const POLYLINE_CLOSE_RADIUS = 8
+
+/**
+ * Minimum distance ANY intermediate polyline vertex must be from the
+ * first vertex before close detection activates. Stops a user from
+ * accidentally closing within 3 clicks all within 8 CSS px of each
+ * other.
+ */
+const POLYLINE_CLOSE_MIN_TRAVEL = 20
+
 /** Visual radius of count markers, in CSS px. */
 const COUNT_MARKER_RADIUS = 9
 
@@ -151,6 +178,15 @@ function describeMeasurementForDelete(
     if (!verts) return '(unknown area)'
     const real = realWorldArea(polygonArea(verts), pageScale.scale_factor)
     const display = formatArea(real, pageScale.real_world_unit)
+    return m.label ? `${display} (${m.label})` : display
+  }
+  if (m.tool_type === 'freehand_polyline') {
+    if (!pageScale) return '(polyline pending calibration)'
+    const parsed = parsePolylinePoints(m.points)
+    if (!parsed) return '(unknown polyline)'
+    const perim =
+      polylinePerimeter(parsed.points, parsed.closed) * pageScale.scale_factor
+    const display = `${parsed.closed ? 'Closed' : 'Open'} polyline (${perim.toFixed(1)} ${pageScale.real_world_unit})`
     return m.label ? `${display} (${m.label})` : display
   }
   return '(measurement)'
@@ -248,6 +284,36 @@ export default function MeasureView() {
     status: 'collecting' | 'awaiting_label'
   } | null>(null)
 
+  // Phase 7 additions — freehand polyline session, mobile detection,
+  // rubber-band preview, keyboard shortcuts.
+  /**
+   * Polyline session draft. Adds a `closed` flag relative to area/count
+   * because polylines can complete two ways:
+   *   - Finish button       → closed=false, open polyline
+   *   - Click first vertex  → closed=true, points has first duplicated
+   *                           at the end (storage encoding for closed)
+   */
+  const [polylineDraft, setPolylineDraft] = useState<{
+    points: Point[]
+    status: 'collecting' | 'awaiting_label'
+    closed: boolean
+  } | null>(null)
+
+  /** True when viewport width < MIN_VIEWPORT_WIDTH — MobileWarning replaces layout. */
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < MIN_VIEWPORT_WIDTH
+  )
+
+  /**
+   * Current pointer position in PDF page units, used ONLY for
+   * rubber-band rendering. Lives in a ref so pointer-move handlers
+   * don't trigger React re-renders — re-renders are coordinated by
+   * the rubberBandTick state, bumped from inside a RAF.
+   */
+  const cursorPdfRef = useRef<Point | null>(null)
+  const rafIdRef = useRef<number | null>(null)
+  const [rubberBandTick, setRubberBandTick] = useState(0)
+
   const measureRef = useRef<HTMLDivElement | null>(null)
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -283,6 +349,7 @@ export default function MeasureView() {
       setDeleteTarget(null)
       setCountDraft(null)
       setAreaDraft(null)
+      setPolylineDraft(null)
 
       // RLS returns zero rows for files this user can't see, which looks
       // identical to "doesn't exist". That's the right UX — don't leak
@@ -438,8 +505,28 @@ export default function MeasureView() {
     setLineDraft({ points: [] })
     setCountDraft(null)
     setAreaDraft(null)
+    setPolylineDraft(null)
     setSelectedId(null)
   }, [pageNumber])
+
+  // Phase 7 — viewport-width tracking for the mobile warning.
+  useEffect(() => {
+    function onResize() {
+      setIsNarrow(window.innerWidth < MIN_VIEWPORT_WIDTH)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Cancel any pending rubber-band RAF on unmount.
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+    }
+  }, [])
 
   // ──────────────────────────────────────────────────────────────────
   // 2c. Load work areas for the project. Phase 4 picker shows ALL of
@@ -933,6 +1020,162 @@ export default function MeasureView() {
         ctx.fill()
       })
     }
+
+    // Phase 7 — saved freehand polylines. Open: outline only. Closed:
+    // outline + translucent fill (same fill as area). Vertex dots
+    // visible on both for the dotted-feel of a hand-traced shape.
+    // Label at centroid (closed) or above midpoint vertex (open).
+    if (pageScale) {
+      ctx.font = '600 11px Inter, system-ui, sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'center'
+      for (const m of visible) {
+        if (m.tool_type !== 'freehand_polyline') continue
+        const parsed = parsePolylinePoints(m.points)
+        if (!parsed) continue
+        const isSelected = m.id === selectedId
+
+        ctx.beginPath()
+        parsed.points.forEach((v, i) => {
+          const css = pdfPageToCanvas(v, fitScale)
+          if (i === 0) ctx.moveTo(css.x, css.y)
+          else ctx.lineTo(css.x, css.y)
+        })
+        if (parsed.closed) ctx.closePath()
+
+        if (parsed.closed) {
+          ctx.fillStyle = isSelected ? AREA_FILL_SELECTED : AREA_FILL_UNSELECTED
+          ctx.fill()
+        }
+        ctx.strokeStyle = isSelected ? BRAND_GOLD : BRAND_NAVY
+        ctx.lineWidth = 2
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.stroke()
+
+        ctx.fillStyle = isSelected ? BRAND_GOLD : BRAND_NAVY
+        parsed.points.forEach((v) => {
+          const css = pdfPageToCanvas(v, fitScale)
+          ctx.beginPath()
+          ctx.arc(css.x, css.y, 2.5, 0, Math.PI * 2)
+          ctx.fill()
+        })
+
+        // Label
+        const perim =
+          polylinePerimeter(parsed.points, parsed.closed) *
+          pageScale.scale_factor
+        const perimStr = `${perim.toFixed(1)} ${pageScale.real_world_unit}`
+        let labelText: string
+        let labelX: number
+        let labelY: number
+        if (parsed.closed) {
+          const realA = realWorldArea(
+            polygonArea(parsed.points),
+            pageScale.scale_factor
+          )
+          const areaStr = new Intl.NumberFormat('en-US', {
+            maximumFractionDigits: 1,
+            minimumFractionDigits: 1,
+          }).format(realA)
+          labelText = `${perimStr} · ${areaStr} sq ${pageScale.real_world_unit}`
+          const cx =
+            parsed.points.reduce((s, v) => s + v.x, 0) / parsed.points.length
+          const cy =
+            parsed.points.reduce((s, v) => s + v.y, 0) / parsed.points.length
+          const c = pdfPageToCanvas({ x: cx, y: cy }, fitScale)
+          labelX = c.x
+          labelY = c.y
+        } else {
+          labelText = `Perim ${perimStr}`
+          // Anchor near the middle vertex, offset above so label doesn't
+          // sit on the line.
+          const mid =
+            parsed.points[Math.floor(parsed.points.length / 2)]
+          const c = pdfPageToCanvas(mid, fitScale)
+          labelX = c.x
+          labelY = c.y - 14
+        }
+        const tw = ctx.measureText(labelText).width
+        const padX = 5
+        const padY = 3
+        const rectW = tw + padX * 2
+        const rectH = 11 + padY * 2
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.92)'
+        ctx.fillRect(labelX - rectW / 2, labelY - rectH / 2, rectW, rectH)
+        ctx.fillStyle = '#5C6B8A'
+        ctx.fillText(labelText, labelX, labelY)
+      }
+    }
+
+    // Phase 7 — polyline draft. Always open (closing happens on commit).
+    // Vertex dots; first vertex slightly larger as the close-target.
+    if (polylineDraft && polylineDraft.points.length > 0) {
+      const pts = polylineDraft.points
+      ctx.strokeStyle = BRAND_NAVY
+      ctx.fillStyle = BRAND_NAVY
+      ctx.lineWidth = 2
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      if (pts.length >= 2) {
+        ctx.beginPath()
+        pts.forEach((v, i) => {
+          const css = pdfPageToCanvas(v, fitScale)
+          if (i === 0) ctx.moveTo(css.x, css.y)
+          else ctx.lineTo(css.x, css.y)
+        })
+        ctx.stroke()
+      }
+      pts.forEach((v, i) => {
+        const css = pdfPageToCanvas(v, fitScale)
+        ctx.beginPath()
+        ctx.arc(css.x, css.y, i === 0 ? 4 : 2.5, 0, Math.PI * 2)
+        ctx.fill()
+      })
+    }
+
+    // Phase 7 — rubber-band preview from the last placed vertex to
+    // the cursor, while a draft is in flight + cursor is over the
+    // canvas. Cursor is read from cursorPdfRef (ref-based to avoid
+    // re-renders on every move); RAF coalesces moves; rubberBandTick
+    // in deps re-runs this effect per RAF.
+    const cursor = cursorPdfRef.current
+    if (cursor) {
+      let anchor: Point | null = null
+      let rubberColor: string = BRAND_NAVY
+      if (tool === 'calibrate' && calibrationDraft.points.length === 1) {
+        anchor = calibrationDraft.points[0]
+        rubberColor = BRAND_GOLD
+      } else if (tool === 'line' && lineDraft.points.length === 1) {
+        anchor = lineDraft.points[0]
+      } else if (
+        tool === 'area' &&
+        areaDraft &&
+        areaDraft.status === 'collecting' &&
+        areaDraft.points.length >= 1
+      ) {
+        anchor = areaDraft.points[areaDraft.points.length - 1]
+      } else if (
+        tool === 'freehand' &&
+        polylineDraft &&
+        polylineDraft.status === 'collecting' &&
+        polylineDraft.points.length >= 1
+      ) {
+        anchor = polylineDraft.points[polylineDraft.points.length - 1]
+      }
+      if (anchor) {
+        const a = pdfPageToCanvas(anchor, fitScale)
+        const b = pdfPageToCanvas(cursor, fitScale)
+        ctx.strokeStyle = rubberColor
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([4, 3])
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+    }
   }, [
     renderInfo,
     measurements,
@@ -943,6 +1186,9 @@ export default function MeasureView() {
     pageScale,
     countDraft,
     areaDraft,
+    polylineDraft,
+    tool,
+    rubberBandTick,
   ])
 
   // ──────────────────────────────────────────────────────────────────
@@ -979,6 +1225,11 @@ export default function MeasureView() {
         setTool('select')
         return
       }
+      if (polylineDraft !== null) {
+        setPolylineDraft(null)
+        setTool('select')
+        return
+      }
       if (lineDraft.points.length > 0) {
         setLineDraft({ points: [] })
         setTool('select')
@@ -992,8 +1243,42 @@ export default function MeasureView() {
     calibrationDraft.points.length,
     countDraft,
     areaDraft,
+    polylineDraft,
     lineDraft.points.length,
   ])
+
+  // ──────────────────────────────────────────────────────────────────
+  // Phase 7 — keyboard shortcuts. V/L/C/A/F/K map to the toolbar tools.
+  // Gated on focus NOT being in a form field (INPUT/TEXTAREA/SELECT)
+  // and on modifier keys NOT being held (those are browser shortcuts).
+  // Disabled tools (line/area/freehand without pageScale) are
+  // double-gated here so keyboard can't bypass the toolbar's disabled
+  // state.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const SHORTCUTS: Record<string, MeasureToolMode> = {
+      v: 'select',
+      k: 'calibrate',
+      l: 'line',
+      c: 'count',
+      a: 'area',
+      f: 'freehand',
+    }
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const next = SHORTCUTS[e.key.toLowerCase()]
+      if (!next) return
+      // Mirror the toolbar's pageScale gating.
+      if ((next === 'line' || next === 'area' || next === 'freehand') && !pageScale) {
+        return
+      }
+      setTool(next)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pageScale])
 
   // ──────────────────────────────────────────────────────────────────
   // Delete key on canvas/sidebar focus → open the delete-confirm dialog
@@ -1105,8 +1390,75 @@ export default function MeasureView() {
         return
       }
 
+      if (tool === 'freehand') {
+        // Phase 7 — N-click polyline with two completion paths:
+        //   - Finish button       → open polyline (perimeter only)
+        //   - Click first vertex  → closed polyline (perimeter + area)
+        // Close detection requires ALL of:
+        //   (a) ≥3 vertices already collected
+        //   (b) click within POLYLINE_CLOSE_RADIUS CSS px of first vertex
+        //   (c) at least one intermediate vertex is > POLYLINE_CLOSE_MIN_TRAVEL
+        //       CSS px from the first vertex (i.e. user actually moved away)
+        // All three together prevent accidental close on early clicks
+        // that just happen to land near the first vertex.
+        if (!pageScale) {
+          setTool('select')
+          return
+        }
+        if (polylineDraft?.status === 'awaiting_label') return
+
+        const cssX = e.clientX - rect.left
+        const cssY = e.clientY - rect.top
+
+        // Try close detection first when conditions allow.
+        if (
+          polylineDraft &&
+          polylineDraft.status === 'collecting' &&
+          polylineDraft.points.length >= 3
+        ) {
+          const firstCss = pdfPageToCanvas(
+            polylineDraft.points[0],
+            renderInfo.fitScale
+          )
+          const distToFirst = distanceBetweenPoints(
+            { x: cssX, y: cssY },
+            firstCss
+          )
+          if (distToFirst <= POLYLINE_CLOSE_RADIUS) {
+            const movedAway = polylineDraft.points.slice(1).some((p) => {
+              const pCss = pdfPageToCanvas(p, renderInfo.fitScale)
+              return distanceBetweenPoints(pCss, firstCss) >
+                POLYLINE_CLOSE_MIN_TRAVEL
+            })
+            if (movedAway) {
+              // Close — append first vertex as duplicate (storage encoding
+              // for closed) and transition to label modal.
+              setPolylineDraft({
+                points: [...polylineDraft.points, polylineDraft.points[0]],
+                status: 'awaiting_label',
+                closed: true,
+              })
+              return
+            }
+          }
+        }
+
+        // Otherwise, normal vertex append.
+        const pdfPoint = screenToPdfPage(
+          { x: e.clientX, y: e.clientY },
+          rect,
+          renderInfo.fitScale
+        )
+        setPolylineDraft((prev) => ({
+          points: prev ? [...prev.points, pdfPoint] : [pdfPoint],
+          status: 'collecting',
+          closed: false,
+        }))
+        return
+      }
+
       if (tool !== 'select') {
-        // Phase 7 wires freehand creation here.
+        // Tool with no handler — defensive return.
         return
       }
 
@@ -1174,6 +1526,42 @@ export default function MeasureView() {
               break
             }
           }
+        } else if (m.tool_type === 'freehand_polyline') {
+          // Phase 7 — closed: same union as area (point-in-polygon OR
+          // edge-proximity, incl. closing edge). Open: edge-proximity
+          // only across N-1 edges (no closing edge, no interior).
+          const parsed = parsePolylinePoints(m.points)
+          if (!parsed) continue
+          const vertsCss = parsed.points.map((v) =>
+            pdfPageToCanvas(v, renderInfo.fitScale)
+          )
+          if (parsed.closed && pointInPolygon({ x: cssX, y: cssY }, vertsCss)) {
+            hit = m.id
+            continue
+          }
+          let polyHit = false
+          for (let i = 0; i < vertsCss.length - 1; i++) {
+            if (
+              distancePointToSegment({ x: cssX, y: cssY }, vertsCss[i], vertsCss[i + 1]) <
+              HIT_THRESHOLD
+            ) {
+              polyHit = true
+              break
+            }
+          }
+          if (!polyHit && parsed.closed) {
+            // Closing edge for closed polylines.
+            if (
+              distancePointToSegment(
+                { x: cssX, y: cssY },
+                vertsCss[vertsCss.length - 1],
+                vertsCss[0]
+              ) < HIT_THRESHOLD
+            ) {
+              polyHit = true
+            }
+          }
+          if (polyHit) hit = m.id
         }
       }
       // null when click was on canvas but > HIT_THRESHOLD from any
@@ -1189,9 +1577,72 @@ export default function MeasureView() {
       lineDraft.points.length,
       countDraft,
       areaDraft,
+      polylineDraft,
       pageScale,
     ]
   )
+
+  // ──────────────────────────────────────────────────────────────────
+  // Phase 7 — pointer-move handler for rubber-band preview.
+  //
+  // Only active when there's a draft that benefits from a preview:
+  //   - calibration with 1 point clicked
+  //   - line with 1 point clicked
+  //   - area while collecting (≥1 vertex)
+  //   - polyline while collecting (≥1 vertex)
+  // Count doesn't get rubber-band (clicks are independent markers).
+  //
+  // Cursor position lives in a ref to avoid React re-renders on every
+  // mouse move. RAF coalesces moves to one redraw per frame; the
+  // rubberBandTick state bump inside RAF re-runs the overlay render
+  // effect (which has rubberBandTick in its deps).
+  // ──────────────────────────────────────────────────────────────────
+  const onOverlayPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!renderInfo) return
+      const hasRubberBand =
+        (tool === 'calibrate' && calibrationDraft.points.length === 1) ||
+        (tool === 'line' && lineDraft.points.length === 1) ||
+        (tool === 'area' &&
+          areaDraft !== null &&
+          areaDraft.status === 'collecting' &&
+          areaDraft.points.length >= 1) ||
+        (tool === 'freehand' &&
+          polylineDraft !== null &&
+          polylineDraft.status === 'collecting' &&
+          polylineDraft.points.length >= 1)
+      if (!hasRubberBand) return
+
+      const canvas = e.currentTarget
+      const rect = canvas.getBoundingClientRect()
+      cursorPdfRef.current = screenToPdfPage(
+        { x: e.clientX, y: e.clientY },
+        rect,
+        renderInfo.fitScale
+      )
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null
+          setRubberBandTick((t) => t + 1)
+        })
+      }
+    },
+    [
+      renderInfo,
+      tool,
+      calibrationDraft.points.length,
+      lineDraft.points.length,
+      areaDraft,
+      polylineDraft,
+    ]
+  )
+
+  const onOverlayPointerLeave = useCallback(() => {
+    if (cursorPdfRef.current !== null) {
+      cursorPdfRef.current = null
+      setRubberBandTick((t) => t + 1)
+    }
+  }, [])
 
   // ──────────────────────────────────────────────────────────────────
   // Calibration submit + cancel.
@@ -1381,6 +1832,104 @@ export default function MeasureView() {
         )
       : ''
 
+  // ──────────────────────────────────────────────────────────────────
+  // Polyline session handlers.
+  // Finish (open path): closed=false, transition to awaiting_label.
+  // Cancel: full discard.
+  // Submit label: insert with full points array (with duplicated first
+  //   at end if closed). Perimeter goes into calculated_value /
+  //   calculated_unit for export; UI ignores them per the live-state
+  //   pattern (sidebar + canvas labels always recompute).
+  // ──────────────────────────────────────────────────────────────────
+  const handleFreehandFinish = useCallback(() => {
+    if (!polylineDraft || polylineDraft.points.length < 2) return
+    setPolylineDraft({
+      points: polylineDraft.points,
+      status: 'awaiting_label',
+      closed: false,
+    })
+  }, [polylineDraft])
+
+  const handleFreehandCancel = useCallback(() => {
+    setPolylineDraft(null)
+    setTool('select')
+  }, [])
+
+  const handleFreehandSubmitLabel = useCallback(
+    async (label: string | null) => {
+      if (!polylineDraft || !file || !pageScale) return
+      if (polylineDraft.points.length < 2) return
+      // For closed: points already ends with first-vertex duplicate.
+      // Compute geometry against the clean (no-duplicate) vertex list.
+      const cleanVerts = polylineDraft.closed
+        ? polylineDraft.points.slice(0, -1)
+        : polylineDraft.points
+      const perim =
+        polylinePerimeter(cleanVerts, polylineDraft.closed) *
+        pageScale.scale_factor
+      const payload = {
+        project_id: file.project_id,
+        source_file_id: file.id,
+        pdf_page_number: pageNumber,
+        tool_type: 'freehand_polyline' as const,
+        points: polylineDraft.points,
+        work_area_id: defaultWorkAreaId,
+        label,
+        scale_factor: pageScale.scale_factor,
+        // calculated_value populated for export; UI never reads these
+        // — sidebar + canvas labels recompute via realWorldPolylineFor /
+        // polylinePerimeter every render (live-state pattern).
+        calculated_value: perim,
+        calculated_unit: pageScale.real_world_unit,
+      }
+      const { data, error } = await supabase
+        .from('measurements')
+        .insert(payload)
+        .select()
+        .single()
+      if (error || !data) {
+        const msg = error?.message ?? 'No row returned from insert'
+        toast.error(`Couldn't save polyline: ${msg}`)
+        throw new Error(msg)
+      }
+      setMeasurements((prev) => [...prev, data as Measurement])
+      setPolylineDraft(null)
+      setTool('select')
+      const perimStr = `${perim.toFixed(1)} ${pageScale.real_world_unit}`
+      const summary = polylineDraft.closed
+        ? `closed polyline (perim ${perimStr})`
+        : `open polyline (perim ${perimStr})`
+      toast.success(
+        label ? `Saved ${summary} — ${label}` : `Saved ${summary}`
+      )
+    },
+    [polylineDraft, file, pageNumber, defaultWorkAreaId, pageScale]
+  )
+
+  // Pre-formatted strings for PolylineLabelModal header.
+  const polylineDisplay = (() => {
+    if (
+      !polylineDraft ||
+      polylineDraft.status !== 'awaiting_label' ||
+      !pageScale
+    ) {
+      return { perim: '', area: '', closed: false }
+    }
+    const cleanVerts = polylineDraft.closed
+      ? polylineDraft.points.slice(0, -1)
+      : polylineDraft.points
+    const perim =
+      polylinePerimeter(cleanVerts, polylineDraft.closed) *
+      pageScale.scale_factor
+    const perimStr = `${perim.toFixed(1)} ${pageScale.real_world_unit}`
+    let areaStr = ''
+    if (polylineDraft.closed) {
+      const ra = realWorldArea(polygonArea(cleanVerts), pageScale.scale_factor)
+      areaStr = formatArea(ra, pageScale.real_world_unit)
+    }
+    return { perim: perimStr, area: areaStr, closed: polylineDraft.closed }
+  })()
+
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return
     const target = deleteTarget
@@ -1432,6 +1981,14 @@ export default function MeasureView() {
   // ──────────────────────────────────────────────────────────────────
   // Render
   // ──────────────────────────────────────────────────────────────────
+
+  // Phase 7 — mobile / narrow-viewport guard. Replaces the entire
+  // measure layout with a warning card when the viewport is below
+  // MIN_VIEWPORT_WIDTH. Resizing past the threshold either direction
+  // re-mounts the measure view via the isNarrow state change.
+  if (isNarrow) {
+    return <MobileWarning backTo={backTo} />
+  }
 
   if (loadState === 'error') {
     return (
@@ -1532,7 +2089,7 @@ export default function MeasureView() {
             onChange={setTool}
             enabledTools={
               pageScale
-                ? [...PHASE5_BASE_TOOLS, 'line', 'area']
+                ? [...PHASE5_BASE_TOOLS, 'line', 'area', 'freehand']
                 : PHASE5_BASE_TOOLS
             }
             disabledReasons={
@@ -1541,6 +2098,7 @@ export default function MeasureView() {
                 : {
                     line: LINE_DISABLED_NO_SCALE,
                     area: AREA_DISABLED_NO_SCALE,
+                    freehand: FREEHAND_DISABLED_NO_SCALE,
                   }
             }
           />
@@ -1569,6 +2127,8 @@ export default function MeasureView() {
             <canvas
               ref={overlayCanvasRef}
               onPointerDown={onOverlayPointerDown}
+              onPointerMove={onOverlayPointerMove}
+              onPointerLeave={onOverlayPointerLeave}
               className={cn(
                 'absolute left-0 top-0 block touch-none',
                 tool !== 'select' && 'cursor-crosshair'
@@ -1626,6 +2186,18 @@ export default function MeasureView() {
           onFinish={handleAreaFinish}
           onCancel={handleAreaCancel}
         />
+
+        {/* Polyline session panel — Finish button gives open polyline;
+            clicking first vertex closes (handled in onPointerDown). */}
+        <PolylinePanel
+          open={
+            tool === 'freehand' &&
+            (polylineDraft === null || polylineDraft.status === 'collecting')
+          }
+          vertexCount={polylineDraft?.points.length ?? 0}
+          onFinish={handleFreehandFinish}
+          onCancel={handleFreehandCancel}
+        />
         </div>
 
         {/* Sidebar (right) */}
@@ -1663,6 +2235,16 @@ export default function MeasureView() {
         areaDisplay={areaDraftDisplay}
         onSubmit={handleAreaSubmitLabel}
         onClose={handleAreaCancel}
+      />
+
+      {/* Polyline label modal — header dynamic on open vs closed. */}
+      <PolylineLabelModal
+        open={polylineDraft?.status === 'awaiting_label'}
+        closed={polylineDisplay.closed}
+        perimeterDisplay={polylineDisplay.perim}
+        areaDisplay={polylineDisplay.area}
+        onSubmit={handleFreehandSubmitLabel}
+        onClose={handleFreehandCancel}
       />
 
       <ConfirmDialog
