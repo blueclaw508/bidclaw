@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ClipboardList,
   Users,
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { MarketingBar } from '@/components/MarketingBar'
+import { WizardModal } from '@/components/setup/WizardModal'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -25,6 +26,27 @@ export function AppShell() {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+
+  // Phase 3 — wizard trigger via ?wizard=1 query param. Phase 4 will
+  // add real first-login auto-open via SetupContext + sessionStorage.
+  // For Phase 3 verification, navigate to any /app/* route with
+  // ?wizard=1 to open it.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [wizardOpen, setWizardOpen] = useState(false)
+  useEffect(() => {
+    if (searchParams.get('wizard') === '1') {
+      setWizardOpen(true)
+    }
+  }, [searchParams])
+  const handleWizardClose = useCallback(() => {
+    setWizardOpen(false)
+    // Clear the query param so the wizard doesn't re-open on next render.
+    if (searchParams.get('wizard') === '1') {
+      const next = new URLSearchParams(searchParams)
+      next.delete('wizard')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   const handleSignOut = async () => {
     setUserMenuOpen(false)
@@ -163,6 +185,10 @@ export function AppShell() {
 
       {/* MARKETING BAR */}
       <MarketingBar />
+
+      {/* Setup wizard — Phase 3. Overlay-mounted via portal so it
+          appears above everything else in /app/* routes. */}
+      <WizardModal open={wizardOpen} onClose={handleWizardClose} />
     </div>
   )
 }

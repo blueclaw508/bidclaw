@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { SetupProvider } from '@/contexts/SetupContext'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { RequireAuth } from '@/components/RequireAuth'
 import { AppShell } from '@/components/AppShell'
@@ -43,7 +44,9 @@ export default function App() {
                 path="/app"
                 element={
                   <RequireAuth>
-                    <AppShell />
+                    <SetupProvider>
+                      <AppShell />
+                    </SetupProvider>
                   </RequireAuth>
                 }
               >
