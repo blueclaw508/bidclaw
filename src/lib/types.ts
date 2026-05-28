@@ -320,3 +320,99 @@ export interface WizardState {
   formData: Partial<CompanySettings>
   hasUnsavedChanges: boolean
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Kit library (Phase 2 Prompt 5)
+// ──────────────────────────────────────────────────────────────────────
+// Kits are calculation recipes. A kit has a header (name, category,
+// input unit, branch scope) plus a list of kit_lines. Each kit_line
+// has a factor (e.g., 0.22 Hr/SF) that gets multiplied by an input
+// quantity (e.g., 1000 SF) to generate proposal line items.
+//
+// Kits do NOT store prices. Each line's "reference" points to ONE of
+// three upstream entities:
+//
+//   • Labor  → company_labor_types  (rate looked up at proposal time)
+//   • Equipment → company_equipment_rates
+//   • Material  → catalog_items
+//   • Sub / Other → no reference (placeholder line)
+//
+// FKs use ON DELETE SET NULL so deleting an upstream entity doesn't
+// nuke the kit_line. UI surfaces a "Reference deleted — please
+// re-select" warning when the FK is NULL but reference_type is set.
+
+export type KitLineType =
+  | 'Labor'
+  | 'Material'
+  | 'Equipment'
+  | 'Sub'
+  | 'Other'
+
+export type KitLineReferenceType =
+  | 'labor_type'
+  | 'equipment_rate'
+  | 'catalog_item'
+  | 'none'
+
+export type KitStatus = 'active' | 'archived'
+
+export interface Kit {
+  id: string
+  user_id: string
+  name: string
+  category: string
+  input_unit: string
+  branch_scope: string | null
+  jamie_notes: string | null
+  status: KitStatus
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * One line in a kit. Polymorphic-ish reference: `reference_type`
+ * tells you which of the three FK columns holds the live link.
+ * Exactly zero or one FK is populated at any time (DB CHECK).
+ *
+ * A NULL `factor` is a valid placeholder — the contractor knows
+ * something belongs here but hasn't decided the magnitude yet.
+ *
+ * A NULL FK with `reference_type != 'none'` means the upstream
+ * entity was deleted (ON DELETE SET NULL fired). UI handles this.
+ */
+export interface KitLine {
+  id: string
+  kit_id: string
+  position: number
+  type: KitLineType
+  display_name: string
+  reference_type: KitLineReferenceType
+  reference_labor_type_id: string | null
+  reference_equipment_rate_id: string | null
+  reference_catalog_item_id: string | null
+  factor: number | null
+  factor_unit: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Kit detail page payload — header + ordered lines. */
+export interface KitWithLines extends Kit {
+  lines: KitLine[]
+}
+
+/**
+ * Kit line with the upstream reference resolved (label + optional
+ * unit cost). Returned by resolveKitLineReference() — used by
+ * proposal generation (Prompt 6+) to price kit lines. `null` resolved
+ * means the FK is NULL or the upstream lookup failed.
+ */
+export interface KitLineResolved extends KitLine {
+  /** Resolved name from the referenced labor_type / equipment_rate / catalog_item, or the kit_line's own display_name if reference_type='none'. */
+  resolved_label: string
+  /** Live unit cost from the upstream entity, if applicable. NULL for placeholder/no-reference lines or when upstream is missing. */
+  resolved_unit_cost: number | null
+  /** True when reference_type names a kind but the FK is NULL (upstream was deleted). UI surfaces a warning. */
+  reference_missing: boolean
+}

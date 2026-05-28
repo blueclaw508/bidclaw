@@ -18,6 +18,8 @@ const ProjectDetailPage         = lazy(() => import('@/pages/ProjectDetail'))
 const CustomersPage             = lazy(() => import('@/pages/Customers'))
 const CustomerDetailPage        = lazy(() => import('@/pages/CustomerDetail'))
 const CatalogPage               = lazy(() => import('@/pages/Catalog'))
+const KitsPage                  = lazy(() => import('@/pages/Kits'))
+const KitDetailPage             = lazy(() => import('@/pages/KitDetail'))
 const SettingsPage                  = lazy(() => import('@/pages/Settings'))
 const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
 const EnterMyNumbersSettingsPage    = lazy(() => import('@/pages/EnterMyNumbersSettings'))
@@ -60,6 +62,8 @@ export default function App() {
                 <Route path="customers"     element={<CustomersPage />} />
                 <Route path="customers/:id" element={<CustomerDetailPage />} />
                 <Route path="catalog"       element={<CatalogPage />} />
+                <Route path="kits"          element={<KitsPage />} />
+                <Route path="kits/:kitId"   element={<KitDetailPage />} />
                 <Route path="settings"                      element={<SettingsPage />} />
                 <Route path="settings/company-profile"      element={<CompanyProfileSettingsPage />} />
                 <Route path="settings/enter-my-numbers"     element={<EnterMyNumbersSettingsPage />} />

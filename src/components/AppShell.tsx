@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Users,
   BookOpen,
+  Wrench,
   Settings as SettingsIcon,
   LogOut,
   Menu,
@@ -26,6 +27,7 @@ const navItems = [
   { to: '/app/projects',  label: 'Projects',  icon: ClipboardList },
   { to: '/app/customers', label: 'Customers', icon: Users },
   { to: '/app/catalog',   label: 'Catalog',   icon: BookOpen },
+  { to: '/app/kits',      label: 'Kits',      icon: Wrench },
   { to: '/app/settings',  label: 'Settings',  icon: SettingsIcon },
 ]
 
