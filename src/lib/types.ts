@@ -416,3 +416,135 @@ export interface KitLineResolved extends KitLine {
   /** True when reference_type names a kind but the FK is NULL (upstream was deleted). UI surfaces a warning. */
   reference_missing: boolean
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Proposals (Phase 2 Prompt 6)
+// ──────────────────────────────────────────────────────────────────────
+// A proposal is what gets generated when a contractor picks a kit
+// and an input quantity for an approved work area. Kit factors ×
+// input quantity → resolved proposal_lines. Pricing snapshot (rates +
+// markup) is FROZEN at insert so future edits to settings / catalog
+// don't retroactively change a proposal (Q3a from Prompt 5 carry-fwd).
+//
+// Architecture decisions locked at Prompt 6 start:
+//   • Hand-rolled types (project convention).
+//   • 5 categories (4 + 'other'). 'Other' uses markup_subs_percent.
+//   • reference_missing kit lines block preview entirely.
+//   • NULL-factor / factor=0 lines surface as placeholder: true;
+//     quantity=0 commits are silently filtered at insert.
+//   • frozen_unit_cost is canonical for ALL calculation;
+//     frozen_labor_rate + frozen_equipment_rate are pure audit fields.
+
+export type ProposalStatus =
+  | 'draft'
+  | 'presented'
+  | 'accepted'
+  | 'declined'
+  | 'completed'
+
+export type ProposalLineCategory =
+  | 'material'
+  | 'labor'
+  | 'equipment'
+  | 'subcontractor'
+  | 'other'
+
+export interface Proposal {
+  id: string
+  project_id: string
+  work_area_id: string
+  name: string
+  status: ProposalStatus
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * One proposal line. All `frozen_*` fields snapshot upstream pricing
+ * at insert time so the proposal's totals never shift retroactively.
+ *
+ * Per decision 5: `frozen_unit_cost` is the canonical price for
+ * line-total calculation, regardless of category.
+ * `frozen_labor_rate` / `frozen_equipment_rate` are NULLable
+ * audit-only snapshots that capture the source rate at insert time
+ * for analytics/reporting. The calculation engine never reads them.
+ *
+ * `frozen_markup_percent` is per-line — at insert we look up the
+ * matching markup from company_settings (materials → markup_materials_percent,
+ * subs + other → markup_subs_percent, labor + equipment → 0) and
+ * snapshot it. Calc applies this per-line, not per-category.
+ */
+export interface ProposalLine {
+  id: string
+  proposal_id: string
+  /** NULL for custom lines (no kit source). NULL after the source kit was deleted. */
+  source_kit_id: string | null
+  /** NULL for custom lines. NULL after the source kit_line was deleted. */
+  source_kit_line_id: string | null
+  category: ProposalLineCategory
+  label: string
+  unit: string
+  /** Always > 0 (CHECK constraint). For kit-sourced lines: factor × inputQuantity. */
+  quantity: number
+  /** Canonical price for calculation (decision 5). NOT NULL, >= 0. */
+  frozen_unit_cost: number
+  /** Audit-only snapshot of the labor rate at insert (kit-sourced labor lines). */
+  frozen_labor_rate: number | null
+  /** Audit-only snapshot of the equipment rate at insert (kit-sourced equipment lines). */
+  frozen_equipment_rate: number | null
+  /** Markup applied to this line (% — applied to lineTotal). 0 for labor/equipment. */
+  frozen_markup_percent: number
+  /** Audit snapshot of the kit_line factor (for kit-sourced lines). NULL for custom. */
+  frozen_kit_factor: number | null
+  /** Audit snapshot of the upstream entity's label at insert time. */
+  frozen_reference_label: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+/** Proposal detail page payload — header + ordered lines. */
+export interface ProposalWithLines extends Proposal {
+  lines: ProposalLine[]
+}
+
+/**
+ * Uncommitted, fully-resolved kit line ready to be turned into a
+ * proposal_line. Returned by previewKitLines(); the preview UI lets
+ * the contractor toggle `selected` and override the placeholder
+ * `quantity` before committing via addLinesFromKitPreview().
+ *
+ * Shape mirrors ProposalLine minus the persisted server fields
+ * (id / proposal_id / created_at / updated_at), with `selected` +
+ * `placeholder` flags layered on for the preview UI.
+ */
+export interface KitPreviewLine {
+  source_kit_id: string
+  source_kit_line_id: string
+  category: ProposalLineCategory
+  label: string
+  unit: string
+  /**
+   * factor × inputQuantity. May be 0 for placeholder lines (NULL/0
+   * factor on the source kit_line). The commit step filters
+   * quantity-0 lines silently.
+   */
+  quantity: number
+  frozen_unit_cost: number
+  frozen_labor_rate: number | null
+  frozen_equipment_rate: number | null
+  frozen_markup_percent: number
+  frozen_kit_factor: number | null
+  frozen_reference_label: string | null
+  sort_order: number
+  /** Preview UI toggle. Defaults true. Unchecked lines are dropped on commit. */
+  selected: boolean
+  /**
+   * True when the kit_line has NULL or 0 factor, OR when the resolved
+   * upstream unit cost was null. UI groups these as "Needs Input" so
+   * the contractor sees the lines that require manual quantity / cost
+   * entry before committing.
+   */
+  placeholder: boolean
+}
