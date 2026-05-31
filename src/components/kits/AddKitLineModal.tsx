@@ -96,6 +96,16 @@ export function AddKitLineModal({
     () => equipmentRates.filter((e) => e.name && e.name.trim().length > 0),
     [equipmentRates]
   )
+  // For Material kit_lines, only show catalog items whose internal
+  // category is 'material'. The DB CHECK enforces FK/reference_type
+  // consistency but NOT catalog-category alignment, so without this
+  // filter a contractor's catalog item with category='equipment' (e.g.
+  // "Cement Mixer") would surface alongside true materials. UX fix only —
+  // no data-layer change so other callers stay unaffected.
+  const materialCatalogItems = useMemo(
+    () => catalogItems.filter((c) => c.category === 'material'),
+    [catalogItems]
+  )
 
   // Which reference dropdown applies to the current type
   const showReferenceDropdown =
@@ -136,7 +146,7 @@ export function AddKitLineModal({
           ? namedLaborTypes.find((l) => l.id === id)
           : type === 'Equipment'
             ? namedEquipmentRates.find((e) => e.id === id)
-            : catalogItems.find((c) => c.id === id)
+            : materialCatalogItems.find((c) => c.id === id)
       if (found) setDisplayName(found.name ?? '')
     }
   }
@@ -253,7 +263,7 @@ export function AddKitLineModal({
                     </option>
                   ))}
                 {type === 'Material' &&
-                  catalogItems.map((c) => (
+                  materialCatalogItems.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} ({c.unit})
                     </option>

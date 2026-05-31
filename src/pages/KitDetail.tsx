@@ -1333,12 +1333,19 @@ function ReferenceSelect({
                 {e.name}
               </option>
             ))}
+        {/* Material kit_lines: only show catalog items whose internal
+            category is 'material'. The DB CHECK enforces FK/reference_type
+            consistency but NOT catalog-category alignment, so without
+            this filter a catalog item with category='equipment' (e.g.
+            "Cement Mixer") would appear here alongside true materials. */}
         {line.type === 'Material' &&
-          catalogItems.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} ({c.unit})
-            </option>
-          ))}
+          catalogItems
+            .filter((c) => c.category === 'material')
+            .map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.unit})
+              </option>
+            ))}
       </select>
       {missing && (
         <p className="mt-1 flex items-center gap-1 text-[10px] font-medium text-amber-700">
