@@ -9,7 +9,7 @@ interface ModalProps {
   description?: string
   children: React.ReactNode
   /** Max width of the modal card. Defaults to 32rem (max-w-lg). */
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
 }
 
 const SIZE_CLASSES: Record<NonNullable<ModalProps['size']>, string> = {
@@ -17,6 +17,7 @@ const SIZE_CLASSES: Record<NonNullable<ModalProps['size']>, string> = {
   md: 'max-w-md',
   lg: 'max-w-lg',
   xl: 'max-w-2xl',
+  '2xl': 'max-w-3xl',
 }
 
 /**
