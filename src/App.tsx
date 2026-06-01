@@ -20,6 +20,7 @@ const CustomerDetailPage        = lazy(() => import('@/pages/CustomerDetail'))
 const CatalogPage               = lazy(() => import('@/pages/Catalog'))
 const KitsPage                  = lazy(() => import('@/pages/Kits'))
 const KitDetailPage             = lazy(() => import('@/pages/KitDetail'))
+const ProposalEditorPage        = lazy(() => import('@/pages/ProposalEditor'))
 const SettingsPage                  = lazy(() => import('@/pages/Settings'))
 const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
 const EnterMyNumbersSettingsPage    = lazy(() => import('@/pages/EnterMyNumbersSettings'))
@@ -58,6 +59,10 @@ export default function App() {
                 <Route
                   path="projects/:projectId/measure/:fileId"
                   element={<MeasureViewPage />}
+                />
+                <Route
+                  path="projects/:projectId/proposals/:proposalId"
+                  element={<ProposalEditorPage />}
                 />
                 <Route path="customers"     element={<CustomersPage />} />
                 <Route path="customers/:id" element={<CustomerDetailPage />} />
