@@ -10,7 +10,6 @@ import {
   Pencil,
   Plus,
   ShieldAlert,
-  Sparkles,
   User,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -25,6 +24,7 @@ import { BlurSaveTextarea } from '@/components/InlineEdit'
 const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
 // Lazy-loaded so react-dropzone only ships when the Files tab is opened.
 const FilesTab = lazy(() => import('@/components/project/FilesTab'))
+const ProposalsTab = lazy(() => import('@/components/project/ProposalsTab'))
 import {
   PROJECT_STATUS_CONFIG,
   PROJECT_STATUS_ORDER,
@@ -231,7 +231,11 @@ export default function ProjectDetailPage() {
               <FilesTab projectId={project.id} onChange={refreshCounts} />
             </Suspense>
           )}
-          {activeTab === 'proposals'  && <ComingSoonTab phase="a later phase" />}
+          {activeTab === 'proposals' && (
+            <Suspense fallback={<TabLoading />}>
+              <ProposalsTab project={project} />
+            </Suspense>
+          )}
         </div>
         <TotalsRail
           project={project}
@@ -553,22 +557,6 @@ function CustomerSelect({
         }}
       />
     </>
-  )
-}
-
-/* ============================================================
- * Tab content placeholders
- * ============================================================ */
-
-function ComingSoonTab({ phase }: { phase: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center">
-      <Sparkles className="mx-auto h-8 w-8 text-brand-gold" />
-      <h3 className="mt-3 text-base font-semibold text-gray-900">Coming in {phase}</h3>
-      <p className="mt-1 text-sm text-gray-500">
-        This section is reserved — the foundation is in place but the UI lands later.
-      </p>
-    </div>
   )
 }
 
