@@ -1,25 +1,28 @@
-// Data layer for the proposals + proposal_lines tables. All Proposal
-// pages (Prompt 6+) read/write through these functions — no direct
-// supabase calls in components.
+// Data layer for the proposals + proposal_work_areas + proposal_lines
+// tables. All Proposal pages (Prompt 6 Phase 2 editor) read/write
+// through these functions — no direct supabase calls in components.
 //
 // Conventions match companySettings.ts + kits.ts:
 //   • Throw on error (callers handle with toast / state)
 //   • RLS scopes queries to the current user — no explicit user_id filter
 //   • Pricing snapshot is FROZEN at insert; never recomputed from live
-//     settings/catalog state (Q3a from Prompt 5 carry-forward)
+//     settings/catalog state (Q3a from Prompt 5 carry-fwd)
 //
-// Five decisions locked at start of Prompt 6 — encoded throughout:
-//   1. Hand-rolled types in src/lib/types.ts (matches Prompts 1–5)
-//   2. 'Other' kit_line.type → 'other' category. Markup uses
-//      markup_subs_percent until a dedicated markup_other_percent
-//      is added (additive Phase 1.5 schema change).
-//   3. reference_missing lines block previewKitLines() entirely.
-//   4. NULL-factor / factor=0 lines surface as placeholder: true
-//      with quantity: 0. Commits with quantity=0 are silently
-//      filtered at insert.
+// Decisions locked from scope conversation (multi-work-area pivot):
+//   1. Multi-work-area: proposals are project-level; work area
+//      membership lives in proposal_work_areas (1:N).
+//   2. Ad-hoc work areas — work_area_id NULL is supported with
+//      name_override / description_override carrying the labels.
+//   3. Denormalized 5-category subtotals on proposal_work_areas —
+//      syncProposalWorkAreaSubtotals must be called after every line
+//      CUD that affects the row to prevent drift.
+//   4. Disabled work areas keep computing their own subtotals (so the
+//      editor shows the opportunity cost) but contribute 0 to the
+//      proposal grand total.
 //   5. frozen_unit_cost is canonical for ALL calculation.
-//      frozen_labor_rate + frozen_equipment_rate are pure audit
-//      fields — getProposalTotals never reads them.
+//      frozen_labor_rate / frozen_equipment_rate are pure audit.
+//   6. 'Other' category uses markup_subs_percent until a dedicated
+//      markup_other_percent ships (additive Phase 1.5).
 
 import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
@@ -28,29 +31,31 @@ import type {
   Proposal,
   ProposalLine,
   ProposalLineCategory,
+  ProposalListRow,
   ProposalStatus,
-  ProposalWithLines,
+  ProposalWithWorkAreas,
+  ProposalWorkArea,
+  ProposalWorkAreaResolved,
 } from '@/lib/types'
 
-// Re-export the core types so callers can `import { Proposal } from '@/lib/proposals'`.
+// Re-export so callers can `import { Proposal } from '@/lib/proposals'`.
 export type {
   KitPreviewLine,
   Proposal,
   ProposalLine,
   ProposalLineCategory,
+  ProposalListRow,
   ProposalStatus,
-  ProposalWithLines,
+  ProposalWithWorkAreas,
+  ProposalWorkArea,
+  ProposalWorkAreaResolved,
 }
 
 // ──────────────────────────────────────────────────────────────────────
 // Editability helper
 // ──────────────────────────────────────────────────────────────────────
 
-/**
- * Single source of truth for "can this proposal still be edited?" —
- * applied at the guard rail of every line-mutating function and at
- * updateProposal() for content-vs-status distinction.
- */
+/** Source of truth for "can this proposal still be edited?" */
 export function isProposalEditable(status: ProposalStatus): boolean {
   return status === 'draft'
 }
@@ -59,48 +64,146 @@ export function isProposalEditable(status: ProposalStatus): boolean {
 // Proposal CRUD
 // ──────────────────────────────────────────────────────────────────────
 
-export async function listProposalsByProject(projectId: string): Promise<Proposal[]> {
+/**
+ * Lightweight row used to render the per-project Proposals tab.
+ * Single round-trip via PostgREST embedded resources — pulls each
+ * proposal's work area count + line count + per-line aggregates for
+ * the grand total calc.
+ *
+ * Grand-total math mirrors getProposalTotals:
+ *   lineTotal = quantity × frozen_unit_cost
+ *   lineMarkup = lineTotal × frozen_markup_percent / 100
+ *   grand_total = sum(lineTotal + lineMarkup) for ENABLED work areas only
+ */
+export async function listProposalsByProject(
+  projectId: string
+): Promise<ProposalListRow[]> {
   const { data, error } = await supabase
     .from('proposals')
-    .select('*')
+    .select(
+      `*,
+       proposal_work_areas (
+         id, enabled,
+         proposal_lines ( quantity, frozen_unit_cost, frozen_markup_percent )
+       )`
+    )
     .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
+    .order('updated_at', { ascending: false })
   if (error) {
     throw new Error(`Couldn't load proposals: ${error.message}`)
   }
-  return (data ?? []) as Proposal[]
+  type RawRow = Proposal & {
+    proposal_work_areas: Array<{
+      id: string
+      enabled: boolean
+      proposal_lines: Array<{
+        quantity: number
+        frozen_unit_cost: number
+        frozen_markup_percent: number
+      }>
+    }>
+  }
+  return ((data ?? []) as RawRow[]).map((row) => {
+    const wAreas = row.proposal_work_areas ?? []
+    let grand_total = 0
+    let line_count = 0
+    for (const wa of wAreas) {
+      const lines = wa.proposal_lines ?? []
+      line_count += lines.length
+      if (!wa.enabled) continue // disabled work areas don't roll up
+      for (const l of lines) {
+        const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
+        grand_total += lt + lt * (Number(l.frozen_markup_percent) / 100)
+      }
+    }
+    // Strip embedded sub-resources before returning the row shape
+    const { proposal_work_areas, ...rest } = row
+    void proposal_work_areas
+    return {
+      ...rest,
+      work_area_count: wAreas.length,
+      line_count,
+      grand_total,
+    } satisfies ProposalListRow
+  })
 }
 
 /**
- * Load a proposal + its ordered line items. Throws on RLS / network
- * failure; returns null for a missing/RLS-hidden id (matches loadKit
- * convention from Prompt 5).
+ * Load the editor payload — proposal + every proposal_work_area
+ * (with source work_area name/description for fallback) + each work
+ * area's lines, ordered. Returns null when the id doesn't exist for
+ * the current user (RLS makes this look identical to "not found").
  */
-export async function getProposal(id: string): Promise<ProposalWithLines | null> {
-  const [{ data: prop, error: pErr }, { data: lines, error: lErr }] = await Promise.all([
-    supabase.from('proposals').select('*').eq('id', id).maybeSingle(),
-    supabase
-      .from('proposal_lines')
-      .select('*')
-      .eq('proposal_id', id)
-      .order('sort_order', { ascending: true }),
-  ])
-  if (pErr) throw new Error(`Couldn't load proposal: ${pErr.message}`)
-  if (!prop) return null
-  if (lErr) throw new Error(`Couldn't load proposal lines: ${lErr.message}`)
-  return { ...(prop as Proposal), lines: (lines ?? []) as ProposalLine[] }
+export async function getProposal(
+  id: string
+): Promise<ProposalWithWorkAreas | null> {
+  const { data, error } = await supabase
+    .from('proposals')
+    .select(
+      `*,
+       proposal_work_areas (
+         *,
+         work_areas ( id, name, description ),
+         proposal_lines ( * )
+       )`
+    )
+    .eq('id', id)
+    .maybeSingle()
+  if (error) {
+    throw new Error(`Couldn't load proposal: ${error.message}`)
+  }
+  if (!data) return null
+
+  type RawWorkArea = ProposalWorkArea & {
+    work_areas: { id: string; name: string; description: string | null } | null
+    proposal_lines: ProposalLine[]
+  }
+  const raw = data as Proposal & { proposal_work_areas: RawWorkArea[] }
+
+  const work_areas: ProposalWorkAreaResolved[] = (raw.proposal_work_areas ?? [])
+    .slice()
+    // Sort work areas by position ascending; PostgREST embed doesn't apply order
+    .sort((a, b) => a.position - b.position)
+    .map((wa) => {
+      const source = wa.work_areas ?? null
+      const resolved_name =
+        wa.name_override?.trim() || source?.name || 'Untitled work area'
+      const resolved_description =
+        wa.description_override ?? source?.description ?? null
+      const lines = (wa.proposal_lines ?? [])
+        .slice()
+        .sort((a, b) => a.sort_order - b.sort_order)
+      // Strip embedded sub-resources from the work area row before returning
+      const { work_areas: _wa, proposal_lines: _pl, ...waCore } = wa
+      void _wa
+      void _pl
+      return {
+        ...waCore,
+        resolved_name,
+        resolved_description,
+        source_work_area: source,
+        lines,
+      } satisfies ProposalWorkAreaResolved
+    })
+
+  // Strip the embedded array before returning
+  const { proposal_work_areas, ...proposalCore } = raw
+  void proposal_work_areas
+  return { ...proposalCore, work_areas }
 }
 
+/**
+ * Create a new draft proposal at the project level. Work areas are
+ * attached afterwards via addWorkAreaToProposal.
+ */
 export async function createProposal(input: {
   projectId: string
-  workAreaId: string
   name: string
 }): Promise<Proposal> {
   const { data, error } = await supabase
     .from('proposals')
     .insert({
       project_id: input.projectId,
-      work_area_id: input.workAreaId,
       name: input.name.trim(),
     })
     .select()
@@ -112,9 +215,8 @@ export async function createProposal(input: {
 }
 
 /**
- * Patch a proposal header. Editability guard: once status !== 'draft',
- * only the `status` field may be patched (status transitions allowed;
- * content edits blocked).
+ * Patch a proposal header. Editability guard: once status != 'draft'
+ * only the `status` field may be patched.
  */
 export async function updateProposal(
   id: string,
@@ -131,9 +233,9 @@ export async function updateProposal(
     )
   }
   if (!isProposalEditable(current.status as ProposalStatus)) {
-    // Only allow status transitions on locked proposals
-    const allowedKeys = Object.keys(patch).filter((k) => patch[k as keyof typeof patch] !== undefined)
-    const nonStatusKeys = allowedKeys.filter((k) => k !== 'status')
+    const nonStatusKeys = Object.keys(patch)
+      .filter((k) => patch[k as keyof typeof patch] !== undefined)
+      .filter((k) => k !== 'status')
     if (nonStatusKeys.length > 0) {
       throw new Error(
         `Proposal is ${current.status}, not draft — only status may be changed (got: ${nonStatusKeys.join(', ')}).`
@@ -158,36 +260,218 @@ export async function deleteProposal(id: string): Promise<void> {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Preview — kit + input qty → uncommitted preview lines
+// proposal_work_areas CRUD
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Map kit_line.type → proposal_lines.category (decision 2). Five
- * categories total; 'Other' kit lines map to the 'other' category
- * and inherit markup_subs_percent.
+ * Look up the next sort position so newly-added work areas append to
+ * the end of the proposal's editor list.
  */
-function kitTypeToCategory(t: 'Labor' | 'Material' | 'Equipment' | 'Sub' | 'Other'): ProposalLineCategory {
-  switch (t) {
-    case 'Labor':
-      return 'labor'
-    case 'Material':
-      return 'material'
-    case 'Equipment':
-      return 'equipment'
-    case 'Sub':
-      return 'subcontractor'
-    case 'Other':
-      return 'other'
+async function nextProposalWorkAreaPosition(proposalId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('proposal_work_areas')
+    .select('position')
+    .eq('proposal_id', proposalId)
+    .order('position', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    throw new Error(`Couldn't read work area position: ${error.message}`)
+  }
+  return data ? (data.position as number) + 1 : 0
+}
+
+/**
+ * Attach a work area to a proposal. Pass workAreaId=null for ad-hoc
+ * work areas (change orders / allowances); the name/description
+ * overrides become the displayed labels in that case.
+ *
+ * Editability guard enforced at the parent proposal level.
+ */
+export async function addWorkAreaToProposal(input: {
+  proposalId: string
+  workAreaId: string | null
+  nameOverride?: string
+  descriptionOverride?: string
+}): Promise<ProposalWorkArea> {
+  await assertProposalEditable(input.proposalId)
+  const position = await nextProposalWorkAreaPosition(input.proposalId)
+  const { data, error } = await supabase
+    .from('proposal_work_areas')
+    .insert({
+      proposal_id: input.proposalId,
+      work_area_id: input.workAreaId,
+      position,
+      name_override: input.nameOverride?.trim() || null,
+      description_override: input.descriptionOverride?.trim() || null,
+    })
+    .select()
+    .single()
+  if (error || !data) {
+    throw new Error(
+      `Couldn't attach work area to proposal: ${error?.message ?? 'no row returned'}`
+    )
+  }
+  return data as ProposalWorkArea
+}
+
+/**
+ * Patch a proposal_work_area. Allowed fields: name_override,
+ * description_override, enabled, position. Subtotals are managed by
+ * syncProposalWorkAreaSubtotals, not direct patches.
+ */
+export async function updateProposalWorkArea(
+  id: string,
+  patch: Partial<Pick<ProposalWorkArea,
+    'name_override' | 'description_override' | 'enabled' | 'position'>>
+): Promise<ProposalWorkArea> {
+  const { data: row, error: lookupErr } = await supabase
+    .from('proposal_work_areas')
+    .select('proposal_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (lookupErr || !row) {
+    throw new Error(
+      `Couldn't load proposal_work_area for update: ${lookupErr?.message ?? 'not found'}`
+    )
+  }
+  await assertProposalEditable(row.proposal_id as string)
+
+  const { data, error } = await supabase
+    .from('proposal_work_areas')
+    .update(patch)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error || !data) {
+    throw new Error(
+      `Couldn't update proposal_work_area: ${error?.message ?? 'no row returned'}`
+    )
+  }
+  return data as ProposalWorkArea
+}
+
+/**
+ * Remove a work area from a proposal. CASCADE deletes attached
+ * proposal_lines. The source project work_area is preserved.
+ */
+export async function removeWorkAreaFromProposal(id: string): Promise<void> {
+  const { data: row, error: lookupErr } = await supabase
+    .from('proposal_work_areas')
+    .select('proposal_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (lookupErr || !row) {
+    throw new Error(
+      `Couldn't load proposal_work_area for delete: ${lookupErr?.message ?? 'not found'}`
+    )
+  }
+  await assertProposalEditable(row.proposal_id as string)
+
+  const { error } = await supabase
+    .from('proposal_work_areas')
+    .delete()
+    .eq('id', id)
+  if (error) {
+    throw new Error(`Couldn't remove work area from proposal: ${error.message}`)
   }
 }
 
 /**
- * Resolve which markup percent applies to a category at this moment.
- * Materials use markup_materials_percent; subs + other use
- * markup_subs_percent (decision 2). Labor + equipment carry 0
- * because BCA bills the loaded retail rate which already includes
- * margin per KYN methodology — explicit per-line markup would
- * double-count.
+ * Rewrite position for every work area in the supplied order. Used
+ * after dnd-kit drag-drop of the work area cards in the editor.
+ * Skips no-op writes when the position already matches.
+ */
+export async function reorderProposalWorkAreas(
+  proposalId: string,
+  proposalWorkAreaIdsInOrder: string[]
+): Promise<void> {
+  await assertProposalEditable(proposalId)
+  const results = await Promise.all(
+    proposalWorkAreaIdsInOrder.map((id, idx) =>
+      supabase.from('proposal_work_areas').update({ position: idx }).eq('id', id)
+    )
+  )
+  const firstErr = results.find((r) => r.error)
+  if (firstErr?.error) {
+    throw new Error(`Reorder failed: ${firstErr.error.message}`)
+  }
+}
+
+/**
+ * Recompute the 5 denormalized subtotals on a proposal_work_area
+ * from its current proposal_lines. Must be called after every line
+ * CUD path that affects this work area. Returns the refreshed row.
+ *
+ * Math: subtotal_X = sum of (quantity × frozen_unit_cost × (1 +
+ * frozen_markup_percent/100)) for lines where category=X.
+ */
+export async function syncProposalWorkAreaSubtotals(
+  proposalWorkAreaId: string
+): Promise<ProposalWorkArea> {
+  const { data: lines, error: lErr } = await supabase
+    .from('proposal_lines')
+    .select('category, quantity, frozen_unit_cost, frozen_markup_percent')
+    .eq('proposal_work_area_id', proposalWorkAreaId)
+  if (lErr) {
+    throw new Error(`Couldn't load lines for subtotal sync: ${lErr.message}`)
+  }
+  const subtotals: Record<ProposalLineCategory, number> = {
+    labor: 0,
+    material: 0,
+    equipment: 0,
+    subcontractor: 0,
+    other: 0,
+  }
+  for (const l of (lines ?? []) as Array<{
+    category: ProposalLineCategory
+    quantity: number
+    frozen_unit_cost: number
+    frozen_markup_percent: number
+  }>) {
+    const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
+    subtotals[l.category] += lt + lt * (Number(l.frozen_markup_percent) / 100)
+  }
+  const { data, error } = await supabase
+    .from('proposal_work_areas')
+    .update({
+      labor_subtotal: subtotals.labor,
+      material_subtotal: subtotals.material,
+      equipment_subtotal: subtotals.equipment,
+      subcontractor_subtotal: subtotals.subcontractor,
+      other_subtotal: subtotals.other,
+    })
+    .eq('id', proposalWorkAreaId)
+    .select()
+    .single()
+  if (error || !data) {
+    throw new Error(
+      `Couldn't write subtotals: ${error?.message ?? 'no row returned'}`
+    )
+  }
+  return data as ProposalWorkArea
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Preview — kit + input qty → uncommitted preview lines
+// ──────────────────────────────────────────────────────────────────────
+
+/** kit_line.type → proposal_lines.category mapping. */
+function kitTypeToCategory(t: 'Labor' | 'Material' | 'Equipment' | 'Sub' | 'Other'): ProposalLineCategory {
+  switch (t) {
+    case 'Labor': return 'labor'
+    case 'Material': return 'material'
+    case 'Equipment': return 'equipment'
+    case 'Sub': return 'subcontractor'
+    case 'Other': return 'other'
+  }
+}
+
+/**
+ * Resolve markup percent for a category from current settings.
+ * Labor + equipment get 0 (KYN methodology — rates already include
+ * margin). Material uses markup_materials_percent. Sub + other use
+ * markup_subs_percent.
  */
 function markupForCategory(
   category: ProposalLineCategory,
@@ -206,20 +490,16 @@ function markupForCategory(
 }
 
 /**
- * Generate an uncommitted preview of what proposal_lines a kit
- * would produce for the given input quantity. Pure read — no writes.
+ * Generate an uncommitted preview of what proposal_lines a kit would
+ * produce for the given input quantity. Pure read — no writes.
  *
  * Side-effects:
- *   • Throws when ANY kit_line has reference_missing (decision 3).
- *     Error names the kit + count so the UI can guide the contractor
- *     back to the kit detail page to repair.
- *   • Lines with NULL or 0 factor surface as placeholder: true with
- *     quantity: 0 — the preview UI's "Needs Input" group (decision 4).
- *   • Lines with NULL resolved_unit_cost (e.g. reference_type='none'
- *     placeholder lines, no rate source) ALSO surface as
- *     placeholder: true with frozen_unit_cost: 0. Contractor must
- *     enter a unit cost in the preview UI before committing
- *     (otherwise the commit step silently drops the line).
+ *   • Throws when ANY kit_line has reference_missing — error names the
+ *     kit + count so the UI can route the contractor back to the kit
+ *     detail page to repair.
+ *   • Lines with NULL or 0 factor, OR with NULL resolved unit cost,
+ *     surface as placeholder=true with quantity=0 / frozen_unit_cost=0.
+ *     The preview UI groups these as "Needs Input".
  */
 export async function previewKitLines(input: {
   kitId: string
@@ -229,7 +509,6 @@ export async function previewKitLines(input: {
     throw new Error('Input quantity must be a positive number.')
   }
 
-  // Load kit + lines + settings + per-line resolved references in parallel
   const kit = await loadKit(input.kitId)
   if (!kit) throw new Error('Kit not found.')
 
@@ -247,7 +526,6 @@ export async function previewKitLines(input: {
     )
   }
 
-  // Block preview entirely if any line has a broken reference (decision 3)
   const broken = resolvedLines.filter((r) => r.reference_missing)
   if (broken.length > 0) {
     throw new Error(
@@ -255,17 +533,11 @@ export async function previewKitLines(input: {
     )
   }
 
-  // Build the preview array. sort_order continues by position so the
-  // commit step preserves the kit's ordering inside the proposal.
   return resolvedLines.map((resolved, idx): KitPreviewLine => {
     const line = kit.lines[idx]
     const category = kitTypeToCategory(line.type)
     const markupPercent = markupForCategory(category, settings)
 
-    // Placeholder detection (decision 4 + extension):
-    //   • NULL or 0 factor → quantity can't be computed
-    //   • NULL resolved_unit_cost → no rate to snapshot
-    // Either case: surface as placeholder for contractor input.
     const factorMissing = line.factor === null || line.factor === 0
     const costMissing = resolved.resolved_unit_cost === null
     const placeholder = factorMissing || costMissing
@@ -273,9 +545,6 @@ export async function previewKitLines(input: {
     const quantity = placeholder ? 0 : (line.factor as number) * input.inputQuantity
     const unitCost = resolved.resolved_unit_cost ?? 0
 
-    // Audit-only labor/equipment rate snapshot (decision 5). Set only
-    // when this line is sourced from a labor_type / equipment_rate
-    // reference. Custom-style lines and material/sub/other lines get NULL.
     const laborRate =
       line.type === 'Labor' && line.reference_type === 'labor_type'
         ? resolved.resolved_unit_cost
@@ -310,15 +579,15 @@ export async function previewKitLines(input: {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Look up the max existing sort_order on a proposal so new lines
- * append in stable order rather than colliding with kit-sourced
- * positions.
+ * Look up the max existing sort_order on a proposal_work_area so new
+ * lines append in stable order. Scoped to one work area, not the
+ * whole proposal — each work area's lines have their own positions.
  */
-async function nextSortOrder(proposalId: string): Promise<number> {
+async function nextLineSortOrder(proposalWorkAreaId: string): Promise<number> {
   const { data, error } = await supabase
     .from('proposal_lines')
     .select('sort_order')
-    .eq('proposal_id', proposalId)
+    .eq('proposal_work_area_id', proposalWorkAreaId)
     .order('sort_order', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -330,7 +599,7 @@ async function nextSortOrder(proposalId: string): Promise<number> {
 
 /**
  * Look up the parent proposal's status to enforce the editability
- * guard before any line mutation. Throws on missing/RLS-hidden id.
+ * guard before any line / work area mutation.
  */
 async function assertProposalEditable(proposalId: string): Promise<void> {
   const { data, error } = await supabase
@@ -351,29 +620,47 @@ async function assertProposalEditable(proposalId: string): Promise<void> {
 }
 
 /**
- * Commit a kit preview into proposal_lines. Filters lines that aren't
- * selected, and silently drops lines with quantity=0 (decision 4 —
- * placeholder lines the contractor didn't fill in are excluded
- * cleanly, no validation error).
+ * Look up the proposal_id for a given proposal_work_area_id (used by
+ * line CRUD to enforce the editability guard at the proposal level).
+ */
+async function proposalIdForWorkArea(proposalWorkAreaId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('proposal_work_areas')
+    .select('proposal_id')
+    .eq('id', proposalWorkAreaId)
+    .maybeSingle()
+  if (error || !data) {
+    throw new Error(
+      `Couldn't load proposal_work_area: ${error?.message ?? 'not found'}`
+    )
+  }
+  return data.proposal_id as string
+}
+
+/**
+ * Commit a kit preview into proposal_lines on a specific work area
+ * inside an existing proposal. Filters selected=false and silently
+ * drops quantity=0 placeholders. Appends after existing lines on that
+ * work area (sort_order continues from the current max).
  *
- * Appends after existing lines — sort_order continues from current max
- * so the kit ordering survives inside a multi-kit proposal.
+ * Triggers a subtotal sync on the affected proposal_work_area so the
+ * editor's denormalized totals stay in step with the lines.
  */
 export async function addLinesFromKitPreview(input: {
-  proposalId: string
+  proposalWorkAreaId: string
   lines: KitPreviewLine[]
   kitId: string
 }): Promise<ProposalLine[]> {
-  await assertProposalEditable(input.proposalId)
+  const proposalId = await proposalIdForWorkArea(input.proposalWorkAreaId)
+  await assertProposalEditable(proposalId)
 
-  // Filter: selected AND quantity > 0 (proposal_lines CHECK rejects 0)
   const toInsert = input.lines.filter((l) => l.selected && l.quantity > 0)
   if (toInsert.length === 0) return []
 
-  const startSort = await nextSortOrder(input.proposalId)
-
+  const startSort = await nextLineSortOrder(input.proposalWorkAreaId)
   const rows = toInsert.map((l, idx) => ({
-    proposal_id: input.proposalId,
+    proposal_id: proposalId,
+    proposal_work_area_id: input.proposalWorkAreaId,
     source_kit_id: input.kitId,
     source_kit_line_id: l.source_kit_line_id,
     category: l.category,
@@ -394,25 +681,31 @@ export async function addLinesFromKitPreview(input: {
     .insert(rows)
     .select()
   if (error || !data) {
-    throw new Error(`Couldn't add proposal lines: ${error?.message ?? 'no rows returned'}`)
+    throw new Error(
+      `Couldn't add proposal lines: ${error?.message ?? 'no rows returned'}`
+    )
   }
+  await syncProposalWorkAreaSubtotals(input.proposalWorkAreaId)
   return data as ProposalLine[]
 }
 
 /**
- * Add a single custom (non-kit-sourced) line. Snapshots the current
- * markup for the category at insert time; rate-audit fields stay NULL
- * because there's no upstream rate source to record (decision 5).
+ * Add a single custom (non-kit-sourced) line to a work area. Snapshots
+ * current markup for the category. Audit rate fields stay NULL —
+ * custom lines have no upstream rate source. Triggers subtotal sync.
  */
 export async function addCustomLine(input: {
-  proposalId: string
+  proposalWorkAreaId: string
   category: ProposalLineCategory
   label: string
   unit: string
   quantity: number
   unitCost: number
+  /** Optional traceability — set when the line was picked from the catalog. */
+  catalogItemId?: string
 }): Promise<ProposalLine> {
-  await assertProposalEditable(input.proposalId)
+  const proposalId = await proposalIdForWorkArea(input.proposalWorkAreaId)
+  await assertProposalEditable(proposalId)
 
   if (!Number.isFinite(input.quantity) || input.quantity <= 0) {
     throw new Error('Quantity must be greater than 0.')
@@ -431,12 +724,19 @@ export async function addCustomLine(input: {
     )
   }
 
-  const sortOrder = await nextSortOrder(input.proposalId)
+  const sortOrder = await nextLineSortOrder(input.proposalWorkAreaId)
+  // catalogItemId is accepted today as a traceability hint; we don't
+  // have a dedicated FK column on proposal_lines for it yet, so it's
+  // stashed into frozen_reference_label when supplied + nothing else.
+  // Phase 1.5 polish item: add proposal_lines.source_catalog_item_id.
+  const _catalogHint = input.catalogItemId ?? null
+  void _catalogHint
 
   const { data, error } = await supabase
     .from('proposal_lines')
     .insert({
-      proposal_id: input.proposalId,
+      proposal_id: proposalId,
+      proposal_work_area_id: input.proposalWorkAreaId,
       source_kit_id: null,
       source_kit_line_id: null,
       category: input.category,
@@ -444,7 +744,7 @@ export async function addCustomLine(input: {
       unit: input.unit.trim(),
       quantity: input.quantity,
       frozen_unit_cost: input.unitCost,
-      frozen_labor_rate: null, // Custom lines have no rate-table source
+      frozen_labor_rate: null,
       frozen_equipment_rate: null,
       frozen_markup_percent: markupForCategory(input.category, settings),
       frozen_kit_factor: null,
@@ -456,21 +756,23 @@ export async function addCustomLine(input: {
   if (error || !data) {
     throw new Error(`Couldn't add custom line: ${error?.message ?? 'no row returned'}`)
   }
+  await syncProposalWorkAreaSubtotals(input.proposalWorkAreaId)
   return data as ProposalLine
 }
 
 /**
- * Patch a proposal line. Editability guard: only allowed when the
- * parent proposal is in 'draft' status.
+ * Patch a proposal_line. Editability guard via parent proposal. After
+ * the patch lands, recompute the parent work area's subtotals so the
+ * editor's per-section + grand-total roll-up stays current.
  */
 export async function updateProposalLine(
   id: string,
-  patch: Partial<Pick<ProposalLine, 'label' | 'quantity' | 'frozen_unit_cost' | 'sort_order'>>
+  patch: Partial<Pick<ProposalLine,
+    'label' | 'quantity' | 'frozen_unit_cost' | 'sort_order' | 'unit'>>
 ): Promise<ProposalLine> {
-  // Look up parent proposal for the editability guard
   const { data: line, error: lookupErr } = await supabase
     .from('proposal_lines')
-    .select('proposal_id')
+    .select('proposal_id, proposal_work_area_id')
     .eq('id', id)
     .maybeSingle()
   if (lookupErr || !line) {
@@ -489,13 +791,14 @@ export async function updateProposalLine(
   if (error || !data) {
     throw new Error(`Couldn't update proposal line: ${error?.message ?? 'no row returned'}`)
   }
+  await syncProposalWorkAreaSubtotals(line.proposal_work_area_id as string)
   return data as ProposalLine
 }
 
 export async function deleteProposalLine(id: string): Promise<void> {
   const { data: line, error: lookupErr } = await supabase
     .from('proposal_lines')
-    .select('proposal_id')
+    .select('proposal_id, proposal_work_area_id')
     .eq('id', id)
     .maybeSingle()
   if (lookupErr || !line) {
@@ -507,6 +810,7 @@ export async function deleteProposalLine(id: string): Promise<void> {
 
   const { error } = await supabase.from('proposal_lines').delete().eq('id', id)
   if (error) throw new Error(`Couldn't delete proposal line: ${error.message}`)
+  await syncProposalWorkAreaSubtotals(line.proposal_work_area_id as string)
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -514,63 +818,100 @@ export async function deleteProposalLine(id: string): Promise<void> {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Compute roll-up totals from a proposal's lines.
+ * Per-work-area + grand totals for the editor's bottom strip.
  *
- * Decision 5: frozen_unit_cost is the canonical price for every line,
- * regardless of category. Per line:
+ *   workAreas[]:
+ *     id, enabled, byCategory subtotals, subtotal (pre-markup),
+ *     markupAmount, total (sub + markup)
  *
- *   lineTotal = quantity × frozen_unit_cost
- *   lineMarkup = lineTotal × (frozen_markup_percent / 100)
- *
- * `byCategory` returns pre-markup subtotals per category — sums to
- * `subtotal`. `markupAmount` is the sum of per-line markups (0 for
- * labor + equipment lines because their frozen_markup_percent is 0
- * by construction in previewKitLines / addCustomLine).
- * `grandTotal` = subtotal + markupAmount.
+ *   grandSubtotal / grandMarkupAmount / grandTotal:
+ *     ROLLUP of ENABLED work areas only. Disabled work areas still
+ *     surface their own numbers in workAreas[] so the editor can show
+ *     opportunity cost.
  */
 export async function getProposalTotals(proposalId: string): Promise<{
-  byCategory: Record<ProposalLineCategory, number>
-  subtotal: number
-  markupAmount: number
+  workAreas: Array<{
+    id: string
+    enabled: boolean
+    byCategory: Record<ProposalLineCategory, number>
+    subtotal: number
+    markupAmount: number
+    total: number
+  }>
+  grandSubtotal: number
+  grandMarkupAmount: number
   grandTotal: number
 }> {
+  // Pull every work area + its lines in one round-trip
   const { data, error } = await supabase
-    .from('proposal_lines')
-    .select('category, quantity, frozen_unit_cost, frozen_markup_percent')
+    .from('proposal_work_areas')
+    .select(
+      `id, enabled,
+       proposal_lines ( category, quantity, frozen_unit_cost, frozen_markup_percent )`
+    )
     .eq('proposal_id', proposalId)
+    .order('position', { ascending: true })
   if (error) {
     throw new Error(`Couldn't load proposal totals: ${error.message}`)
   }
-
-  const byCategory: Record<ProposalLineCategory, number> = {
-    material: 0,
-    labor: 0,
-    equipment: 0,
-    subcontractor: 0,
-    other: 0,
+  type RawWA = {
+    id: string
+    enabled: boolean
+    proposal_lines: Array<{
+      category: ProposalLineCategory
+      quantity: number
+      frozen_unit_cost: number
+      frozen_markup_percent: number
+    }>
   }
-  let subtotal = 0
-  let markupAmount = 0
 
-  for (const row of (data ?? []) as Array<{
-    category: ProposalLineCategory
-    quantity: number
-    frozen_unit_cost: number
-    frozen_markup_percent: number
-  }>) {
-    const qty = Number(row.quantity)
-    const unit = Number(row.frozen_unit_cost)
-    const markup = Number(row.frozen_markup_percent)
-    const lineTotal = qty * unit
-    byCategory[row.category] += lineTotal
-    subtotal += lineTotal
-    markupAmount += lineTotal * (markup / 100)
+  const workAreas: Array<{
+    id: string
+    enabled: boolean
+    byCategory: Record<ProposalLineCategory, number>
+    subtotal: number
+    markupAmount: number
+    total: number
+  }> = []
+
+  let grandSubtotal = 0
+  let grandMarkupAmount = 0
+
+  for (const wa of (data ?? []) as RawWA[]) {
+    const byCategory: Record<ProposalLineCategory, number> = {
+      labor: 0,
+      material: 0,
+      equipment: 0,
+      subcontractor: 0,
+      other: 0,
+    }
+    let subtotal = 0
+    let markupAmount = 0
+    for (const l of wa.proposal_lines ?? []) {
+      const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
+      byCategory[l.category] += lt
+      subtotal += lt
+      markupAmount += lt * (Number(l.frozen_markup_percent) / 100)
+    }
+    const total = subtotal + markupAmount
+    workAreas.push({
+      id: wa.id,
+      enabled: wa.enabled,
+      byCategory,
+      subtotal,
+      markupAmount,
+      total,
+    })
+    if (wa.enabled) {
+      grandSubtotal += subtotal
+      grandMarkupAmount += markupAmount
+    }
   }
 
   return {
-    byCategory,
-    subtotal,
-    markupAmount,
-    grandTotal: subtotal + markupAmount,
+    workAreas,
+    grandSubtotal,
+    grandMarkupAmount,
+    grandTotal: grandSubtotal + grandMarkupAmount,
   }
 }

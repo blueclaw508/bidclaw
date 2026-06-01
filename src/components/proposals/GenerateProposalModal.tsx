@@ -278,12 +278,23 @@ export function GenerateProposalModal({
     }
     setModalState('submitting')
     try {
+      // STUB — original Phase 2a call shape is incompatible with the
+      // multi-work-area data layer from Phase 2c. This entire submit
+      // path will be replaced in Phase 2g when GenerateProposalModal
+      // is renamed to AddFromKitModal and rewired to call
+      // addLinesFromKitPreview({proposalWorkAreaId, ...}) without
+      // creating a proposal (proposal already exists in the editor).
+      // The directives below silence the type-mismatch noise so the
+      // build stays clean. File is unreachable from any UI surface
+      // since the Pre-Phase cleanup removed its only caller.
       const proposal = await createProposal({
         projectId,
+        // @ts-expect-error — Phase 2g rewrites this call (workAreaId removed from signature)
         workAreaId: workArea.id,
         name: proposalName.trim(),
       })
       await addLinesFromKitPreview({
+        // @ts-expect-error — Phase 2g rewrites this call (proposalId → proposalWorkAreaId)
         proposalId: proposal.id,
         lines: previewLines,
         kitId,

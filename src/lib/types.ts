@@ -418,20 +418,26 @@ export interface KitLineResolved extends KitLine {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Proposals (Phase 2 Prompt 6)
+// Proposals (Phase 2 Prompt 6 — multi-work-area architecture)
 // ──────────────────────────────────────────────────────────────────────
-// A proposal is what gets generated when a contractor picks a kit
-// and an input quantity for an approved work area. Kit factors ×
-// input quantity → resolved proposal_lines. Pricing snapshot (rates +
-// markup) is FROZEN at insert so future edits to settings / catalog
-// don't retroactively change a proposal (Q3a from Prompt 5 carry-fwd).
+// A proposal is the client-facing deliverable that spans one or more
+// work areas of a project (mix of project-linked + ad-hoc change
+// orders). Each (proposal, work area) pair is a row in
+// proposal_work_areas with its own denormalized 5-category subtotals
+// and an `enabled` flag. proposal_lines belong to a specific
+// proposal_work_area; their pricing snapshot (rates + markup) is
+// FROZEN at insert so future edits to settings/catalog don't shift
+// past totals (Q3a from Prompt 5 carry-fwd).
 //
-// Architecture decisions locked at Prompt 6 start:
+// Architecture decisions:
 //   • Hand-rolled types (project convention).
 //   • 5 categories (4 + 'other'). 'Other' uses markup_subs_percent.
-//   • reference_missing kit lines block preview entirely.
-//   • NULL-factor / factor=0 lines surface as placeholder: true;
-//     quantity=0 commits are silently filtered at insert.
+//   • Multi-work-area: proposal_work_areas join table, work_area_id
+//     nullable for ad-hoc, RESTRICT cascade from work_areas.
+//   • Denormalized per-work-area subtotals — syncProposalWorkAreaSubtotals
+//     must be called after every line CUD to prevent drift.
+//   • Disabled work areas keep computing their subtotals but are
+//     excluded from the proposal grand total.
 //   • frozen_unit_cost is canonical for ALL calculation;
 //     frozen_labor_rate + frozen_equipment_rate are pure audit fields.
 
@@ -452,7 +458,6 @@ export type ProposalLineCategory =
 export interface Proposal {
   id: string
   project_id: string
-  work_area_id: string
   name: string
   status: ProposalStatus
   notes: string | null
@@ -461,11 +466,56 @@ export interface Proposal {
 }
 
 /**
+ * Join row attaching one work_area to one proposal (with overrides +
+ * denormalized subtotals). Multiple per proposal supported. When
+ * work_area_id is NULL the row is an ad-hoc work area (change order
+ * etc.) and name_override / description_override carry the labels.
+ *
+ * Subtotals are SNAPSHOTS kept in sync by the data layer; they must
+ * be re-computed via syncProposalWorkAreaSubtotals after every line
+ * insert / update / delete that affects this row.
+ */
+export interface ProposalWorkArea {
+  id: string
+  proposal_id: string
+  /** NULL for ad-hoc work areas (no source project work area). */
+  work_area_id: string | null
+  position: number
+  name_override: string | null
+  description_override: string | null
+  enabled: boolean
+  labor_subtotal: number
+  material_subtotal: number
+  equipment_subtotal: number
+  subcontractor_subtotal: number
+  other_subtotal: number
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Resolved view of a proposal_work_area for the editor — name +
+ * description fall back to the source work_area when no override is
+ * set. `lines` are the proposal_lines attached to this work area
+ * ordered by sort_order.
+ */
+export interface ProposalWorkAreaResolved extends ProposalWorkArea {
+  resolved_name: string
+  resolved_description: string | null
+  source_work_area: {
+    id: string
+    name: string
+    description: string | null
+  } | null
+  lines: ProposalLine[]
+}
+
+/**
  * One proposal line. All `frozen_*` fields snapshot upstream pricing
  * at insert time so the proposal's totals never shift retroactively.
  *
- * Per decision 5: `frozen_unit_cost` is the canonical price for
- * line-total calculation, regardless of category.
+ * Per Phase 1 decision 5: `frozen_unit_cost` is the canonical price
+ * for line-total calculation, regardless of category.
  * `frozen_labor_rate` / `frozen_equipment_rate` are NULLable
  * audit-only snapshots that capture the source rate at insert time
  * for analytics/reporting. The calculation engine never reads them.
@@ -474,10 +524,17 @@ export interface Proposal {
  * matching markup from company_settings (materials → markup_materials_percent,
  * subs + other → markup_subs_percent, labor + equipment → 0) and
  * snapshot it. Calc applies this per-line, not per-category.
+ *
+ * Each line attributes to a proposal_work_area via
+ * `proposal_work_area_id` (NOT NULL). `proposal_id` is kept as a
+ * direct convenience FK — it lets "all lines for a proposal" queries
+ * skip the join and double-secures the cascade from proposals.
  */
 export interface ProposalLine {
   id: string
   proposal_id: string
+  /** Required. The (proposal, work_area) pair this line belongs to. */
+  proposal_work_area_id: string
   /** NULL for custom lines (no kit source). NULL after the source kit was deleted. */
   source_kit_id: string | null
   /** NULL for custom lines. NULL after the source kit_line was deleted. */
@@ -487,7 +544,7 @@ export interface ProposalLine {
   unit: string
   /** Always > 0 (CHECK constraint). For kit-sourced lines: factor × inputQuantity. */
   quantity: number
-  /** Canonical price for calculation (decision 5). NOT NULL, >= 0. */
+  /** Canonical price for calculation. NOT NULL, >= 0. */
   frozen_unit_cost: number
   /** Audit-only snapshot of the labor rate at insert (kit-sourced labor lines). */
   frozen_labor_rate: number | null
@@ -504,9 +561,26 @@ export interface ProposalLine {
   updated_at: string
 }
 
-/** Proposal detail page payload — header + ordered lines. */
-export interface ProposalWithLines extends Proposal {
-  lines: ProposalLine[]
+/**
+ * Editor payload — proposal header + ordered work areas + each work
+ * area's lines (grouped under it via the join). Replaces the original
+ * single-work-area ProposalWithLines now that proposals span N work
+ * areas.
+ */
+export interface ProposalWithWorkAreas extends Proposal {
+  work_areas: ProposalWorkAreaResolved[]
+}
+
+/**
+ * List-row payload returned by `listProposalsByProject`. Pre-
+ * aggregated counts + grand total so the list page renders in a
+ * single round-trip — no N+1 fetches per row. work_area_count +
+ * line_count are surfaced in the metadata line ("3 areas · 14 lines").
+ */
+export interface ProposalListRow extends Proposal {
+  work_area_count: number
+  line_count: number
+  grand_total: number
 }
 
 /**
