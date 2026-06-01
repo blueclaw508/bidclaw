@@ -19,7 +19,6 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
-  FilePlus,
   GripVertical,
   Plus,
   Trash2,
@@ -29,7 +28,6 @@ import { supabase } from '@/lib/supabase'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewWorkAreaModal } from '@/components/project/NewWorkAreaModal'
-import { GenerateProposalModal } from '@/components/proposals/GenerateProposalModal'
 import { BlurSaveInput, BlurSaveTextarea } from '@/components/InlineEdit'
 import {
   WORK_AREA_STATUS_CONFIG,
@@ -50,10 +48,6 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
   const [newOpen, setNewOpen] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkArea | null>(null)
-  // Which work area is opening the generate-proposal modal, if any.
-  // Held as the full row so the modal has the name + id without
-  // another lookup.
-  const [generateTarget, setGenerateTarget] = useState<WorkArea | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -242,7 +236,6 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
                   }
                   onPatch={(changes) => patch(wa.id, changes)}
                   onDelete={() => setDeleteTarget(wa)}
-                  onGenerate={() => setGenerateTarget(wa)}
                 />
               ))}
             </ul>
@@ -259,13 +252,6 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
           void load()
           onChange?.()
         }}
-      />
-
-      <GenerateProposalModal
-        open={generateTarget !== null}
-        onClose={() => setGenerateTarget(null)}
-        projectId={projectId}
-        workArea={generateTarget}
       />
 
       <ConfirmDialog
@@ -302,14 +288,12 @@ function SortableRow({
   onToggle,
   onPatch,
   onDelete,
-  onGenerate,
 }: {
   workArea: WorkArea
   expanded: boolean
   onToggle: () => void
   onPatch: (changes: Partial<WorkArea>) => Promise<boolean>
   onDelete: () => void
-  onGenerate: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: workArea.id })
@@ -361,20 +345,6 @@ function SortableRow({
           #{workArea.sequence_order + 1}
         </span>
         <StatusBadge kind="work_area" value={workArea.status} className="shrink-0" />
-        {/* Generate proposal — always enabled per Phase 2a decision 3.
-            Stops propagation so the row's chevron-toggle doesn't fire. */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onGenerate()
-          }}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-brand-navy px-2 py-1 text-xs font-semibold text-white hover:bg-brand-navy-dark"
-          title="Generate proposal from this work area"
-        >
-          <FilePlus className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Proposal</span>
-        </button>
       </div>
 
       {/* Accordion body */}
