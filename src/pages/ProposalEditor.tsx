@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import {
   ArrowLeft,
   Calculator,
@@ -12,27 +26,24 @@ import {
   RotateCcw,
   Save,
   Send,
-  ShieldAlert,
-  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BlurSaveInput } from '@/components/InlineEdit'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
 import { AddWorkAreaFromProjectModal } from '@/components/proposals/AddWorkAreaFromProjectModal'
 import { AddAdHocWorkAreaModal } from '@/components/proposals/AddAdHocWorkAreaModal'
+import ProposalWorkAreaSection from '@/components/proposals/ProposalWorkAreaSection'
 import { supabase } from '@/lib/supabase'
 import {
   getProposal,
   getProposalTotals,
-  removeWorkAreaFromProposal,
+  reorderProposalWorkAreas,
   updateProposal,
 } from '@/lib/proposals'
 import type {
   Project,
   ProposalLineCategory,
   ProposalWithWorkAreas,
-  ProposalWorkAreaResolved,
   WorkArea,
 } from '@/lib/types'
 
@@ -62,7 +73,6 @@ export default function ProposalEditor() {
     projectId: string
     proposalId: string
   }>()
-  const navigate = useNavigate()
 
   // Server snapshot — floor for diff/reset on notes
   const [proposal, setProposal] = useState<ProposalWithWorkAreas | null>(null)
@@ -72,6 +82,12 @@ export default function ProposalEditor() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
+  // Current settings markup % — displayed as a reference indicator on
+  // each work area subsection header (frozen markup on actual lines
+  // may differ from this if rates changed since the line was added).
+  const [materialsMarkupPercent, setMaterialsMarkupPercent] = useState(0)
+  const [subsMarkupPercent, setSubsMarkupPercent] = useState(0)
+
   // Notes draft state (Save+Reset bar pattern)
   const [notesDraft, setNotesDraft] = useState<string>('')
   const [savingNotes, setSavingNotes] = useState(false)
@@ -79,10 +95,15 @@ export default function ProposalEditor() {
   // Modal + dialog state
   const [addFromProjectOpen, setAddFromProjectOpen] = useState(false)
   const [addAdHocOpen, setAddAdHocOpen] = useState(false)
-  const [removeTarget, setRemoveTarget] = useState<ProposalWorkAreaResolved | null>(null)
 
   // Calculate button feedback
   const [calculating, setCalculating] = useState(false)
+
+  // dnd-kit sensors for work area card reorder
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
 
   /* ---------- load ---------- */
 
@@ -98,27 +119,38 @@ export default function ProposalEditor() {
       setProposal(p)
       setNotesDraft(p.notes ?? '')
 
-      // Fetch the parent project (for the header subtitle) and the
-      // project's work areas (for the "Add from project" modal). One
-      // round-trip each — small payloads.
-      const [{ data: proj, error: pErr }, { data: was, error: wErr }] =
-        await Promise.all([
-          supabase
-            .from('projects')
-            .select('*')
-            .eq('id', p.project_id)
-            .maybeSingle(),
-          supabase
-            .from('work_areas')
-            .select('*')
-            .eq('project_id', p.project_id)
-            .order('sequence_order', { ascending: true }),
-        ])
+      // Fetch the parent project (for the header subtitle), project's
+      // work areas (for the "Add from project" modal), and current
+      // settings markup % (for the per-section reference indicator).
+      // All three in parallel — small payloads.
+      const [
+        { data: proj, error: pErr },
+        { data: was, error: wErr },
+        { data: settings, error: sErr },
+      ] = await Promise.all([
+        supabase
+          .from('projects')
+          .select('*')
+          .eq('id', p.project_id)
+          .maybeSingle(),
+        supabase
+          .from('work_areas')
+          .select('*')
+          .eq('project_id', p.project_id)
+          .order('sequence_order', { ascending: true }),
+        supabase
+          .from('company_settings')
+          .select('markup_materials_percent, markup_subs_percent')
+          .maybeSingle(),
+      ])
       if (pErr) throw new Error(`Couldn't load project: ${pErr.message}`)
       if (!proj) throw new Error('Project not found.')
       setProject(proj as Project)
       if (wErr) throw new Error(`Couldn't load project work areas: ${wErr.message}`)
       setProjectWorkAreas((was ?? []) as WorkArea[])
+      if (sErr) throw new Error(`Couldn't load company settings: ${sErr.message}`)
+      setMaterialsMarkupPercent(Number(settings?.markup_materials_percent ?? 0))
+      setSubsMarkupPercent(Number(settings?.markup_subs_percent ?? 0))
 
       // Initial totals fetch
       setTotals(await getProposalTotals(proposalId))
@@ -216,18 +248,30 @@ export default function ProposalEditor() {
     }
   }, [proposalId])
 
-  const handleConfirmRemove = useCallback(async () => {
-    if (!removeTarget) return
-    const target = removeTarget
-    setRemoveTarget(null)
-    try {
-      await removeWorkAreaFromProposal(target.id)
-      toast.success('Work area removed.')
-      await refreshAfterWorkAreaChange()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Remove failed.')
-    }
-  }, [removeTarget, refreshAfterWorkAreaChange])
+  /* ---------- dnd-kit reorder ---------- */
+  // Optimistic local reorder, persist via reorderProposalWorkAreas.
+  // On failure, refresh from the server to restore the canonical order.
+  const handleDragEnd = useCallback(
+    async (e: DragEndEvent) => {
+      const { active, over } = e
+      if (!over || active.id === over.id || !proposal) return
+      const oldIdx = proposal.work_areas.findIndex((w) => w.id === active.id)
+      const newIdx = proposal.work_areas.findIndex((w) => w.id === over.id)
+      if (oldIdx < 0 || newIdx < 0) return
+      const reordered = arrayMove(proposal.work_areas, oldIdx, newIdx)
+      setProposal({ ...proposal, work_areas: reordered })
+      try {
+        await reorderProposalWorkAreas(
+          proposal.id,
+          reordered.map((w) => w.id)
+        )
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Reorder failed.')
+        await refreshAfterWorkAreaChange()
+      }
+    },
+    [proposal, refreshAfterWorkAreaChange]
+  )
 
   const alreadyAttachedWorkAreaIds = useMemo(() => {
     const set = new Set<string>()
@@ -397,44 +441,22 @@ export default function ProposalEditor() {
         </div>
       </section>
 
-      {/* Slate Work Areas card — minimal list in Phase 2d */}
+      {/* Slate Work Areas card — rich per-work-area cards with dnd-kit reorder */}
       <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 shadow-sm">
-        <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200">
-              <Layers className="h-4 w-4 text-slate-700" />
-            </span>
-            <div>
-              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
-                Work areas — {proposal.work_areas.length}
-              </h2>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Phase 2e ships the per-section editor with line items, drag-drop
-                reorder, and inline pricing. For now: attach work areas + remove
-                them.
-              </p>
-            </div>
+        <header className="mb-4 flex items-start gap-2">
+          <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200">
+            <Layers className="h-4 w-4 text-slate-700" />
+          </span>
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+              Work areas — {proposal.work_areas.length}
+            </h2>
+            <p className="mt-0.5 text-xs text-gray-500">
+              Each work area gets its own card with per-category subsections.
+              Drag the grip to reorder. Toggle the slider to exclude a work
+              area from the grand total without losing its detail.
+            </p>
           </div>
-          {proposal.work_areas.length > 0 && (
-            <div className="flex shrink-0 gap-2">
-              <button
-                type="button"
-                onClick={() => setAddFromProjectOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                <Plus className="h-4 w-4" />
-                Add from project
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddAdHocOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                <Plus className="h-4 w-4" />
-                Add ad-hoc
-              </button>
-            </div>
-          )}
         </header>
 
         {proposal.work_areas.length === 0 ? (
@@ -448,72 +470,50 @@ export default function ProposalEditor() {
             <p className="mt-1 max-w-sm text-sm text-gray-500">
               Add one to start building your proposal.
             </p>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => setAddFromProjectOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark"
-              >
-                <Plus className="h-4 w-4" />
-                Add from project
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddAdHocOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                <Plus className="h-4 w-4" />
-                Add ad-hoc
-              </button>
-            </div>
           </div>
         ) : (
-          <ul className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-            {proposal.work_areas.map((wa) => (
-              <li
-                key={wa.id}
-                className="flex items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
-                  <ClipboardList className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-semibold text-gray-900">
-                      {wa.resolved_name}
-                    </span>
-                    {!wa.work_area_id && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                        Ad-hoc
-                      </span>
-                    )}
-                    {!wa.enabled && (
-                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600">
-                        Disabled
-                      </span>
-                    )}
-                  </div>
-                  {wa.resolved_description && (
-                    <div className="mt-0.5 truncate text-xs text-gray-500">
-                      {wa.resolved_description}
-                    </div>
-                  )}
-                  <div className="mt-0.5 text-xs text-gray-500">
-                    {wa.lines.length} line{wa.lines.length === 1 ? '' : 's'}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setRemoveTarget(wa)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-rose-50 hover:text-rose-700"
-                  title="Remove from proposal"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+            <SortableContext
+              items={proposal.work_areas.map((w) => w.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="space-y-3">
+                {proposal.work_areas.map((wa) => (
+                  <ProposalWorkAreaSection
+                    key={wa.id}
+                    workArea={wa}
+                    materialsMarkupPercent={materialsMarkupPercent}
+                    subsMarkupPercent={subsMarkupPercent}
+                    onChanged={() => void refreshAfterWorkAreaChange()}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
         )}
+
+        {/* Permanent bottom affordance — always accessible whether the
+            card list is empty or not. Per scope decision: these CTAs
+            move from the empty state to a permanent strip so the
+            contractor never has to scroll or change views to add. */}
+        <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4">
+          <button
+            type="button"
+            onClick={() => setAddFromProjectOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            <Plus className="h-4 w-4" />
+            Add from project
+          </button>
+          <button
+            type="button"
+            onClick={() => setAddAdHocOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            <Plus className="h-4 w-4" />
+            Add ad-hoc
+          </button>
+        </div>
       </section>
 
       {/* Slate Totals card */}
@@ -577,38 +577,6 @@ export default function ProposalEditor() {
         proposalId={proposal.id}
         onAdded={() => void refreshAfterWorkAreaChange()}
       />
-      <ConfirmDialog
-        open={!!removeTarget}
-        onClose={() => setRemoveTarget(null)}
-        onConfirm={handleConfirmRemove}
-        title="Remove this work area from the proposal?"
-        description={
-          removeTarget ? (
-            <>
-              <strong className="text-brand-text">{removeTarget.resolved_name}</strong>{' '}
-              and its <strong>{removeTarget.lines.length}</strong> line item
-              {removeTarget.lines.length === 1 ? '' : 's'} will be removed from
-              this proposal.{' '}
-              {removeTarget.work_area_id
-                ? "The project's work area record is preserved."
-                : 'Ad-hoc work area data is permanently lost.'}
-            </>
-          ) : (
-            ''
-          )
-        }
-        confirmLabel="Remove"
-        tone="danger"
-      />
-
-      {/* Avoid unused-icon TS warning while ShieldAlert is reserved for later use. */}
-      <span className="hidden">
-        <ShieldAlert className="h-0 w-0" />
-      </span>
-      <span className="hidden">
-        Project ID: {projectId}
-        Nav ready: {String(typeof navigate === 'function')}
-      </span>
     </div>
   )
 }
