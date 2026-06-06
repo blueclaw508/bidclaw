@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   DndContext,
   KeyboardSensor,
@@ -27,15 +27,18 @@ import {
   RotateCcw,
   Save,
   Send,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BlurSaveInput } from '@/components/InlineEdit'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
 import { AddWorkAreaFromProjectModal } from '@/components/proposals/AddWorkAreaFromProjectModal'
 import { AddAdHocWorkAreaModal } from '@/components/proposals/AddAdHocWorkAreaModal'
 import ProposalWorkAreaSection from '@/components/proposals/ProposalWorkAreaSection'
 import { supabase } from '@/lib/supabase'
 import {
+  deleteProposal,
   deleteProposalLine,
   getProposal,
   getProposalTotals,
@@ -80,6 +83,7 @@ export default function ProposalEditor() {
     projectId: string
     proposalId: string
   }>()
+  const navigate = useNavigate()
 
   // Server snapshot — floor for diff/reset on notes
   const [proposal, setProposal] = useState<ProposalWithWorkAreas | null>(null)
@@ -91,6 +95,12 @@ export default function ProposalEditor() {
 
   // Notes draft state (Save+Reset bar pattern)
   const [notesDraft, setNotesDraft] = useState<string>('')
+
+  // Delete-proposal modal state — null when closed, true when the
+  // contractor has clicked the toolbar Delete button + we're waiting
+  // on confirm. Hard-cleanup action; allowed at any status (delete is
+  // not gated by isProposalEditable like UPDATE operations are).
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   // Per-line draft state. `localLines` holds the live edited values
   // keyed by line id; `originalLines` is the server snapshot for diff
@@ -369,6 +379,22 @@ export default function ProposalEditor() {
     setDeletedLineIds(new Set())
   }, [proposal, originalLines])
 
+  /* ---------- delete proposal ---------- */
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!proposalId || !projectId) return
+    try {
+      await deleteProposal(proposalId)
+      toast.success('Proposal deleted.')
+      // Navigate back to the project's proposals tab. The list reloads
+      // on mount via ProposalsTab's useEffect → the deleted row is gone.
+      navigate(`/app/projects/${projectId}?tab=proposals`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not delete proposal.')
+      setDeleteOpen(false)
+    }
+  }, [proposalId, projectId, navigate])
+
   /* ---------- calculate button ---------- */
 
   const handleCalculate = useCallback(async () => {
@@ -570,6 +596,15 @@ export default function ProposalEditor() {
         >
           <Calculator className="h-4 w-4" />
           {calculating ? 'Calculating…' : 'Calculate'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setDeleteOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3.5 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200"
+          title="Delete this proposal"
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete proposal
         </button>
         <button
           type="button"
@@ -807,6 +842,41 @@ export default function ProposalEditor() {
         onClose={() => setAddAdHocOpen(false)}
         proposalId={proposal.id}
         onAdded={() => void refreshAfterWorkAreaChange()}
+      />
+
+      {/* Delete-proposal confirm — dynamic copy with cascade preview +
+          unsaved-changes warning when any dirty edit is pending. */}
+      <ConfirmDialog
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title="Delete proposal?"
+        description={
+          <>
+            Delete <span className="font-semibold">"{proposal.name}"</span>?
+            This permanently removes the proposal and all{' '}
+            <span className="font-semibold">
+              {proposal.work_areas.length} work area
+              {proposal.work_areas.length === 1 ? '' : 's'}
+            </span>{' '}
+            +{' '}
+            <span className="font-semibold">
+              {proposal.work_areas.reduce((s, wa) => s + wa.lines.length, 0)} line
+              item
+              {proposal.work_areas.reduce((s, wa) => s + wa.lines.length, 0) === 1
+                ? ''
+                : 's'}
+            </span>
+            . This cannot be undone.
+            {anyDirty && (
+              <span className="mt-2 block rounded-md bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                You have unsaved changes that will be lost.
+              </span>
+            )}
+          </>
+        }
+        confirmLabel="Delete"
+        tone="danger"
       />
     </div>
   )

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, FileText, Plus } from 'lucide-react'
+import { ChevronRight, FileText, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
-import { createProposal, listProposalsByProject } from '@/lib/proposals'
+import { createProposal, deleteProposal, listProposalsByProject } from '@/lib/proposals'
 import type { Project, ProposalListRow } from '@/lib/types'
 
 /**
@@ -32,6 +33,12 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
+  // Delete-proposal modal state. proposalToDelete holds the row being
+  // confirmed; null when the modal is closed. Hoisted to the tab level
+  // so the modal renders outside any <Link> wrapper (avoids nested
+  // interactive elements + simplifies focus management).
+  const [proposalToDelete, setProposalToDelete] = useState<ProposalListRow | null>(null)
+
   const load = useCallback(async () => {
     setLoadError(null)
     try {
@@ -45,6 +52,18 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!proposalToDelete) return
+    try {
+      await deleteProposal(proposalToDelete.id)
+      toast.success('Proposal deleted.')
+      setProposalToDelete(null)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not delete proposal.')
+    }
+  }, [proposalToDelete, load])
 
   /**
    * One-click proposal creation. Picks the auto-name based on how
@@ -158,8 +177,37 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
           projectId={project.id}
           projectName={project.name}
           rows={rows}
+          onRequestDelete={setProposalToDelete}
         />
       )}
+
+      {/* Delete confirm — dynamic copy with cascade preview */}
+      <ConfirmDialog
+        open={!!proposalToDelete}
+        onClose={() => setProposalToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="Delete proposal?"
+        description={
+          proposalToDelete ? (
+            <>
+              Delete <span className="font-semibold">"{proposalToDelete.name}"</span>?
+              This permanently removes the proposal and all{' '}
+              <span className="font-semibold">
+                {proposalToDelete.work_area_count} work area
+                {proposalToDelete.work_area_count === 1 ? '' : 's'}
+              </span>{' '}
+              +{' '}
+              <span className="font-semibold">
+                {proposalToDelete.line_count} line item
+                {proposalToDelete.line_count === 1 ? '' : 's'}
+              </span>
+              . This cannot be undone.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete"
+        tone="danger"
+      />
     </div>
   )
 }
@@ -172,18 +220,30 @@ function ProposalList({
   projectId,
   projectName,
   rows,
+  onRequestDelete,
 }: {
   projectId: string
   projectName: string
   rows: ProposalListRow[]
+  onRequestDelete: (row: ProposalListRow) => void
 }) {
+  // Click handler for the trash button on each row. Lives inside a
+  // <Link> so we must preventDefault AND stopPropagation to keep
+  // React Router from navigating into the proposal editor.
+  const handleTrashClick = (e: React.MouseEvent, row: ProposalListRow) => {
+    e.preventDefault()
+    e.stopPropagation()
+    onRequestDelete(row)
+  }
+
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-      {/* Desktop header row */}
-      <div className="hidden grid-cols-[1.5fr_110px_140px_32px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
+      {/* Desktop header row — extra 36px col before chevron for the trash button */}
+      <div className="hidden grid-cols-[1.5fr_110px_140px_36px_32px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
         <div>Proposal</div>
         <div>Status</div>
         <div className="text-right">Grand total</div>
+        <div />
         <div />
       </div>
 
@@ -195,7 +255,7 @@ function ProposalList({
               className="block transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
             >
               {/* Desktop layout */}
-              <div className="hidden grid-cols-[1.5fr_110px_140px_32px] items-center gap-4 px-6 py-4 lg:grid">
+              <div className="hidden grid-cols-[1.5fr_110px_140px_36px_32px] items-center gap-4 px-6 py-4 lg:grid">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-gray-900">
                     {p.name}
@@ -219,6 +279,17 @@ function ProposalList({
                 </div>
                 <div className="text-right text-sm font-semibold text-gray-900">
                   {formatUSD(p.grand_total)}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={(e) => handleTrashClick(e, p)}
+                    aria-label={`Delete ${p.name}`}
+                    title="Delete proposal"
+                    className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
                 <div className="flex justify-end">
                   <ChevronRight className="h-4 w-4 text-gray-400" />
@@ -250,6 +321,17 @@ function ProposalList({
                   <span className="text-gray-500">
                     Updated {formatRelative(p.updated_at)}
                   </span>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={(e) => handleTrashClick(e, p)}
+                    aria-label={`Delete ${p.name}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Delete
+                  </button>
                 </div>
               </div>
             </Link>
