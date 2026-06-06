@@ -122,7 +122,7 @@ export function ProposalLineRow({
           />
         </div>
 
-        {/* Markup — read-only display in Phase 2 */}
+        {/* Markup — read-only display of the line's frozen markup %. */}
         <div className="flex items-center justify-end text-xs">
           {showMarkup ? (
             <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 font-semibold text-gray-700">

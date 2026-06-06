@@ -24,7 +24,6 @@ import {
   Layers,
   Package,
   Pencil,
-  Percent,
   Plus,
   ShieldAlert,
   Trash2,
@@ -84,10 +83,6 @@ import type {
 
 interface ProposalWorkAreaSectionProps {
   workArea: ProposalWorkAreaResolved
-  /** Current settings markup for materials — displayed as a reference indicator. */
-  materialsMarkupPercent: number
-  /** Current settings markup for subs + other — displayed as a reference indicator. */
-  subsMarkupPercent: number
   /** Per-line state driving inline-editable rows (Phase 2f). */
   dirtyLineIds: Set<string>
   linesWithErrors: Set<string>
@@ -102,8 +97,6 @@ interface ProposalWorkAreaSectionProps {
 
 export default function ProposalWorkAreaSection({
   workArea,
-  materialsMarkupPercent,
-  subsMarkupPercent,
   dirtyLineIds,
   // linesWithErrors is held in the props contract for future use
   // (Phase 2h could highlight subsections with errors); not used today.
@@ -377,11 +370,6 @@ export default function ProposalWorkAreaSection({
                 category={cat}
                 lines={linesByCategory[cat]}
                 subtotal={getDenormalizedSubtotal(workArea, cat)}
-                referenceMarkupPercent={referenceMarkup(
-                  cat,
-                  materialsMarkupPercent,
-                  subsMarkupPercent
-                )}
                 dirtyLineIds={dirtyLineIds}
                 linesWithErrors={_linesWithErrors}
                 disabled={!workArea.enabled || saving}
@@ -478,7 +466,6 @@ function Subsection({
   category,
   lines,
   subtotal,
-  referenceMarkupPercent,
   dirtyLineIds,
   // Reserved for future highlighting of subsections containing errors.
   linesWithErrors: _linesWithErrors,
@@ -492,7 +479,6 @@ function Subsection({
   category: ProposalLineCategory
   lines: ProposalLine[]
   subtotal: number
-  referenceMarkupPercent: number | null
   dirtyLineIds: Set<string>
   linesWithErrors: Set<string>
   disabled: boolean
@@ -506,7 +492,13 @@ function Subsection({
 }) {
   const cfg = CATEGORY_CONFIG[category]
   const Icon = cfg.icon
-  const showMarkupCols = referenceMarkupPercent !== null
+  // Material/sub/other carry markup; labor/equipment don't. Determined
+  // by category alone — settings-markup linkage was removed in Phase 2h
+  // cleanup so the UI never implies the line's frozen rate could shift.
+  const showMarkupCols =
+    category === 'material' ||
+    category === 'subcontractor' ||
+    category === 'other'
 
   // Per-subsection sensors so each category drag-drop is independent.
   const sensors = useSensors(
@@ -537,15 +529,6 @@ function Subsection({
         <span className={`text-xs opacity-70 ${cfg.label_color}`}>
           ({lines.length})
         </span>
-        {showMarkupCols && (
-          <span
-            className={`ml-auto inline-flex items-center gap-1 text-xs ${cfg.label_color}`}
-            title={`Current settings markup for ${cfg.label.toLowerCase()}`}
-          >
-            <Percent className="h-3 w-3" />
-            {referenceMarkupPercent?.toFixed(2)}% current
-          </span>
-        )}
       </div>
 
       {/* Column headers — match the row grid */}
@@ -561,7 +544,7 @@ function Subsection({
       {/* Rows — wrap in a per-subsection DndContext + SortableContext */}
       {lines.length === 0 ? (
         <div className="px-4 py-3 text-center text-[11px] italic text-gray-400">
-          No {cfg.label.toLowerCase()} lines yet — Phase 2g wires "+ Add line item".
+          No {cfg.label.toLowerCase()} lines yet — use the buttons below to add from a kit or {category === 'labor' || category === 'equipment' ? 'enter a custom line' : 'pick from your catalog'}.
         </div>
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
@@ -696,23 +679,6 @@ const CATEGORY_CONFIG: Record<ProposalLineCategory, CategoryStyle> = {
 /* ============================================================
  * Helpers
  * ============================================================ */
-
-function referenceMarkup(
-  category: ProposalLineCategory,
-  materialsMarkup: number,
-  subsMarkup: number
-): number | null {
-  switch (category) {
-    case 'material':
-      return materialsMarkup
-    case 'subcontractor':
-    case 'other':
-      return subsMarkup
-    case 'labor':
-    case 'equipment':
-      return null
-  }
-}
 
 function getDenormalizedSubtotal(
   wa: ProposalWorkAreaResolved,

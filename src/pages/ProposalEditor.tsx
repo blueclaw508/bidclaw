@@ -15,6 +15,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import {
+  AlertTriangle,
   ArrowLeft,
   Calculator,
   ClipboardList,
@@ -39,6 +40,7 @@ import {
   getProposal,
   getProposalTotals,
   reorderProposalWorkAreas,
+  syncProposalWorkAreaSubtotals,
   updateProposal,
   updateProposalLine,
 } from '@/lib/proposals'
@@ -87,12 +89,6 @@ export default function ProposalEditor() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
-  // Current settings markup % — displayed as a reference indicator on
-  // each work area subsection header (frozen markup on actual lines
-  // may differ from this if rates changed since the line was added).
-  const [materialsMarkupPercent, setMaterialsMarkupPercent] = useState(0)
-  const [subsMarkupPercent, setSubsMarkupPercent] = useState(0)
-
   // Notes draft state (Save+Reset bar pattern)
   const [notesDraft, setNotesDraft] = useState<string>('')
 
@@ -137,14 +133,18 @@ export default function ProposalEditor() {
       primeLineState(p, setLocalLines, setOriginalLines)
       setDeletedLineIds(new Set())
 
-      // Fetch the parent project (for the header subtitle), project's
-      // work areas (for the "Add from project" modal), and current
-      // settings markup % (for the per-section reference indicator).
-      // All three in parallel — small payloads.
+      // Fetch the parent project (for the header subtitle) and the
+      // project's work areas (for the "Add from project" modal). In
+      // parallel — small payloads.
+      //
+      // NOTE: settings markup % is intentionally NOT fetched here. The
+      // editor never surfaces current-settings markup; every line's
+      // markup is the line's own frozen value (snapshotted at insert)
+      // and the contract is that settings changes never retroactively
+      // shift past proposals.
       const [
         { data: proj, error: pErr },
         { data: was, error: wErr },
-        { data: settings, error: sErr },
       ] = await Promise.all([
         supabase
           .from('projects')
@@ -156,19 +156,12 @@ export default function ProposalEditor() {
           .select('*')
           .eq('project_id', p.project_id)
           .order('sequence_order', { ascending: true }),
-        supabase
-          .from('company_settings')
-          .select('markup_materials_percent, markup_subs_percent')
-          .maybeSingle(),
       ])
       if (pErr) throw new Error(`Couldn't load project: ${pErr.message}`)
       if (!proj) throw new Error('Project not found.')
       setProject(proj as Project)
       if (wErr) throw new Error(`Couldn't load project work areas: ${wErr.message}`)
       setProjectWorkAreas((was ?? []) as WorkArea[])
-      if (sErr) throw new Error(`Couldn't load company settings: ${sErr.message}`)
-      setMaterialsMarkupPercent(Number(settings?.markup_materials_percent ?? 0))
-      setSubsMarkupPercent(Number(settings?.markup_subs_percent ?? 0))
 
       // Initial totals fetch
       setTotals(await getProposalTotals(proposalId))
@@ -248,6 +241,22 @@ export default function ProposalEditor() {
   const linesDirtyCount = dirtyLineIds.size + deletedLineIds.size
   const anyDirty = notesDirty || linesDirtyCount > 0
   const canSave = anyDirty && linesWithErrors.size === 0 && !saving
+
+  // Items-need-pricing count: lines with frozen_unit_cost = 0 (or NaN
+  // after a cleared input). Computed live from localLines so the banner
+  // updates as the contractor enters/clears prices. Counts deleted lines
+  // are excluded; disabled work areas ARE included (per spec: "across
+  // ALL work areas of the proposal, enabled + disabled").
+  const itemsNeedingPricingCount = useMemo(() => {
+    let count = 0
+    for (const id in localLines) {
+      if (deletedLineIds.has(id)) continue
+      const l = localLines[id]
+      const cost = Number(l.frozen_unit_cost)
+      if (!Number.isFinite(cost) || cost === 0) count++
+    }
+    return count
+  }, [localLines, deletedLineIds])
 
   /* ---------- line draft callbacks ---------- */
 
@@ -363,9 +372,16 @@ export default function ProposalEditor() {
   /* ---------- calculate button ---------- */
 
   const handleCalculate = useCallback(async () => {
-    if (!proposalId) return
+    if (!proposalId || !proposal) return
     setCalculating(true)
     try {
+      // Phase 2h refinement: force-sync every work area's denormalized
+      // subtotals from current proposal_lines BEFORE refetching totals.
+      // Catches any drift introduced by bypassed code paths and gives
+      // the contractor an explicit "everything is in sync now" signal.
+      await Promise.all(
+        proposal.work_areas.map((wa) => syncProposalWorkAreaSubtotals(wa.id))
+      )
       const fresh = await getProposalTotals(proposalId)
       setTotals(fresh)
       toast.success('Totals refreshed.')
@@ -374,7 +390,7 @@ export default function ProposalEditor() {
     } finally {
       setCalculating(false)
     }
-  }, [proposalId])
+  }, [proposalId, proposal])
 
   /* ---------- work area add/remove ---------- */
 
@@ -575,6 +591,32 @@ export default function ProposalEditor() {
         </button>
       </div>
 
+      {/* Items-need-pricing banner — between toolbar and Indigo Info card */}
+      {itemsNeedingPricingCount > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-amber-900">
+                {itemsNeedingPricingCount} item
+                {itemsNeedingPricingCount === 1 ? '' : 's'} need pricing
+              </p>
+              <p className="mt-0.5 text-xs text-amber-800">
+                These items are at $0.00. Set prices in the line items below or
+                in your{' '}
+                <a
+                  href="/app/catalog"
+                  className="font-semibold underline-offset-2 hover:underline"
+                >
+                  Item Catalog
+                </a>{' '}
+                before sending to client.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Indigo Proposal Info card */}
       <section className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-6 shadow-sm">
         <header className="mb-4 flex items-center gap-2">
@@ -656,8 +698,6 @@ export default function ProposalEditor() {
                   <ProposalWorkAreaSection
                     key={wa.id}
                     workArea={wa}
-                    materialsMarkupPercent={materialsMarkupPercent}
-                    subsMarkupPercent={subsMarkupPercent}
                     dirtyLineIds={dirtyLineIds}
                     linesWithErrors={linesWithErrors}
                     saving={saving}
@@ -707,7 +747,7 @@ export default function ProposalEditor() {
           </h2>
         </header>
         {totals ? (
-          <TotalsBreakdown totals={totals} />
+          <TotalsBreakdown totals={totals} proposal={proposal} />
         ) : (
           <p className="text-sm text-gray-500">Loading totals…</p>
         )}
@@ -784,62 +824,143 @@ const CATEGORY_LABELS: Record<ProposalLineCategory, string> = {
   other: 'Other',
 }
 
-function TotalsBreakdown({ totals }: { totals: TotalsView }) {
-  // Sum byCategory across all work areas (we display proposal-wide
-  // totals here; per-work-area breakdown is on each work area card in
-  // Phase 2e).
-  const byCategory: Record<ProposalLineCategory, number> = {
-    labor: 0,
-    material: 0,
-    equipment: 0,
-    subcontractor: 0,
-    other: 0,
+function TotalsBreakdown({
+  totals,
+  proposal,
+}: {
+  totals: TotalsView
+  proposal: ProposalWithWorkAreas
+}) {
+  // Per-category rollup: base (pre-markup) + markup amount. Computed
+  // from line-level data — only enabled work areas contribute. Disabled
+  // work areas still show their own subtotals on their cards but are
+  // excluded from grand total per the architecture decision locked at
+  // Phase 2c.
+  const rollup: Record<ProposalLineCategory, { base: number; markup: number }> = {
+    labor: { base: 0, markup: 0 },
+    material: { base: 0, markup: 0 },
+    equipment: { base: 0, markup: 0 },
+    subcontractor: { base: 0, markup: 0 },
+    other: { base: 0, markup: 0 },
   }
-  for (const wa of totals.workAreas) {
+  for (const wa of proposal.work_areas) {
     if (!wa.enabled) continue
-    for (const cat of Object.keys(byCategory) as ProposalLineCategory[]) {
-      byCategory[cat] += wa.byCategory[cat]
+    for (const l of wa.lines) {
+      const lineTotal = Number(l.quantity) * Number(l.frozen_unit_cost)
+      const lineMarkup = lineTotal * (Number(l.frozen_markup_percent) / 100)
+      rollup[l.category].base += lineTotal
+      rollup[l.category].markup += lineMarkup
     }
+  }
+
+  const visibleCategories = (Object.keys(rollup) as ProposalLineCategory[]).filter(
+    (cat) => rollup[cat].base > 0 || rollup[cat].markup > 0
+  )
+
+  if (visibleCategories.length === 0) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white">
+        <header className="border-b border-gray-100 bg-slate-50 px-4 py-2">
+          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">
+            Proposal total
+          </h3>
+        </header>
+        <div className="px-4 py-6 text-center text-xs italic text-gray-400">
+          No line items yet.
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-      <table className="w-full text-sm">
+      <header className="border-b border-gray-100 bg-slate-50 px-4 py-2">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">
+          Proposal total
+        </h3>
+      </header>
+
+      {/* Desktop tabular layout — Base / Markup / Total columns */}
+      <table className="hidden w-full text-sm sm:table">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
+            <th className="px-4 py-2 text-left font-semibold">Category</th>
+            <th className="px-4 py-2 text-right font-semibold">Base</th>
+            <th className="px-4 py-2 text-right font-semibold">Markup</th>
+            <th className="px-4 py-2 text-right font-semibold">Total</th>
+          </tr>
+        </thead>
         <tbody className="divide-y divide-gray-100">
-          {(Object.keys(byCategory) as ProposalLineCategory[]).map((cat) => {
-            const v = byCategory[cat]
-            if (v === 0) return null
+          {visibleCategories.map((cat) => {
+            const { base, markup } = rollup[cat]
             return (
               <tr key={cat}>
-                <td className="px-4 py-2 text-gray-700">{CATEGORY_LABELS[cat]}</td>
+                <td className="px-4 py-2 font-medium text-gray-700">
+                  {CATEGORY_LABELS[cat]}
+                </td>
                 <td className="px-4 py-2 text-right tabular-nums text-gray-900">
-                  {formatUSD(v)}
+                  {formatUSD(base)}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums text-gray-700">
+                  {markup > 0 ? `+ ${formatUSD(markup)}` : '—'}
+                </td>
+                <td className="px-4 py-2 text-right font-semibold tabular-nums text-gray-900">
+                  {formatUSD(base + markup)}
                 </td>
               </tr>
             )
           })}
-          <tr className="bg-slate-50">
-            <td className="px-4 py-2 font-semibold text-gray-700">Subtotal</td>
-            <td className="px-4 py-2 text-right tabular-nums font-semibold text-gray-900">
-              {formatUSD(totals.grandSubtotal)}
+          <tr className="border-t-2 border-gray-200 bg-brand-navy/5">
+            <td colSpan={3} className="px-4 py-3 text-base font-bold text-gray-900">
+              GRAND TOTAL
             </td>
-          </tr>
-          <tr className="bg-slate-50">
-            <td className="px-4 py-2 text-gray-700">Markup</td>
-            <td className="px-4 py-2 text-right tabular-nums text-gray-900">
-              {formatUSD(totals.grandMarkupAmount)}
-            </td>
-          </tr>
-          <tr className="bg-brand-navy/5">
-            <td className="px-4 py-3 text-base font-bold text-gray-900">
-              Grand total
-            </td>
-            <td className="px-4 py-3 text-right text-base font-bold tabular-nums text-brand-navy">
+            <td className="px-4 py-3 text-right text-lg font-bold tabular-nums text-brand-navy">
               {formatUSD(totals.grandTotal)}
             </td>
           </tr>
         </tbody>
       </table>
+
+      {/* Mobile stacked layout — per-category card with Base / Markup / Total dl */}
+      <div className="space-y-3 px-4 py-3 sm:hidden">
+        {visibleCategories.map((cat) => {
+          const { base, markup } = rollup[cat]
+          return (
+            <div
+              key={cat}
+              className="rounded-lg border border-gray-100 p-3"
+            >
+              <div className="text-sm font-semibold text-gray-900">
+                {CATEGORY_LABELS[cat]}
+              </div>
+              <dl className="mt-2 space-y-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <dt className="text-gray-500">Base</dt>
+                  <dd className="tabular-nums text-gray-900">{formatUSD(base)}</dd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <dt className="text-gray-500">Markup</dt>
+                  <dd className="tabular-nums text-gray-700">
+                    {markup > 0 ? `+ ${formatUSD(markup)}` : '—'}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between border-t border-gray-100 pt-1">
+                  <dt className="font-semibold text-gray-700">Total</dt>
+                  <dd className="font-semibold tabular-nums text-gray-900">
+                    = {formatUSD(base + markup)}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          )
+        })}
+        <div className="flex items-center justify-between rounded-lg bg-brand-navy/5 p-3">
+          <span className="text-base font-bold text-gray-900">GRAND TOTAL</span>
+          <span className="text-lg font-bold tabular-nums text-brand-navy">
+            {formatUSD(totals.grandTotal)}
+          </span>
+        </div>
+      </div>
     </div>
   )
 }
