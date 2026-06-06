@@ -60,6 +60,59 @@ export function isProposalEditable(status: ProposalStatus): boolean {
   return status === 'draft'
 }
 
+/**
+ * Available status transitions per current status — single source of
+ * truth for the editor's status dropdown items.
+ *
+ *   target  → the status to write
+ *   label   → button label (contractor-direct, not jargon)
+ *   tone    → 'primary' (forward progress) or 'secondary' (revert/back)
+ *
+ * Transition machine (Phase 3c, Option A, 5-state):
+ *   draft     → presented
+ *   presented → accepted | declined | draft
+ *   accepted  → completed | draft
+ *   declined  → draft
+ *   completed → accepted | draft   (rare reopens)
+ *
+ * The "presented" enum value is the wire format; UI labels say
+ * "Send to client" because that's the contractor's mental model.
+ */
+export interface StatusTransition {
+  target: ProposalStatus
+  label: string
+  tone: 'primary' | 'secondary'
+}
+
+export function availableTransitions(status: ProposalStatus): StatusTransition[] {
+  switch (status) {
+    case 'draft':
+      return [
+        { target: 'presented', label: 'Send to client', tone: 'primary' },
+      ]
+    case 'presented':
+      return [
+        { target: 'accepted', label: 'Mark as accepted', tone: 'primary' },
+        { target: 'declined', label: 'Mark as declined', tone: 'primary' },
+        { target: 'draft', label: 'Revert to draft', tone: 'secondary' },
+      ]
+    case 'accepted':
+      return [
+        { target: 'completed', label: 'Mark as completed', tone: 'primary' },
+        { target: 'draft', label: 'Revert to draft', tone: 'secondary' },
+      ]
+    case 'declined':
+      return [
+        { target: 'draft', label: 'Revert to draft', tone: 'secondary' },
+      ]
+    case 'completed':
+      return [
+        { target: 'accepted', label: 'Reopen (back to accepted)', tone: 'secondary' },
+        { target: 'draft', label: 'Revert to draft', tone: 'secondary' },
+      ]
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Proposal CRUD
 // ──────────────────────────────────────────────────────────────────────

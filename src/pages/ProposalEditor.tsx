@@ -18,11 +18,15 @@ import {
   AlertTriangle,
   ArrowLeft,
   Calculator,
+  ChevronDown,
+  CircleCheck,
+  CircleX,
   ClipboardList,
   Download,
   FileText,
   Info,
   Layers,
+  Lock,
   Plus,
   RotateCcw,
   Save,
@@ -38,20 +42,24 @@ import { AddAdHocWorkAreaModal } from '@/components/proposals/AddAdHocWorkAreaMo
 import ProposalWorkAreaSection from '@/components/proposals/ProposalWorkAreaSection'
 import { supabase } from '@/lib/supabase'
 import {
+  availableTransitions,
   deleteProposal,
   deleteProposalLine,
   getProposal,
   getProposalTotals,
+  isProposalEditable,
   reorderProposalWorkAreas,
   syncProposalWorkAreaSubtotals,
   updateProposal,
   updateProposalLine,
+  type StatusTransition,
 } from '@/lib/proposals'
 import { lineHasErrors } from '@/components/proposals/ProposalLineRow'
 import type {
   Project,
   ProposalLine,
   ProposalLineCategory,
+  ProposalStatus,
   ProposalWithWorkAreas,
   ProposalWorkAreaResolved,
   WorkArea,
@@ -101,6 +109,13 @@ export default function ProposalEditor() {
   // on confirm. Hard-cleanup action; allowed at any status (delete is
   // not gated by isProposalEditable like UPDATE operations are).
   const [deleteOpen, setDeleteOpen] = useState(false)
+
+  // Phase 3c status lifecycle — dropdown open + pending transition.
+  // pendingTransition holds the transition the contractor clicked; we
+  // surface ConfirmDialog with the target status until they confirm.
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false)
+  const [pendingTransition, setPendingTransition] = useState<StatusTransition | null>(null)
+  const [transitioning, setTransitioning] = useState(false)
 
   // Per-line draft state. `localLines` holds the live edited values
   // keyed by line id; `originalLines` is the server snapshot for diff
@@ -379,6 +394,26 @@ export default function ProposalEditor() {
     setDeletedLineIds(new Set())
   }, [proposal, originalLines])
 
+  /* ---------- status transition ---------- */
+
+  const handleConfirmTransition = useCallback(async () => {
+    if (!proposalId || !pendingTransition) return
+    setTransitioning(true)
+    try {
+      await updateProposal(proposalId, { status: pendingTransition.target })
+      // Refetch the proposal so the local state mirrors the new status
+      // (editability flips immediately, banner updates, etc.)
+      const fresh = await getProposal(proposalId)
+      if (fresh) setProposal(fresh)
+      toast.success(`Marked as ${pendingTransition.target}.`)
+      setPendingTransition(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Status update failed.')
+    } finally {
+      setTransitioning(false)
+    }
+  }, [proposalId, pendingTransition])
+
   /* ---------- delete proposal ---------- */
 
   const handleConfirmDelete = useCallback(async () => {
@@ -526,6 +561,12 @@ export default function ProposalEditor() {
 
   if (!proposal || !project) return null
 
+  // Phase 3c: editability flips when status leaves 'draft'. Every editable
+  // surface honors this; the status banner upstream tells the contractor
+  // why. Re-derived per render — state-driven by proposal.status.
+  const readOnly = !isProposalEditable(proposal.status)
+  const transitions = availableTransitions(proposal.status)
+
   return (
     <div className="space-y-6 pb-32">
       {/* Back link */}
@@ -548,7 +589,8 @@ export default function ProposalEditor() {
               <BlurSaveInput
                 value={proposal.name}
                 onSave={handleSaveName}
-                className="block w-full rounded-md border border-white/40 bg-white/10 px-2 py-1 text-2xl font-bold text-white outline-none placeholder:text-blue-100 hover:bg-white/15 focus:bg-white/20 focus:border-white/60"
+                disabled={readOnly}
+                className="block w-full rounded-md border border-white/40 bg-white/10 px-2 py-1 text-2xl font-bold text-white outline-none placeholder:text-blue-100 hover:bg-white/15 focus:bg-white/20 focus:border-white/60 disabled:cursor-not-allowed disabled:bg-transparent disabled:hover:bg-transparent"
                 placeholder="Proposal name"
               />
               <p className="mt-1 truncate text-sm text-blue-100">
@@ -569,6 +611,20 @@ export default function ProposalEditor() {
           />
         </div>
       </div>
+
+      {/* Phase 3c status banner — rendered when status != 'draft'.
+          Status-tinted bar with copy + a quick "Revert to draft" CTA
+          if available (presented / accepted / declined / completed all
+          have at least one revert path). */}
+      {readOnly && (
+        <StatusBanner
+          status={proposal.status}
+          onRevertToDraft={() => {
+            const revert = transitions.find((t) => t.target === 'draft')
+            if (revert) setPendingTransition(revert)
+          }}
+        />
+      )}
 
       {/* Toolbar — Save / Calculate functional; Download / Send disabled */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
@@ -597,6 +653,21 @@ export default function ProposalEditor() {
           <Calculator className="h-4 w-4" />
           {calculating ? 'Calculating…' : 'Calculate'}
         </button>
+
+        {/* Status dropdown — available at every status; transitions
+            allowed depend on the current value (availableTransitions). */}
+        <StatusMenu
+          status={proposal.status}
+          transitions={transitions}
+          open={statusMenuOpen}
+          onToggle={() => setStatusMenuOpen((v) => !v)}
+          onClose={() => setStatusMenuOpen(false)}
+          onSelect={(t) => {
+            setStatusMenuOpen(false)
+            setPendingTransition(t)
+          }}
+        />
+
         <button
           type="button"
           onClick={() => setDeleteOpen(true)}
@@ -684,9 +755,10 @@ export default function ProposalEditor() {
             <textarea
               value={notesDraft}
               onChange={(e) => setNotesDraft(e.target.value)}
+              disabled={readOnly}
               rows={3}
               placeholder="Internal notes for this proposal."
-              className={inputClasses}
+              className={`${inputClasses} disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500`}
             />
           </label>
         </div>
@@ -736,6 +808,7 @@ export default function ProposalEditor() {
                     dirtyLineIds={dirtyLineIds}
                     linesWithErrors={linesWithErrors}
                     saving={saving}
+                    readOnly={readOnly}
                     onLineChange={handleLineChange}
                     onLineDelete={handleLineDelete}
                     onLineReorder={handleLineReorder}
@@ -750,25 +823,29 @@ export default function ProposalEditor() {
         {/* Permanent bottom affordance — always accessible whether the
             card list is empty or not. Per scope decision: these CTAs
             move from the empty state to a permanent strip so the
-            contractor never has to scroll or change views to add. */}
-        <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4">
-          <button
-            type="button"
-            onClick={() => setAddFromProjectOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            <Plus className="h-4 w-4" />
-            Add from project
-          </button>
-          <button
-            type="button"
-            onClick={() => setAddAdHocOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            <Plus className="h-4 w-4" />
-            Add ad-hoc
-          </button>
-        </div>
+            contractor never has to scroll or change views to add.
+            Hidden when readOnly — don't add new content to a sent
+            proposal (Phase 3c). */}
+        {!readOnly && (
+          <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4">
+            <button
+              type="button"
+              onClick={() => setAddFromProjectOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              <Plus className="h-4 w-4" />
+              Add from project
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddAdHocOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              <Plus className="h-4 w-4" />
+              Add ad-hoc
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Slate Totals card */}
@@ -788,8 +865,9 @@ export default function ProposalEditor() {
         )}
       </section>
 
-      {/* Sticky Save+Reset bar — unified, appears when notes OR lines dirty */}
-      {anyDirty && (
+      {/* Sticky Save+Reset bar — unified, appears when notes OR lines dirty.
+          Hidden when readOnly (Phase 3c) — no edits possible, no save state. */}
+      {!readOnly && anyDirty && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-2xl backdrop-blur-sm">
           <div className="mx-auto flex max-w-screen-2xl items-center justify-end gap-3">
             <p
@@ -842,6 +920,26 @@ export default function ProposalEditor() {
         onClose={() => setAddAdHocOpen(false)}
         proposalId={proposal.id}
         onAdded={() => void refreshAfterWorkAreaChange()}
+      />
+
+      {/* Phase 3c status transition confirm — dynamic copy per target
+          status. transitioning state ensures double-click safety. */}
+      <ConfirmDialog
+        open={!!pendingTransition}
+        onClose={() => !transitioning && setPendingTransition(null)}
+        onConfirm={handleConfirmTransition}
+        title={
+          pendingTransition
+            ? `Mark proposal as ${pendingTransition.target}?`
+            : ''
+        }
+        description={
+          pendingTransition
+            ? transitionDescription(proposal.status, pendingTransition.target)
+            : null
+        }
+        confirmLabel={pendingTransition?.label ?? 'Confirm'}
+        tone={pendingTransition?.tone === 'primary' ? 'primary' : 'primary'}
       />
 
       {/* Delete-proposal confirm — dynamic copy with cascade preview +
@@ -1106,4 +1204,224 @@ function buildDirtyLabel(linesDirtyCount: number, notesDirty: boolean): string {
   }
   if (notesDirty) parts.push('unsaved notes')
   return parts.join(' + ') + '.'
+}
+
+/* ============================================================
+ * Phase 3c status lifecycle UI helpers
+ * ============================================================ */
+
+/**
+ * Status banner above the toolbar — only renders when status != 'draft'.
+ * Status-tinted, with a quick "Revert to draft" CTA on the right.
+ */
+function StatusBanner({
+  status,
+  onRevertToDraft,
+}: {
+  status: ProposalStatus
+  onRevertToDraft: () => void
+}) {
+  const cfg = STATUS_BANNER_CONFIG[status]
+  if (!cfg) return null
+  const Icon = cfg.icon
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 ${cfg.tint}`}
+    >
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <Icon className="h-4 w-4 shrink-0" />
+        <span>{cfg.message}</span>
+      </div>
+      <button
+        type="button"
+        onClick={onRevertToDraft}
+        className={`inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5 text-xs font-semibold transition-colors ${cfg.revertButton}`}
+      >
+        Revert to draft
+      </button>
+    </div>
+  )
+}
+
+const STATUS_BANNER_CONFIG: Partial<
+  Record<
+    ProposalStatus,
+    {
+      tint: string
+      revertButton: string
+      icon: typeof Lock
+      message: string
+    }
+  >
+> = {
+  presented: {
+    tint: 'border-blue-200 bg-blue-50 text-blue-700',
+    revertButton: 'border-blue-200 text-blue-700 hover:bg-blue-100',
+    icon: Send,
+    message: 'This proposal is marked as presented. Inline edits are locked.',
+  },
+  accepted: {
+    tint: 'border-green-200 bg-green-50 text-green-700',
+    revertButton: 'border-green-200 text-green-700 hover:bg-green-100',
+    icon: CircleCheck,
+    message: 'This proposal is marked as accepted. Inline edits are locked.',
+  },
+  declined: {
+    tint: 'border-rose-200 bg-rose-50 text-rose-700',
+    revertButton: 'border-rose-200 text-rose-700 hover:bg-rose-100',
+    icon: CircleX,
+    message: 'This proposal is marked as declined. Inline edits are locked.',
+  },
+  completed: {
+    tint: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    revertButton: 'border-emerald-200 text-emerald-700 hover:bg-emerald-100',
+    icon: CircleCheck,
+    message:
+      'This proposal is marked as completed — wrapped up successfully. Inline edits are locked.',
+  },
+}
+
+/**
+ * Toolbar status dropdown — single button "Status: {label} ▾" that
+ * opens a menu of available transitions per availableTransitions().
+ * Click outside or pick a transition to close.
+ */
+function StatusMenu({
+  status,
+  transitions,
+  open,
+  onToggle,
+  onClose,
+  onSelect,
+}: {
+  status: ProposalStatus
+  transitions: StatusTransition[]
+  open: boolean
+  onToggle: () => void
+  onClose: () => void
+  onSelect: (t: StatusTransition) => void
+}) {
+  // Click-outside close: clicking anywhere besides the menu closes it.
+  useEffect(() => {
+    if (!open) return
+    const handler = () => onClose()
+    // Defer one tick so the toggle click that opened us doesn't immediately close.
+    const id = window.setTimeout(() => {
+      window.addEventListener('click', handler)
+    }, 0)
+    return () => {
+      window.clearTimeout(id)
+      window.removeEventListener('click', handler)
+    }
+  }, [open, onClose])
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggle()
+        }}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+      >
+        <Lock className="h-4 w-4" />
+        Status: {STATUS_LABEL[status]}
+        <ChevronDown className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl"
+        >
+          {transitions.length === 0 ? (
+            <div className="px-3 py-2 text-xs italic text-gray-500">
+              No transitions available.
+            </div>
+          ) : (
+            <ul className="py-1">
+              {transitions.map((t) => (
+                <li key={t.target}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(t)}
+                    className={`block w-full px-3 py-2 text-left text-sm transition-colors ${
+                      t.tone === 'primary'
+                        ? 'font-semibold text-brand-navy hover:bg-blue-50'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const STATUS_LABEL: Record<ProposalStatus, string> = {
+  draft: 'Draft',
+  presented: 'Presented',
+  accepted: 'Accepted',
+  declined: 'Declined',
+  completed: 'Completed',
+}
+
+/**
+ * ConfirmDialog body copy per (from → to) transition. Short, contractor-
+ * direct; explains the side-effect when relevant (e.g. "this will lock
+ * inline edits").
+ */
+function transitionDescription(
+  from: ProposalStatus,
+  to: ProposalStatus
+): React.ReactNode {
+  if (to === 'presented') {
+    return (
+      <>
+        Mark this proposal as presented to the client? Inline editing will
+        be locked. You can still refresh totals or delete the proposal, and
+        you can revert to draft at any time.
+      </>
+    )
+  }
+  if (to === 'accepted') {
+    return (
+      <>
+        Mark this proposal as accepted? The proposal stays locked from
+        inline edits. You can advance to completed when the work is done,
+        or revert to draft to rework.
+      </>
+    )
+  }
+  if (to === 'declined') {
+    return (
+      <>
+        Mark this proposal as declined? The proposal stays locked from
+        inline edits. You can revert to draft to rework and re-present.
+      </>
+    )
+  }
+  if (to === 'completed') {
+    return (
+      <>
+        Mark this proposal as completed — work delivered and accepted by
+        the client? You can reopen back to accepted or revert to draft if
+        needed.
+      </>
+    )
+  }
+  if (to === 'draft') {
+    return (
+      <>
+        Revert this proposal to draft? Inline editing will be unlocked.
+        The proposal stays attached to the same project; no data is lost.
+      </>
+    )
+  }
+  return <>Change status from {from} to {to}?</>
 }

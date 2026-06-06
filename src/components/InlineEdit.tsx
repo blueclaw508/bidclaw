@@ -22,6 +22,8 @@ interface BlurSaveInputProps {
   type?: string
   placeholder?: string
   className?: string
+  /** When true, the input is non-editable and onBlur save is skipped. */
+  disabled?: boolean
 }
 
 export function BlurSaveInput({
@@ -30,6 +32,7 @@ export function BlurSaveInput({
   type = 'text',
   placeholder,
   className = inlineInputClasses,
+  disabled = false,
 }: BlurSaveInputProps) {
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
@@ -39,10 +42,12 @@ export function BlurSaveInput({
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
+        if (disabled) return
         if (draft !== value) void onSave(draft)
       }}
       placeholder={placeholder}
       className={className}
+      disabled={disabled}
     />
   )
 }
@@ -53,6 +58,8 @@ interface BlurSaveTextareaProps {
   rows: number
   placeholder?: string
   className?: string
+  /** When true, the textarea is non-editable and onBlur save is skipped. */
+  disabled?: boolean
 }
 
 export function BlurSaveTextarea({
@@ -61,6 +68,7 @@ export function BlurSaveTextarea({
   rows,
   placeholder,
   className = inlineInputClasses,
+  disabled = false,
 }: BlurSaveTextareaProps) {
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
@@ -69,11 +77,13 @@ export function BlurSaveTextarea({
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
+        if (disabled) return
         if (draft !== value) void onSave(draft)
       }}
       rows={rows}
       placeholder={placeholder}
       className={className}
+      disabled={disabled}
     />
   )
 }

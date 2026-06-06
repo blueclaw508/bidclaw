@@ -87,6 +87,13 @@ interface ProposalWorkAreaSectionProps {
   dirtyLineIds: Set<string>
   linesWithErrors: Set<string>
   saving: boolean
+  /**
+   * Phase 3c: when true, the entire work area card is non-editable.
+   * Inline edits, toggle, delete, add-line buttons, drag handle, and
+   * line-row inputs are all disabled. Status banner upstream tells
+   * the contractor why.
+   */
+  readOnly?: boolean
   onLineChange: (lineId: string, patch: Partial<ProposalLine>) => void
   onLineDelete: (lineId: string) => void
   /** Receives the newly-ordered line ids inside the affected subsection. */
@@ -102,6 +109,7 @@ export default function ProposalWorkAreaSection({
   // (Phase 2h could highlight subsections with errors); not used today.
   linesWithErrors: _linesWithErrors,
   saving,
+  readOnly = false,
   onLineChange,
   onLineDelete,
   onLineReorder,
@@ -229,12 +237,18 @@ export default function ProposalWorkAreaSection({
               : 'border-b border-gray-200 bg-zinc-50'
           }`}
         >
-          {/* Drag handle */}
+          {/* Drag handle — disabled in read-only mode (no reordering on
+              presented/accepted/declined/completed proposals). */}
           <button
-            {...listeners}
-            {...attributes}
+            {...(readOnly ? {} : listeners)}
+            {...(readOnly ? {} : attributes)}
+            disabled={readOnly}
             aria-label="Drag to reorder"
-            className="flex h-8 w-6 cursor-grab touch-none items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 active:cursor-grabbing"
+            className={`flex h-8 w-6 touch-none items-center justify-center rounded ${
+              readOnly
+                ? 'cursor-not-allowed text-gray-300'
+                : 'cursor-grab text-gray-400 hover:bg-gray-100 hover:text-gray-700 active:cursor-grabbing'
+            }`}
           >
             <GripVertical className="h-4 w-4" />
           </button>
@@ -256,10 +270,13 @@ export default function ProposalWorkAreaSection({
               <BlurSaveInput
                 value={workArea.resolved_name}
                 onSave={handleSaveName}
-                className="block w-full rounded-md border border-transparent bg-transparent px-2 py-1 pr-7 text-sm font-semibold text-gray-900 outline-none hover:border-gray-200 focus:border-brand-navy focus:bg-white focus:ring-2 focus:ring-brand-navy/20"
+                disabled={readOnly}
+                className="block w-full rounded-md border border-transparent bg-transparent px-2 py-1 pr-7 text-sm font-semibold text-gray-900 outline-none hover:border-gray-200 focus:border-brand-navy focus:bg-white focus:ring-2 focus:ring-brand-navy/20 disabled:cursor-not-allowed disabled:bg-transparent disabled:hover:border-transparent"
                 placeholder="Work area name"
               />
-              <Pencil className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-300" />
+              {!readOnly && (
+                <Pencil className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-300" />
+              )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               {isAdHoc && (
@@ -285,17 +302,20 @@ export default function ProposalWorkAreaSection({
             </span>
           </span>
 
-          {/* Enable/disable toggle slider */}
+          {/* Enable/disable toggle slider — locked when proposal is non-draft. */}
           <button
             type="button"
             onClick={() => void handleToggleEnabled()}
-            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+            disabled={readOnly}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               workArea.enabled ? 'bg-brand-navy' : 'bg-gray-300'
             }`}
             title={
-              workArea.enabled
-                ? 'Click to exclude from grand total'
-                : 'Click to include in grand total'
+              readOnly
+                ? 'Locked — proposal is not in draft state'
+                : workArea.enabled
+                  ? 'Click to exclude from grand total'
+                  : 'Click to include in grand total'
             }
             aria-label={workArea.enabled ? 'Disable work area' : 'Enable work area'}
           >
@@ -320,13 +340,16 @@ export default function ProposalWorkAreaSection({
             )}
           </button>
 
-          {/* Delete button */}
+          {/* Delete button — locked when proposal is non-draft (whole-
+              proposal delete still works from the toolbar; this is
+              about removing a single WA from a sent proposal). */}
           <button
             type="button"
             onClick={() => setDeleteOpen(true)}
-            className="shrink-0 rounded p-1 text-gray-400 hover:bg-rose-50 hover:text-rose-600"
+            disabled={readOnly}
+            className="shrink-0 rounded p-1 text-gray-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-400"
             aria-label="Remove work area from proposal"
-            title="Remove from proposal"
+            title={readOnly ? 'Locked — proposal is not in draft state' : 'Remove from proposal'}
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -356,9 +379,10 @@ export default function ProposalWorkAreaSection({
                 <BlurSaveTextarea
                   value={workArea.resolved_description ?? ''}
                   onSave={handleSaveDescription}
+                  disabled={readOnly}
                   rows={2}
                   placeholder="Optional description"
-                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
                 />
               </label>
             </div>
@@ -372,7 +396,7 @@ export default function ProposalWorkAreaSection({
                 subtotal={getDenormalizedSubtotal(workArea, cat)}
                 dirtyLineIds={dirtyLineIds}
                 linesWithErrors={_linesWithErrors}
-                disabled={!workArea.enabled || saving}
+                disabled={!workArea.enabled || saving || readOnly}
                 onLineChange={onLineChange}
                 onLineDelete={onLineDelete}
                 onLineReorder={onLineReorder}
