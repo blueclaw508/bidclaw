@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, Trash2 } from 'lucide-react'
+import DecimalInput from '@/components/decimal-input/DecimalInput'
 import type { ProposalLine, ProposalLineCategory } from '@/lib/types'
 
 /**
@@ -98,12 +98,12 @@ export function ProposalLineRow({
         </div>
 
         {/* Qty */}
-        <NumericCell
+        <DecimalInput
           value={line.quantity}
-          onCommit={(n) => onChange({ quantity: n })}
+          onCommit={(n) => onChange({ quantity: n ?? NaN })}
           disabled={disabled}
           placeholder="0"
-          inputClassName={`${cellInputClasses(errors.quantityInvalid)} text-right`}
+          className={`${cellInputClasses(errors.quantityInvalid)} text-right`}
           title={errors.quantityInvalid ? 'Quantity must be greater than 0.' : undefined}
         />
 
@@ -112,12 +112,12 @@ export function ProposalLineRow({
           <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">
             $
           </span>
-          <NumericCell
+          <DecimalInput
             value={line.frozen_unit_cost}
-            onCommit={(n) => onChange({ frozen_unit_cost: n })}
+            onCommit={(n) => onChange({ frozen_unit_cost: n ?? NaN })}
             disabled={disabled}
             placeholder="0.00"
-            inputClassName={`${cellInputClasses(errors.costInvalid)} pl-5 text-right`}
+            className={`${cellInputClasses(errors.costInvalid)} pl-5 text-right`}
             title={errors.costInvalid ? 'Cost must be 0 or greater.' : undefined}
           />
         </div>
@@ -178,19 +178,19 @@ export function ProposalLineRow({
         </div>
         <div className="grid grid-cols-4 gap-2">
           <LabeledMobileField label="Qty">
-            <NumericCell
+            <DecimalInput
               value={line.quantity}
-              onCommit={(n) => onChange({ quantity: n })}
+              onCommit={(n) => onChange({ quantity: n ?? NaN })}
               disabled={disabled}
-              inputClassName={`${cellInputClasses(errors.quantityInvalid)} text-right`}
+              className={`${cellInputClasses(errors.quantityInvalid)} text-right`}
             />
           </LabeledMobileField>
           <LabeledMobileField label="Cost">
-            <NumericCell
+            <DecimalInput
               value={line.frozen_unit_cost}
-              onCommit={(n) => onChange({ frozen_unit_cost: n })}
+              onCommit={(n) => onChange({ frozen_unit_cost: n ?? NaN })}
               disabled={disabled}
-              inputClassName={`${cellInputClasses(errors.costInvalid)} text-right`}
+              className={`${cellInputClasses(errors.costInvalid)} text-right`}
             />
           </LabeledMobileField>
           <LabeledMobileField label="Markup">
@@ -257,123 +257,6 @@ function computePrice(line: ProposalLine): number {
 
 function showMarkupForCategory(cat: ProposalLineCategory): boolean {
   return cat === 'material' || cat === 'subcontractor' || cat === 'other'
-}
-
-/* ============================================================
- * NumericCell — decimal-aware input with local draft text state
- * ============================================================
- * Why this exists: the naive pattern of `value={String(numericState)}`
- * + `onChange → Number(text) → setNumericState` breaks for partial
- * typing. After "5." the parsed value is 5; the next render forces
- * the input's displayed value back to "5"; the trailing dot is lost
- * and any decimal portion appended next gets concatenated into the
- * integer part (e.g. "4.85" → user types "5.20" → state becomes 52).
- *
- * Same mechanism eats the leading minus in "-5": Number("-") is NaN
- * → fallback 0 → display "" → minus gone.
- *
- * Fix: maintain a local string state that mirrors what the user is
- * typing. Commit a parsed number to the parent on every change (NaN
- * when the buffer isn't a complete number; the parent's validator
- * catches NaN and flags it as invalid). Re-sync the local string
- * from the parent only when the EXTERNAL value diverges from the
- * last value we committed (Reset All / server reload paths).
- */
-
-interface NumericCellProps {
-  /** External numeric value (parent's draft state for this field). */
-  value: number
-  /** Called with the parsed number (or NaN for empty / invalid partial input). */
-  onCommit: (n: number) => void
-  disabled?: boolean
-  placeholder?: string
-  inputClassName: string
-  title?: string
-}
-
-function NumericCell({
-  value,
-  onCommit,
-  disabled,
-  placeholder,
-  inputClassName,
-  title,
-}: NumericCellProps) {
-  const [text, setText] = useState(() => formatNumericForInput(value))
-  // Track what we last committed so we don't fight the user mid-typing
-  // when the parent re-renders with the value we just sent it.
-  const lastCommitted = useRef<number>(value)
-
-  // External-change re-sync: when the parent's value differs from what
-  // we last committed (e.g. Reset All, server reload), refresh the local
-  // text to match. We compare via tolerant numeric equality so trailing
-  // float noise doesn't trigger spurious resets.
-  useEffect(() => {
-    if (numericEqual(value, lastCommitted.current)) return
-    setText(formatNumericForInput(value))
-    lastCommitted.current = value
-  }, [value])
-
-  const handleChange = (raw: string) => {
-    setText(raw)
-    // Empty string → commit NaN. Parent's validator (validateLine) marks
-    // NaN as quantityInvalid / costInvalid → rose border + Save disabled.
-    if (raw.trim() === '') {
-      lastCommitted.current = NaN
-      onCommit(NaN)
-      return
-    }
-    // parseFloat handles "5.", "-5", ".5", and stops at the first
-    // non-numeric character — so partial "5.2" returns 5.2 without
-    // requiring the trailing-digit completeness Number() would demand.
-    const n = parseFloat(raw)
-    if (Number.isNaN(n)) {
-      // Buffer isn't yet parseable (e.g. just "-" or "."). Don't fight
-      // the user — leave the parent's last value intact.
-      return
-    }
-    lastCommitted.current = n
-    onCommit(n)
-  }
-
-  const handleBlur = () => {
-    // Normalize "5." → "5" and "" → "" on blur. Keeps the displayed
-    // text consistent with what the parent has stored without
-    // interfering with mid-typing.
-    if (text.trim() === '') return
-    const n = parseFloat(text)
-    if (!Number.isNaN(n)) {
-      const normalized = String(n)
-      if (normalized !== text) setText(normalized)
-    }
-  }
-
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      value={text}
-      onChange={(e) => handleChange(e.target.value)}
-      onBlur={handleBlur}
-      disabled={disabled}
-      placeholder={placeholder}
-      className={inputClassName}
-      title={title}
-    />
-  )
-}
-
-/** Display formatter: numeric → string for the input buffer. */
-function formatNumericForInput(n: number): string {
-  if (!Number.isFinite(n)) return ''
-  return String(n)
-}
-
-/** Tolerant numeric equality (handles NaN, float noise, both-zero). */
-function numericEqual(a: number, b: number): boolean {
-  if (Number.isNaN(a) && Number.isNaN(b)) return true
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return false
-  return Math.abs(a - b) < 1e-9
 }
 
 /* ============================================================

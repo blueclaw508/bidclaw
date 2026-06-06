@@ -35,6 +35,7 @@ import {
 import { toast } from 'sonner'
 import { BlurSaveInput } from '@/components/InlineEdit'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import DecimalInput from '@/components/decimal-input/DecimalInput'
 import { AddKitLineModal, type NewKitLineDraft } from '@/components/kits/AddKitLineModal'
 import {
   ALL_FACTOR_UNITS,
@@ -1088,8 +1089,6 @@ function LineRow({
   // entity was deleted via cascade SET NULL.
   const referenceMissing = line.reference_type !== 'none' && currentRefId === null
 
-  const factorText = line.factor === null ? '' : String(line.factor)
-
   // Validation styles — tinted background + amber/rose border. Title
   // attribute carries the explanation for desktop hover (mobile users
   // get the explanatory text below the sticky save bar).
@@ -1151,21 +1150,9 @@ function LineRow({
             <span className="text-xs italic text-gray-400">—</span>
           )}
         </div>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={factorText}
-          onChange={(e) => {
-            const v = e.target.value
-            if (v.trim() === '') {
-              onPatch(line._key, { factor: null })
-              return
-            }
-            const n = Number(v)
-            if (Number.isFinite(n)) {
-              onPatch(line._key, { factor: n })
-            }
-          }}
+        <DecimalInput
+          value={line.factor}
+          onCommit={(n) => onPatch(line._key, { factor: n })}
           placeholder="0.00"
           className={factorCellClasses}
           title={factorTitle}
@@ -1243,21 +1230,9 @@ function LineRow({
           />
         )}
         <div className="grid grid-cols-2 gap-2">
-          <input
-            type="text"
-            inputMode="decimal"
-            value={factorText}
-            onChange={(e) => {
-              const v = e.target.value
-              if (v.trim() === '') {
-                onPatch(line._key, { factor: null })
-                return
-              }
-              const n = Number(v)
-              if (Number.isFinite(n)) {
-                onPatch(line._key, { factor: n })
-              }
-            }}
+          <DecimalInput
+            value={line.factor}
+            onCommit={(n) => onPatch(line._key, { factor: n })}
             placeholder="Factor"
             className={factorCellClasses}
           />
