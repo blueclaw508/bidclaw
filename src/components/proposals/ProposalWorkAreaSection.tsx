@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import {
   DndContext,
   KeyboardSensor,
@@ -39,6 +39,26 @@ import {
   updateProposalWorkArea,
 } from '@/lib/proposals'
 import { ProposalLineRow, validateLine } from '@/components/proposals/ProposalLineRow'
+
+// Lazy-load the 3 add-line modals — they only need to be in the bundle
+// after the contractor clicks "+ From kit" / "+ From catalog" / "+ Custom".
+// Keeps the ProposalEditor lazy chunk lean (under 50 kB) since the modals
+// otherwise tree-shake into it.
+const AddFromKitModal = lazy(() =>
+  import('@/components/proposals/AddFromKitModal').then((m) => ({
+    default: m.AddFromKitModal,
+  }))
+)
+const AddFromCatalogModal = lazy(() =>
+  import('@/components/proposals/AddFromCatalogModal').then((m) => ({
+    default: m.AddFromCatalogModal,
+  }))
+)
+const AddCustomLineModal = lazy(() =>
+  import('@/components/proposals/AddCustomLineModal').then((m) => ({
+    default: m.AddCustomLineModal,
+  }))
+)
 import type {
   ProposalLine,
   ProposalLineCategory,
@@ -96,6 +116,16 @@ export default function ProposalWorkAreaSection({
 }: ProposalWorkAreaSectionProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+
+  // Add-line modal state — at most one modal open per work area card.
+  // The subsection's "+ From kit" / "+ From catalog" / "+ Custom"
+  // buttons set this; null closes the modal.
+  const [addModal, setAddModal] = useState<
+    | { type: 'kit'; category: ProposalLineCategory }
+    | { type: 'catalog'; category: 'material' | 'subcontractor' | 'other' }
+    | { type: 'custom'; category: ProposalLineCategory }
+    | null
+  >(null)
 
   /* ---------- dnd-kit sortable wiring ---------- */
 
@@ -358,11 +388,59 @@ export default function ProposalWorkAreaSection({
                 onLineChange={onLineChange}
                 onLineDelete={onLineDelete}
                 onLineReorder={onLineReorder}
+                onOpenAddFromKit={() => setAddModal({ type: 'kit', category: cat })}
+                onOpenAddOther={() => {
+                  if (cat === 'material' || cat === 'subcontractor' || cat === 'other') {
+                    setAddModal({ type: 'catalog', category: cat })
+                  } else {
+                    setAddModal({ type: 'custom', category: cat })
+                  }
+                }}
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* Add-line modals — at most one open at a time per work area.
+          Lazy-loaded: the chunk only fetches when the contractor first
+          clicks the matching button. We gate the entire <Suspense> on
+          `addModal?.type === ...` so the lazy component doesn't even
+          mount (and trigger a chunk fetch) until needed. */}
+      {addModal?.type === 'kit' && (
+        <Suspense fallback={null}>
+          <AddFromKitModal
+            open
+            onClose={() => setAddModal(null)}
+            proposalWorkAreaId={workArea.id}
+            workAreaName={workArea.resolved_name}
+            sourceWorkAreaId={workArea.work_area_id}
+            onAdded={onChanged}
+          />
+        </Suspense>
+      )}
+      {addModal?.type === 'catalog' && (
+        <Suspense fallback={null}>
+          <AddFromCatalogModal
+            open
+            onClose={() => setAddModal(null)}
+            proposalWorkAreaId={workArea.id}
+            category={addModal.category}
+            onAdded={onChanged}
+          />
+        </Suspense>
+      )}
+      {addModal?.type === 'custom' && (
+        <Suspense fallback={null}>
+          <AddCustomLineModal
+            open
+            onClose={() => setAddModal(null)}
+            proposalWorkAreaId={workArea.id}
+            category={addModal.category}
+            onAdded={onChanged}
+          />
+        </Suspense>
+      )}
 
       {/* Delete confirm */}
       <ConfirmDialog
@@ -408,6 +486,8 @@ function Subsection({
   onLineChange,
   onLineDelete,
   onLineReorder,
+  onOpenAddFromKit,
+  onOpenAddOther,
 }: {
   category: ProposalLineCategory
   lines: ProposalLine[]
@@ -419,6 +499,10 @@ function Subsection({
   onLineChange: (lineId: string, patch: Partial<ProposalLine>) => void
   onLineDelete: (lineId: string) => void
   onLineReorder: (orderedIds: string[]) => void
+  /** Open AddFromKitModal pre-set to this subsection's category. */
+  onOpenAddFromKit: () => void
+  /** Open AddFromCatalogModal (material/sub/other) or AddCustomLineModal (labor/equipment). */
+  onOpenAddOther: () => void
 }) {
   const cfg = CATEGORY_CONFIG[category]
   const Icon = cfg.icon
@@ -502,16 +586,29 @@ function Subsection({
         </DndContext>
       )}
 
-      {/* "+ Add line item" — placeholder in 2e; wired in Phase 2g */}
+      {/* Per-subsection add cluster — wired in Phase 2g. Material / sub /
+          other show "+ From catalog"; labor / equipment show "+ Custom"
+          because their lines don't have a catalog counterpart. */}
       <div className="flex justify-end gap-2 border-t border-gray-100 bg-white px-4 py-2">
         <button
           type="button"
-          disabled
-          className="inline-flex items-center gap-1 rounded-md border border-dashed border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-400"
-          title="Coming in Phase 2g"
+          onClick={onOpenAddFromKit}
+          disabled={disabled}
+          className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
         >
           <Plus className="h-3 w-3" />
-          Add line item
+          From kit
+        </button>
+        <button
+          type="button"
+          onClick={onOpenAddOther}
+          disabled={disabled}
+          className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          <Plus className="h-3 w-3" />
+          {category === 'labor' || category === 'equipment'
+            ? 'Custom'
+            : 'From catalog'}
         </button>
       </div>
 

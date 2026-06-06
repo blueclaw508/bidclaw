@@ -13,21 +13,22 @@ import { supabase } from '@/lib/supabase'
 import { loadKits } from '@/lib/kits'
 import {
   addLinesFromKitPreview,
-  createProposal,
   previewKitLines,
 } from '@/lib/proposals'
-import type { Kit, KitPreviewLine, WorkArea } from '@/lib/types'
+import type { Kit, KitPreviewLine } from '@/lib/types'
 
 /**
- * Modal that drives the "generate proposal from kit" flow.
+ * Modal that adds resolved kit lines into an existing proposal work
+ * area. Refactored from Phase 2a's GenerateProposalModal which used
+ * to create the proposal at commit time. After Phase 2c's
+ * multi-work-area pivot, the proposal already exists (the contractor
+ * is inside the editor) so this modal just appends lines.
  *
- *   1. Contractor picks a work area (passed in via props — the modal
- *      is opened from a specific work area's card).
- *   2. Contractor picks a kit + confirms input quantity.
- *   3. previewKitLines fetches resolved lines + groups placeholders.
- *   4. Contractor toggles selections + fills placeholder quantities.
- *   5. Commit → createProposal + addLinesFromKitPreview in sequence
- *      → navigate to the new proposal's detail page.
+ *   1. Contractor picks a kit + confirms input quantity.
+ *   2. previewKitLines fetches resolved lines + groups placeholders.
+ *   3. Contractor toggles selections + fills placeholder quantities.
+ *   4. Commit → addLinesFromKitPreview({ proposalWorkAreaId, ... })
+ *      → close + onAdded callback. No proposal-create; no navigation.
  *
  * State machine (modalState):
  *   • idle       — no kit picked, no preview to fetch
@@ -35,14 +36,25 @@ import type { Kit, KitPreviewLine, WorkArea } from '@/lib/types'
  *   • preview    — lines loaded; user is editing/toggling
  *   • broken     — previewKitLines threw because kit has broken refs;
  *                  show "Open kit" CTA so the contractor can repair
- *   • submitting — createProposal/addLinesFromKitPreview in flight
+ *   • submitting — addLinesFromKitPreview in flight
  */
 
-interface GenerateProposalModalProps {
+interface AddFromKitModalProps {
   open: boolean
   onClose: () => void
-  projectId: string
-  workArea: WorkArea | null
+  /** The proposal_work_area the lines will be attributed to. */
+  proposalWorkAreaId: string
+  /** Display label for the work area — used in the modal subtitle. */
+  workAreaName: string
+  /**
+   * The source project work_area id, when this proposal_work_area is
+   * project-linked (not ad-hoc). Used to pre-fill the input quantity
+   * from measurements whose calculated_unit matches the kit's input_unit.
+   * Pass `null` for ad-hoc work areas — the field stays empty.
+   */
+  sourceWorkAreaId: string | null
+  /** Called on successful submit so the parent ProposalEditor refetches. */
+  onAdded: () => void
 }
 
 type ModalState = 'idle' | 'loading' | 'preview' | 'broken' | 'submitting'
@@ -53,12 +65,14 @@ interface BrokenKitState {
   message: string
 }
 
-export function GenerateProposalModal({
+export function AddFromKitModal({
   open,
   onClose,
-  projectId,
-  workArea,
-}: GenerateProposalModalProps) {
+  proposalWorkAreaId,
+  workAreaName,
+  sourceWorkAreaId,
+  onAdded,
+}: AddFromKitModalProps) {
   const navigate = useNavigate()
 
   /* ---------- state ---------- */
@@ -69,7 +83,6 @@ export function GenerateProposalModal({
 
   const [kitId, setKitId] = useState<string>('')
   const [inputQuantityText, setInputQuantityText] = useState<string>('')
-  const [proposalName, setProposalName] = useState<string>('')
 
   const [previewLines, setPreviewLines] = useState<KitPreviewLine[]>([])
   const [modalState, setModalState] = useState<ModalState>('idle')
@@ -81,7 +94,6 @@ export function GenerateProposalModal({
     if (!open) return
     setKitId('')
     setInputQuantityText('')
-    setProposalName('')
     setPreviewLines([])
     setBrokenKit(null)
     setModalState('idle')
@@ -97,7 +109,6 @@ export function GenerateProposalModal({
     loadKits()
       .then((all) => {
         if (cancelled) return
-        // Only active kits — archived shouldn't pollute the picker
         setActiveKits(all.filter((k) => k.status === 'active'))
       })
       .catch((err) => {
@@ -112,23 +123,24 @@ export function GenerateProposalModal({
     }
   }, [open])
 
-  /* ---------- selected kit (resolved from id) ---------- */
+  /* ---------- selected kit ---------- */
 
   const selectedKit = useMemo<Kit | null>(
     () => activeKits.find((k) => k.id === kitId) ?? null,
     [activeKits, kitId]
   )
 
-  /* ---------- smart-default input quantity when kit changes ---------- */
-  // Per Phase 2a decision 3: after kit selection, sum measurements
-  // whose calculated_unit matches the kit's input_unit. If a match
-  // exists, prefill the field; otherwise leave it empty for manual
-  // entry. Query happens here (not on tab load) to avoid N+1.
+  /* ---------- smart-default input quantity ---------- */
+  // After kit selection, if this work area is project-linked (sourceWorkAreaId
+  // is set), sum measurements whose calculated_unit matches the kit's
+  // input_unit. If a match exists, prefill; otherwise leave empty for
+  // manual entry. For ad-hoc work areas (sourceWorkAreaId === null) we
+  // skip the query entirely — there are no measurements on an ad-hoc.
 
   useEffect(() => {
     if (!open) return
-    if (!workArea || !selectedKit) return
-    // Only auto-fill if the field is empty — don't clobber edits
+    if (!selectedKit) return
+    if (!sourceWorkAreaId) return
     if (inputQuantityText.trim().length > 0) return
 
     let cancelled = false
@@ -136,7 +148,7 @@ export function GenerateProposalModal({
       const { data, error } = await supabase
         .from('measurements')
         .select('calculated_value, calculated_unit')
-        .eq('work_area_id', workArea.id)
+        .eq('work_area_id', sourceWorkAreaId)
       if (cancelled || error || !data) return
       const matchUnit = selectedKit.input_unit.trim().toLowerCase()
       const total = data
@@ -155,17 +167,7 @@ export function GenerateProposalModal({
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, workArea?.id, selectedKit?.id])
-
-  /* ---------- proposal name default when kit changes ---------- */
-
-  useEffect(() => {
-    if (!open) return
-    if (!workArea || !selectedKit) return
-    if (proposalName.trim().length > 0) return
-    setProposalName(`${workArea.name} — ${selectedKit.name}`)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, workArea?.id, selectedKit?.id])
+  }, [open, sourceWorkAreaId, selectedKit?.id])
 
   /* ---------- parsed input quantity ---------- */
 
@@ -174,11 +176,7 @@ export function GenerateProposalModal({
     return Number.isFinite(n) && n > 0 ? n : null
   }, [inputQuantityText])
 
-  /* ---------- preview fetch (debounced on qty changes) ---------- */
-  // Refetch whenever (kitId, inputQuantity) is a valid pair. Debounce
-  // by 300ms on quantity changes so dragging through a numeric input
-  // doesn't hammer the data layer. Kit changes fire immediately —
-  // contractor explicitly picked a different kit.
+  /* ---------- preview fetch (debounced) ---------- */
 
   useEffect(() => {
     if (!open) return
@@ -201,8 +199,6 @@ export function GenerateProposalModal({
         .catch((err) => {
           if (cancelled) return
           const message = err instanceof Error ? err.message : 'Preview failed.'
-          // Identify the reference_missing path from the data-layer
-          // error message format
           if (message.includes('broken reference')) {
             const kit = activeKits.find((k) => k.id === kitId)
             setBrokenKit({
@@ -223,7 +219,7 @@ export function GenerateProposalModal({
     }
   }, [open, kitId, inputQuantity, activeKits])
 
-  /* ---------- per-line edits (selected toggle + placeholder qty) ---------- */
+  /* ---------- per-line edits ---------- */
 
   const togglePreviewLine = useCallback((idx: number) => {
     setPreviewLines((prev) =>
@@ -237,7 +233,7 @@ export function GenerateProposalModal({
     )
   }, [])
 
-  /* ---------- placeholder vs resolved partition ---------- */
+  /* ---------- partition + totals ---------- */
 
   const { placeholderLines, resolvedLines, committableCount, grandTotal } = useMemo(() => {
     const ph: Array<KitPreviewLine & { __idx: number }> = []
@@ -267,55 +263,25 @@ export function GenerateProposalModal({
   /* ---------- commit ---------- */
 
   const handleSubmit = useCallback(async () => {
-    if (!workArea) return
     if (committableCount === 0) {
       toast.error('Select at least one line with a quantity greater than 0.')
       return
     }
-    if (!proposalName.trim()) {
-      toast.error('Proposal name is required.')
-      return
-    }
     setModalState('submitting')
     try {
-      // STUB — original Phase 2a call shape is incompatible with the
-      // multi-work-area data layer from Phase 2c. This entire submit
-      // path will be replaced in Phase 2g when GenerateProposalModal
-      // is renamed to AddFromKitModal and rewired to call
-      // addLinesFromKitPreview({proposalWorkAreaId, ...}) without
-      // creating a proposal (proposal already exists in the editor).
-      // The directives below silence the type-mismatch noise so the
-      // build stays clean. File is unreachable from any UI surface
-      // since the Pre-Phase cleanup removed its only caller.
-      const proposal = await createProposal({
-        projectId,
-        // @ts-expect-error — Phase 2g rewrites this call (workAreaId removed from signature)
-        workAreaId: workArea.id,
-        name: proposalName.trim(),
-      })
       await addLinesFromKitPreview({
-        // @ts-expect-error — Phase 2g rewrites this call (proposalId → proposalWorkAreaId)
-        proposalId: proposal.id,
+        proposalWorkAreaId,
         lines: previewLines,
         kitId,
       })
-      toast.success(`Proposal created with ${committableCount} lines.`)
+      toast.success(`Added ${committableCount} line${committableCount === 1 ? '' : 's'} from kit.`)
+      onAdded()
       onClose()
-      navigate(`/app/projects/${projectId}/proposals/${proposal.id}`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create proposal.')
+      toast.error(err instanceof Error ? err.message : 'Could not add lines.')
       setModalState('preview')
     }
-  }, [
-    workArea,
-    committableCount,
-    proposalName,
-    projectId,
-    previewLines,
-    kitId,
-    onClose,
-    navigate,
-  ])
+  }, [committableCount, proposalWorkAreaId, previewLines, kitId, onAdded, onClose])
 
   const handleOpenBrokenKit = useCallback(() => {
     if (!brokenKit) return
@@ -323,14 +289,7 @@ export function GenerateProposalModal({
     navigate(`/app/kits/${brokenKit.kitId}`)
   }, [brokenKit, onClose, navigate])
 
-  /* ---------- derived flags ---------- */
-
   const isSubmitting = modalState === 'submitting'
-  // Unit-mismatch detection lives inline beneath the quantity field
-  // (see "No matching measurement found — enter manually." hint).
-  // The smart-default heuristic only fires when a measurement matches
-  // the kit's input_unit; an empty field after kit selection IS the
-  // unit-mismatch signal. Per spec we warn but don't block.
 
   /* ---------- render ---------- */
 
@@ -338,16 +297,12 @@ export function GenerateProposalModal({
     <Modal
       open={open}
       onClose={isSubmitting ? () => {} : onClose}
-      title="Generate proposal from kit"
-      description={
-        workArea
-          ? `Work area: ${workArea.name}`
-          : 'Pick a kit and confirm the input quantity'
-      }
+      title="Add lines from kit"
+      description={`Adding to work area: ${workAreaName}`}
       size="2xl"
     >
       <div className="space-y-5">
-        {/* QC blue gradient info strip — work area context */}
+        {/* QC blue gradient info strip */}
         <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-4 text-white">
           <div className="flex items-start gap-3">
             <div className="shrink-0 bg-white/20 p-2 rounded-md">
@@ -355,16 +310,14 @@ export function GenerateProposalModal({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-wide text-blue-100">
-                Generating for work area
+                Adding to
               </p>
-              <p className="truncate text-base font-semibold">
-                {workArea?.name ?? '—'}
-              </p>
+              <p className="truncate text-base font-semibold">{workAreaName}</p>
             </div>
           </div>
         </div>
 
-        {/* Picker + quantity + name */}
+        {/* Picker + quantity */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormField label="Kit" required className="sm:col-span-2">
             {kitsLoading ? (
@@ -408,7 +361,11 @@ export function GenerateProposalModal({
             )}
           </FormField>
 
-          <FormField label={`Input quantity${selectedKit ? ` (${selectedKit.input_unit})` : ''}`} required>
+          <FormField
+            label={`Input quantity${selectedKit ? ` (${selectedKit.input_unit})` : ''}`}
+            required
+            className="sm:col-span-2"
+          >
             <input
               type="text"
               inputMode="decimal"
@@ -418,22 +375,16 @@ export function GenerateProposalModal({
               className={inputClasses}
               disabled={!selectedKit || isSubmitting}
             />
-            {selectedKit && inputQuantityText.length === 0 && (
+            {selectedKit && inputQuantityText.length === 0 && sourceWorkAreaId && (
               <p className="mt-1 text-xs text-gray-500">
                 No matching measurement found — enter manually.
               </p>
             )}
-          </FormField>
-
-          <FormField label="Proposal name" required>
-            <input
-              type="text"
-              value={proposalName}
-              onChange={(e) => setProposalName(e.target.value)}
-              placeholder="Auto-fills after picking a kit"
-              className={inputClasses}
-              disabled={!selectedKit || isSubmitting}
-            />
+            {selectedKit && inputQuantityText.length === 0 && !sourceWorkAreaId && (
+              <p className="mt-1 text-xs text-gray-500">
+                Ad-hoc work area — enter quantity manually.
+              </p>
+            )}
           </FormField>
         </div>
 
@@ -474,60 +425,59 @@ export function GenerateProposalModal({
           </div>
         )}
 
-        {(modalState === 'preview' || modalState === 'submitting') && previewLines.length > 0 && (
-          <div className="space-y-4">
-            {/* Needs Input — pinned at top, amber background */}
-            {placeholderLines.length > 0 && (
-              <div className="overflow-hidden rounded-xl border border-amber-300 bg-amber-50/60">
-                <header className="border-b border-amber-200 bg-amber-100/60 px-4 py-2">
-                  <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-amber-900">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Needs Input — {placeholderLines.length}
-                  </h3>
-                </header>
-                <ul className="divide-y divide-amber-100">
-                  {placeholderLines.map((l) => (
-                    <PreviewRow
-                      key={`ph-${l.__idx}`}
-                      line={l}
-                      idx={l.__idx}
-                      isPlaceholder
-                      onToggle={togglePreviewLine}
-                      onQuantityChange={setPreviewLineQuantity}
-                      disabled={isSubmitting}
-                    />
-                  ))}
-                </ul>
-              </div>
-            )}
+        {(modalState === 'preview' || modalState === 'submitting') &&
+          previewLines.length > 0 && (
+            <div className="space-y-4">
+              {placeholderLines.length > 0 && (
+                <div className="overflow-hidden rounded-xl border border-amber-300 bg-amber-50/60">
+                  <header className="border-b border-amber-200 bg-amber-100/60 px-4 py-2">
+                    <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-amber-900">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Needs Input — {placeholderLines.length}
+                    </h3>
+                  </header>
+                  <ul className="divide-y divide-amber-100">
+                    {placeholderLines.map((l) => (
+                      <PreviewRow
+                        key={`ph-${l.__idx}`}
+                        line={l}
+                        idx={l.__idx}
+                        isPlaceholder
+                        onToggle={togglePreviewLine}
+                        onQuantityChange={setPreviewLineQuantity}
+                        disabled={isSubmitting}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-            {/* Resolved Lines */}
-            {resolvedLines.length > 0 && (
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <header className="border-b border-gray-100 bg-slate-50 px-4 py-2">
-                  <h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">
-                    Resolved lines — {resolvedLines.length}
-                  </h3>
-                </header>
-                <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
-                  {resolvedLines.map((l) => (
-                    <PreviewRow
-                      key={`re-${l.__idx}`}
-                      line={l}
-                      idx={l.__idx}
-                      isPlaceholder={false}
-                      onToggle={togglePreviewLine}
-                      onQuantityChange={setPreviewLineQuantity}
-                      disabled={isSubmitting}
-                    />
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
+              {resolvedLines.length > 0 && (
+                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                  <header className="border-b border-gray-100 bg-slate-50 px-4 py-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">
+                      Resolved lines — {resolvedLines.length}
+                    </h3>
+                  </header>
+                  <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+                    {resolvedLines.map((l) => (
+                      <PreviewRow
+                        key={`re-${l.__idx}`}
+                        line={l}
+                        idx={l.__idx}
+                        isPlaceholder={false}
+                        onToggle={togglePreviewLine}
+                        onQuantityChange={setPreviewLineQuantity}
+                        disabled={isSubmitting}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
-        {/* Totals strip + actions */}
+        {/* Totals + actions */}
         <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 sm:flex-row sm:items-center">
           <div className="flex items-baseline gap-3">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -557,8 +507,7 @@ export function GenerateProposalModal({
               disabled={
                 isSubmitting ||
                 committableCount === 0 ||
-                modalState === 'broken' ||
-                !proposalName.trim()
+                modalState === 'broken'
               }
               className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white hover:bg-brand-navy-dark disabled:opacity-50"
               title={
@@ -572,7 +521,7 @@ export function GenerateProposalModal({
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              {isSubmitting ? 'Creating…' : 'Add to proposal'}
+              {isSubmitting ? 'Adding…' : 'Add to work area'}
             </button>
           </div>
         </div>
@@ -600,10 +549,11 @@ function PreviewRow({
   onQuantityChange: (idx: number, qty: number) => void
   disabled?: boolean
 }) {
-  const lineTotal = line.selected && line.quantity > 0
-    ? line.quantity * line.frozen_unit_cost +
-      line.quantity * line.frozen_unit_cost * (line.frozen_markup_percent / 100)
-    : 0
+  const lineTotal =
+    line.selected && line.quantity > 0
+      ? line.quantity * line.frozen_unit_cost +
+        line.quantity * line.frozen_unit_cost * (line.frozen_markup_percent / 100)
+      : 0
 
   return (
     <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
@@ -624,7 +574,8 @@ function PreviewRow({
             {!isPlaceholder && line.quantity > 0 && (
               <>
                 <span className="ml-2">
-                  {formatQty(line.quantity)} {line.unit} @ {formatUSD(line.frozen_unit_cost)}
+                  {formatQty(line.quantity)} {line.unit} @{' '}
+                  {formatUSD(line.frozen_unit_cost)}
                 </span>
                 {line.frozen_markup_percent > 0 && (
                   <span className="ml-2 text-gray-400">
@@ -726,7 +677,6 @@ function formatUSD(n: number): string {
 
 function formatQty(n: number): string {
   if (!Number.isFinite(n)) return '0'
-  // Up to 4 decimals; trim trailing zeros for tidiness
   return n.toLocaleString('en-US', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4,
