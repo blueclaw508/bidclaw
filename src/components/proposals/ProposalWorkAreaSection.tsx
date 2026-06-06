@@ -1,5 +1,19 @@
 import { useMemo, useState } from 'react'
-import { useSortable } from '@dnd-kit/sortable'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
   ChevronDown,
@@ -24,6 +38,7 @@ import {
   removeWorkAreaFromProposal,
   updateProposalWorkArea,
 } from '@/lib/proposals'
+import { ProposalLineRow, validateLine } from '@/components/proposals/ProposalLineRow'
 import type {
   ProposalLine,
   ProposalLineCategory,
@@ -53,6 +68,14 @@ interface ProposalWorkAreaSectionProps {
   materialsMarkupPercent: number
   /** Current settings markup for subs + other — displayed as a reference indicator. */
   subsMarkupPercent: number
+  /** Per-line state driving inline-editable rows (Phase 2f). */
+  dirtyLineIds: Set<string>
+  linesWithErrors: Set<string>
+  saving: boolean
+  onLineChange: (lineId: string, patch: Partial<ProposalLine>) => void
+  onLineDelete: (lineId: string) => void
+  /** Receives the newly-ordered line ids inside the affected subsection. */
+  onLineReorder: (orderedIds: string[]) => void
   /** Called after any successful add / update / delete so the parent reloads. */
   onChanged: () => void
 }
@@ -61,6 +84,14 @@ export default function ProposalWorkAreaSection({
   workArea,
   materialsMarkupPercent,
   subsMarkupPercent,
+  dirtyLineIds,
+  // linesWithErrors is held in the props contract for future use
+  // (Phase 2h could highlight subsections with errors); not used today.
+  linesWithErrors: _linesWithErrors,
+  saving,
+  onLineChange,
+  onLineDelete,
+  onLineReorder,
   onChanged,
 }: ProposalWorkAreaSectionProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -309,9 +340,9 @@ export default function ProposalWorkAreaSection({
               </label>
             </div>
 
-            {/* 5 per-category subsections — skeleton only in 2e */}
+            {/* 5 per-category subsections — Phase 2f populates with live rows */}
             {(CATEGORY_ORDER as ProposalLineCategory[]).map((cat) => (
-              <SubsectionSkeleton
+              <Subsection
                 key={cat}
                 category={cat}
                 lines={linesByCategory[cat]}
@@ -321,6 +352,12 @@ export default function ProposalWorkAreaSection({
                   materialsMarkupPercent,
                   subsMarkupPercent
                 )}
+                dirtyLineIds={dirtyLineIds}
+                linesWithErrors={_linesWithErrors}
+                disabled={!workArea.enabled || saving}
+                onLineChange={onLineChange}
+                onLineDelete={onLineDelete}
+                onLineReorder={onLineReorder}
               />
             ))}
           </div>
@@ -352,27 +389,57 @@ export default function ProposalWorkAreaSection({
 }
 
 /* ============================================================
- * SubsectionSkeleton — one category subsection (header + column
- * row + placeholder body + subtotal + "+ Add line item" button).
- * Phase 2f populates the body with real ProposalLineRow rendering.
- * Phase 2g wires the "+ Add line item" affordance.
+ * Subsection — one category subsection. Renders header + column
+ * row + ProposalLineRow per line in this category + subtotal +
+ * placeholder "+ Add line item" button (Phase 2g wires).
+ * Per-section SortableContext keeps drag-drop scoped to one
+ * category — cross-category drags are impossible by construction.
  * ============================================================ */
 
-function SubsectionSkeleton({
+function Subsection({
   category,
   lines,
   subtotal,
   referenceMarkupPercent,
+  dirtyLineIds,
+  // Reserved for future highlighting of subsections containing errors.
+  linesWithErrors: _linesWithErrors,
+  disabled,
+  onLineChange,
+  onLineDelete,
+  onLineReorder,
 }: {
   category: ProposalLineCategory
   lines: ProposalLine[]
   subtotal: number
-  /** Current settings markup % for this category — null for labor/equipment which carry no markup. */
   referenceMarkupPercent: number | null
+  dirtyLineIds: Set<string>
+  linesWithErrors: Set<string>
+  disabled: boolean
+  onLineChange: (lineId: string, patch: Partial<ProposalLine>) => void
+  onLineDelete: (lineId: string) => void
+  onLineReorder: (orderedIds: string[]) => void
 }) {
   const cfg = CATEGORY_CONFIG[category]
   const Icon = cfg.icon
   const showMarkupCols = referenceMarkupPercent !== null
+
+  // Per-subsection sensors so each category drag-drop is independent.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const oldIdx = lines.findIndex((l) => l.id === active.id)
+    const newIdx = lines.findIndex((l) => l.id === over.id)
+    if (oldIdx < 0 || newIdx < 0) return
+    const reordered = arrayMove(lines, oldIdx, newIdx)
+    onLineReorder(reordered.map((l) => l.id))
+  }
+
   return (
     <section className="border-b border-gray-100 last:border-b-0">
       {/* Subsection header */}
@@ -397,8 +464,8 @@ function SubsectionSkeleton({
         )}
       </div>
 
-      {/* Column headers (visible Phase 2e so structure is clear) */}
-      <div className="grid grid-cols-[1fr_72px_88px_72px_104px_28px] gap-2 border-b border-gray-100 bg-gray-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+      {/* Column headers — match the row grid */}
+      <div className="hidden grid-cols-[1fr_72px_88px_72px_104px_28px] gap-2 border-b border-gray-100 bg-gray-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 lg:grid">
         <div>Item</div>
         <div className="text-right">Qty</div>
         <div className="text-right">{showMarkupCols ? 'Cost' : 'Rate'}</div>
@@ -407,19 +474,35 @@ function SubsectionSkeleton({
         <div />
       </div>
 
-      {/* Body placeholder — Phase 2f renders ProposalLineRow per line */}
+      {/* Rows — wrap in a per-subsection DndContext + SortableContext */}
       {lines.length === 0 ? (
         <div className="px-4 py-3 text-center text-[11px] italic text-gray-400">
           No {cfg.label.toLowerCase()} lines yet — Phase 2g wires "+ Add line item".
         </div>
       ) : (
-        <div className="px-4 py-2 text-[11px] italic text-gray-400">
-          {lines.length} line{lines.length === 1 ? '' : 's'} pending Phase 2f
-          inline editing.
-        </div>
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <SortableContext
+            items={lines.map((l) => l.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="divide-y divide-gray-100">
+              {lines.map((l) => (
+                <ProposalLineRow
+                  key={l.id}
+                  line={l}
+                  isDirty={dirtyLineIds.has(l.id)}
+                  errors={validateLine(l)}
+                  onChange={(patch) => onLineChange(l.id, patch)}
+                  onDelete={() => onLineDelete(l.id)}
+                  disabled={disabled}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
-      {/* "+ Add line item" — placeholder in 2e */}
+      {/* "+ Add line item" — placeholder in 2e; wired in Phase 2g */}
       <div className="flex justify-end gap-2 border-t border-gray-100 bg-white px-4 py-2">
         <button
           type="button"

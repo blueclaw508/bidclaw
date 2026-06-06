@@ -35,15 +35,20 @@ import { AddAdHocWorkAreaModal } from '@/components/proposals/AddAdHocWorkAreaMo
 import ProposalWorkAreaSection from '@/components/proposals/ProposalWorkAreaSection'
 import { supabase } from '@/lib/supabase'
 import {
+  deleteProposalLine,
   getProposal,
   getProposalTotals,
   reorderProposalWorkAreas,
   updateProposal,
+  updateProposalLine,
 } from '@/lib/proposals'
+import { lineHasErrors } from '@/components/proposals/ProposalLineRow'
 import type {
   Project,
+  ProposalLine,
   ProposalLineCategory,
   ProposalWithWorkAreas,
+  ProposalWorkAreaResolved,
   WorkArea,
 } from '@/lib/types'
 
@@ -90,7 +95,18 @@ export default function ProposalEditor() {
 
   // Notes draft state (Save+Reset bar pattern)
   const [notesDraft, setNotesDraft] = useState<string>('')
-  const [savingNotes, setSavingNotes] = useState(false)
+
+  // Per-line draft state. `localLines` holds the live edited values
+  // keyed by line id; `originalLines` is the server snapshot for diff
+  // + reset. `deletedLineIds` tracks lines the user removed locally
+  // (commit on Save). All three are populated on every reload.
+  const [localLines, setLocalLines] = useState<Record<string, ProposalLine>>({})
+  const [originalLines, setOriginalLines] = useState<Record<string, ProposalLine>>({})
+  const [deletedLineIds, setDeletedLineIds] = useState<Set<string>>(new Set())
+
+  // Unified save / saving state — drives both the toolbar Save button
+  // and the sticky bottom bar.
+  const [saving, setSaving] = useState(false)
 
   // Modal + dialog state
   const [addFromProjectOpen, setAddFromProjectOpen] = useState(false)
@@ -118,6 +134,8 @@ export default function ProposalEditor() {
       }
       setProposal(p)
       setNotesDraft(p.notes ?? '')
+      primeLineState(p, setLocalLines, setOriginalLines)
+      setDeletedLineIds(new Set())
 
       // Fetch the parent project (for the header subtitle), project's
       // work areas (for the "Add from project" modal), and current
@@ -188,33 +206,159 @@ export default function ProposalEditor() {
     [proposal]
   )
 
-  /* ---------- notes save bar ---------- */
-
+  /* ---------- dirty + validation derivation ---------- */
+  // Notes dirty when the textarea differs from the saved proposal.notes.
   const notesDirty = useMemo(() => {
     if (!proposal) return false
     return notesDraft !== (proposal.notes ?? '')
   }, [notesDraft, proposal])
 
-  const handleSaveNotes = useCallback(async () => {
-    if (!proposal) return
-    setSavingNotes(true)
-    try {
-      const updated = await updateProposal(proposal.id, {
-        notes: notesDraft.trim() ? notesDraft : null,
+  // A line is dirty when any of (name / quantity / cost / sort_order)
+  // differs from the server snapshot, or when it's in deletedLineIds.
+  // We diff against `originalLines` so transient typing during a
+  // single edit session (e.g. "1." while typing 1.5) is captured.
+  const dirtyLineIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const id in localLines) {
+      const local = localLines[id]
+      const orig = originalLines[id]
+      if (!orig) continue
+      if (
+        local.label !== orig.label ||
+        Number(local.quantity) !== Number(orig.quantity) ||
+        Number(local.frozen_unit_cost) !== Number(orig.frozen_unit_cost) ||
+        Number(local.sort_order) !== Number(orig.sort_order)
+      ) {
+        ids.add(id)
+      }
+    }
+    return ids
+  }, [localLines, originalLines])
+
+  // Any line in localLines (non-deleted) failing validation blocks save.
+  const linesWithErrors = useMemo(() => {
+    const ids = new Set<string>()
+    for (const id in localLines) {
+      if (deletedLineIds.has(id)) continue
+      if (lineHasErrors(localLines[id])) ids.add(id)
+    }
+    return ids
+  }, [localLines, deletedLineIds])
+
+  const linesDirtyCount = dirtyLineIds.size + deletedLineIds.size
+  const anyDirty = notesDirty || linesDirtyCount > 0
+  const canSave = anyDirty && linesWithErrors.size === 0 && !saving
+
+  /* ---------- line draft callbacks ---------- */
+
+  const handleLineChange = useCallback(
+    (lineId: string, patch: Partial<ProposalLine>) => {
+      setLocalLines((prev) => {
+        const current = prev[lineId]
+        if (!current) return prev
+        return { ...prev, [lineId]: { ...current, ...patch } }
       })
-      setProposal((prev) => (prev ? { ...prev, ...updated } : prev))
-      toast.success('Notes saved.')
+    },
+    []
+  )
+
+  const handleLineDelete = useCallback((lineId: string) => {
+    setDeletedLineIds((prev) => {
+      if (prev.has(lineId)) return prev
+      const next = new Set(prev)
+      next.add(lineId)
+      return next
+    })
+  }, [])
+
+  /**
+   * Drag-drop reorder within a single (proposal_work_area, category).
+   * Receives the new ordered list of line ids; updates sort_order on
+   * each affected localLine. Cross-category drags are blocked by
+   * having a per-subsection SortableContext (separate id spaces).
+   */
+  const handleLineReorder = useCallback((orderedIds: string[]) => {
+    setLocalLines((prev) => {
+      const next = { ...prev }
+      orderedIds.forEach((id, idx) => {
+        if (next[id]) {
+          next[id] = { ...next[id], sort_order: idx }
+        }
+      })
+      return next
+    })
+  }, [])
+
+  /* ---------- unified Save + Reset ---------- */
+
+  const handleSaveAll = useCallback(async () => {
+    if (!proposal || !canSave) return
+    setSaving(true)
+    try {
+      const ops: Promise<unknown>[] = []
+      // Notes
+      if (notesDirty) {
+        ops.push(
+          updateProposal(proposal.id, {
+            notes: notesDraft.trim() ? notesDraft : null,
+          })
+        )
+      }
+      // Dirty line patches (each auto-syncs its pwa subtotals via the
+      // Phase 2c data-layer guard — redundant when multiple lines on
+      // the same pwa change, but functionally correct; can batch in a
+      // Phase 1.5 polish pass).
+      for (const id of dirtyLineIds) {
+        const l = localLines[id]
+        ops.push(
+          updateProposalLine(id, {
+            label: l.label.trim(),
+            quantity: Number(l.quantity),
+            frozen_unit_cost: Number(l.frozen_unit_cost),
+            sort_order: l.sort_order,
+          })
+        )
+      }
+      // Deletes
+      for (const id of deletedLineIds) {
+        ops.push(deleteProposalLine(id))
+      }
+      await Promise.all(ops)
+
+      // Reload fresh server-truth payload + totals
+      const [p, t] = await Promise.all([
+        getProposal(proposal.id),
+        getProposalTotals(proposal.id),
+      ])
+      if (p) {
+        setProposal(p)
+        primeLineState(p, setLocalLines, setOriginalLines)
+        setNotesDraft(p.notes ?? '')
+      }
+      setTotals(t)
+      setDeletedLineIds(new Set())
+      toast.success('Saved.')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Save failed.')
     } finally {
-      setSavingNotes(false)
+      setSaving(false)
     }
-  }, [proposal, notesDraft])
+  }, [
+    proposal,
+    canSave,
+    notesDirty,
+    notesDraft,
+    dirtyLineIds,
+    localLines,
+    deletedLineIds,
+  ])
 
-  const handleResetNotes = useCallback(() => {
+  const handleResetAll = useCallback(() => {
     if (!proposal) return
     setNotesDraft(proposal.notes ?? '')
-  }, [proposal])
+    setLocalLines({ ...originalLines })
+    setDeletedLineIds(new Set())
+  }, [proposal, originalLines])
 
   /* ---------- calculate button ---------- */
 
@@ -241,12 +385,36 @@ export default function ProposalEditor() {
         getProposal(proposalId),
         getProposalTotals(proposalId),
       ])
-      if (p) setProposal(p)
+      if (p) {
+        setProposal(p)
+        // Re-prime the line draft state too — new work area may carry
+        // lines (Phase 2g) and lines on removed work areas need to fall
+        // out of local maps cleanly.
+        primeLineState(p, setLocalLines, setOriginalLines)
+        setDeletedLineIds(new Set())
+        setNotesDraft(p.notes ?? '')
+      }
       setTotals(t)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Refresh failed.')
     }
   }, [proposalId])
+
+  /* ---------- liveWorkAreas projection ---------- */
+  // Merge local-draft line values into the proposal's work areas so
+  // each ProposalWorkAreaSection renders the editor's current state,
+  // not the stale server snapshot. Deleted lines are filtered out and
+  // lines are re-sorted by their (possibly drafted) sort_order.
+  const liveWorkAreas = useMemo<ProposalWorkAreaResolved[]>(() => {
+    if (!proposal) return []
+    return proposal.work_areas.map((wa) => ({
+      ...wa,
+      lines: wa.lines
+        .filter((l) => !deletedLineIds.has(l.id))
+        .map((l) => localLines[l.id] ?? l)
+        .sort((a, b) => a.sort_order - b.sort_order),
+    }))
+  }, [proposal, localLines, deletedLineIds])
 
   /* ---------- dnd-kit reorder ---------- */
   // Optimistic local reorder, persist via reorderProposalWorkAreas.
@@ -364,13 +532,19 @@ export default function ProposalEditor() {
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
         <button
           type="button"
-          onClick={() => void handleSaveNotes()}
-          disabled={!notesDirty || savingNotes}
+          onClick={() => void handleSaveAll()}
+          disabled={!canSave}
           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark disabled:opacity-50"
-          title={notesDirty ? 'Save notes' : 'No changes to save'}
+          title={
+            linesWithErrors.size > 0
+              ? 'Fix line validation errors before saving.'
+              : anyDirty
+                ? 'Save changes'
+                : 'No changes to save'
+          }
         >
           <Save className="h-4 w-4" />
-          {savingNotes ? 'Saving…' : 'Save'}
+          {saving ? 'Saving…' : 'Save'}
         </button>
         <button
           type="button"
@@ -474,16 +648,22 @@ export default function ProposalEditor() {
         ) : (
           <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
             <SortableContext
-              items={proposal.work_areas.map((w) => w.id)}
+              items={liveWorkAreas.map((w) => w.id)}
               strategy={verticalListSortingStrategy}
             >
               <ul className="space-y-3">
-                {proposal.work_areas.map((wa) => (
+                {liveWorkAreas.map((wa) => (
                   <ProposalWorkAreaSection
                     key={wa.id}
                     workArea={wa}
                     materialsMarkupPercent={materialsMarkupPercent}
                     subsMarkupPercent={subsMarkupPercent}
+                    dirtyLineIds={dirtyLineIds}
+                    linesWithErrors={linesWithErrors}
+                    saving={saving}
+                    onLineChange={handleLineChange}
+                    onLineDelete={handleLineDelete}
+                    onLineReorder={handleLineReorder}
                     onChanged={() => void refreshAfterWorkAreaChange()}
                   />
                 ))}
@@ -533,17 +713,28 @@ export default function ProposalEditor() {
         )}
       </section>
 
-      {/* Sticky Save+Reset bar — appears when notes dirty */}
-      {notesDirty && (
+      {/* Sticky Save+Reset bar — unified, appears when notes OR lines dirty */}
+      {anyDirty && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-2xl backdrop-blur-sm">
           <div className="mx-auto flex max-w-screen-2xl items-center justify-end gap-3">
-            <p className="mr-auto text-xs font-medium text-gray-600">
-              Unsaved notes.
+            <p
+              className={`mr-auto text-xs font-medium ${
+                linesWithErrors.size > 0 ? 'text-rose-700' : 'text-gray-600'
+              }`}
+            >
+              {linesWithErrors.size > 0 ? (
+                <>
+                  {linesWithErrors.size} line
+                  {linesWithErrors.size === 1 ? '' : 's'} with errors — fix to save.
+                </>
+              ) : (
+                buildDirtyLabel(linesDirtyCount, notesDirty)
+              )}
             </p>
             <button
               type="button"
-              onClick={handleResetNotes}
-              disabled={savingNotes}
+              onClick={handleResetAll}
+              disabled={saving}
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
               <RotateCcw className="h-4 w-4" />
@@ -551,12 +742,12 @@ export default function ProposalEditor() {
             </button>
             <button
               type="button"
-              onClick={() => void handleSaveNotes()}
-              disabled={savingNotes}
+              onClick={() => void handleSaveAll()}
+              disabled={!canSave}
               className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark disabled:opacity-50"
             >
               <Save className="h-4 w-4" />
-              {savingNotes ? 'Saving…' : 'Save'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
@@ -692,4 +883,36 @@ function formatDateTime(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   })
+}
+
+/**
+ * Populate the per-line draft + original maps from a freshly-loaded
+ * proposal. Called on initial load + after every save / refresh so
+ * the local state stays in sync with server truth.
+ */
+function primeLineState(
+  p: ProposalWithWorkAreas,
+  setLocal: (s: Record<string, ProposalLine>) => void,
+  setOriginal: (s: Record<string, ProposalLine>) => void
+) {
+  const lookup: Record<string, ProposalLine> = {}
+  for (const wa of p.work_areas) {
+    for (const l of wa.lines) {
+      lookup[l.id] = l
+    }
+  }
+  setLocal({ ...lookup })
+  setOriginal({ ...lookup })
+}
+
+/** Sticky-bar copy: combine line + notes dirty signals into one short line. */
+function buildDirtyLabel(linesDirtyCount: number, notesDirty: boolean): string {
+  const parts: string[] = []
+  if (linesDirtyCount > 0) {
+    parts.push(
+      `${linesDirtyCount} unsaved line${linesDirtyCount === 1 ? '' : 's'}`
+    )
+  }
+  if (notesDirty) parts.push('unsaved notes')
+  return parts.join(' + ') + '.'
 }
