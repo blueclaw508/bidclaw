@@ -13,9 +13,11 @@ import type { ProposalLine, ProposalLineCategory } from '@/lib/types'
  * dirty rows in a single batch via updateProposalLine and then re-
  * syncs each affected proposal_work_area's denormalized subtotals.
  *
- * Markup column is READ-ONLY in Phase 2 — displays frozen_markup_percent.
- * Labor + equipment lines show "—" (no markup, by convention).
- * Material / subcontractor / other show "{n}%".
+ * Markup column behavior (Phase 3a):
+ *   • Material / subcontractor / other → editable DecimalInput, 0..200,
+ *     "%" visual suffix, stored as plain number
+ *   • Labor / equipment → fixed at 0 by KYN convention (rates already
+ *     include margin); renders "—" non-editable
  *
  * Price column is computed display: qty × cost × (1 + markup/100).
  * The same formula works across all categories because labor + equipment
@@ -25,6 +27,8 @@ import type { ProposalLine, ProposalLineCategory } from '@/lib/types'
  *   • label must be non-empty
  *   • quantity > 0 (DB CHECK rejects 0 / negative)
  *   • frozen_unit_cost >= 0 (DB CHECK rejects negative)
+ *   • frozen_markup_percent in [0, 200] for material/sub/other; skipped
+ *     for labor/equipment (always valid since markup=0 by convention)
  * Errors surface as rose border + Save-disabled signal at the parent.
  */
 
@@ -38,6 +42,7 @@ interface ProposalLineRowProps {
     nameInvalid: boolean
     quantityInvalid: boolean
     costInvalid: boolean
+    markupInvalid: boolean
   }
   /** Emit a partial patch to the parent's local draft state. */
   onChange: (patch: Partial<ProposalLine>) => void
@@ -65,7 +70,11 @@ export function ProposalLineRow({
 
   const price = computePrice(line)
   const showMarkup = showMarkupForCategory(line.category)
-  const hasError = errors.nameInvalid || errors.quantityInvalid || errors.costInvalid
+  const hasError =
+    errors.nameInvalid ||
+    errors.quantityInvalid ||
+    errors.costInvalid ||
+    errors.markupInvalid
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -122,16 +131,24 @@ export function ProposalLineRow({
           />
         </div>
 
-        {/* Markup — read-only display of the line's frozen markup %. */}
-        <div className="flex items-center justify-end text-xs">
-          {showMarkup ? (
-            <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 font-semibold text-gray-700">
-              {Number(line.frozen_markup_percent).toFixed(2)}%
+        {/* Markup — editable DecimalInput for material/sub/other; '—' for labor/equipment. */}
+        {showMarkup ? (
+          <div className="relative">
+            <DecimalInput
+              value={line.frozen_markup_percent}
+              onCommit={(n) => onChange({ frozen_markup_percent: n ?? NaN })}
+              disabled={disabled}
+              placeholder="0"
+              className={`${cellInputClasses(errors.markupInvalid)} pr-5 text-right`}
+              title={errors.markupInvalid ? 'Markup must be between 0 and 200.' : undefined}
+            />
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+              %
             </span>
-          ) : (
-            <span className="text-gray-400">—</span>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end text-xs text-gray-400">—</div>
+        )}
 
         {/* Price — computed display */}
         <div className="text-right text-sm font-semibold tabular-nums text-gray-900">
@@ -194,11 +211,25 @@ export function ProposalLineRow({
             />
           </LabeledMobileField>
           <LabeledMobileField label="Markup">
-            <div className="rounded-md border border-transparent px-2 py-1.5 text-right text-xs text-gray-700">
-              {showMarkup
-                ? `${Number(line.frozen_markup_percent).toFixed(2)}%`
-                : '—'}
-            </div>
+            {showMarkup ? (
+              <div className="relative">
+                <DecimalInput
+                  value={line.frozen_markup_percent}
+                  onCommit={(n) => onChange({ frozen_markup_percent: n ?? NaN })}
+                  disabled={disabled}
+                  placeholder="0"
+                  className={`${cellInputClasses(errors.markupInvalid)} pr-5 text-right`}
+                  title={errors.markupInvalid ? 'Markup must be between 0 and 200.' : undefined}
+                />
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                  %
+                </span>
+              </div>
+            ) : (
+              <div className="rounded-md border border-transparent px-2 py-1.5 text-right text-xs text-gray-400">
+                —
+              </div>
+            )}
           </LabeledMobileField>
           <LabeledMobileField label="Price">
             <div className="rounded-md border border-transparent px-2 py-1.5 text-right text-sm font-semibold tabular-nums text-gray-900">
@@ -230,21 +261,31 @@ export interface LineErrors {
   nameInvalid: boolean
   quantityInvalid: boolean
   costInvalid: boolean
+  markupInvalid: boolean
 }
 
 /** Pure validator. Parent runs this on every local line to decide Save-disabled state + per-cell border. */
 export function validateLine(line: ProposalLine): LineErrors {
+  // Markup validation only applies to categories that bear markup.
+  // Labor + equipment carry frozen_markup_percent=0 by KYN convention
+  // and the column is non-editable in the UI, so we never flag them.
+  const markupRelevant = showMarkupForCategory(line.category)
+  const m = Number(line.frozen_markup_percent)
+  const markupInvalid = markupRelevant
+    ? !Number.isFinite(m) || m < 0 || m > 200
+    : false
   return {
     nameInvalid: !line.label || !line.label.trim(),
     quantityInvalid: !Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0,
     costInvalid:
       !Number.isFinite(Number(line.frozen_unit_cost)) || Number(line.frozen_unit_cost) < 0,
+    markupInvalid,
   }
 }
 
 export function lineHasErrors(line: ProposalLine): boolean {
   const e = validateLine(line)
-  return e.nameInvalid || e.quantityInvalid || e.costInvalid
+  return e.nameInvalid || e.quantityInvalid || e.costInvalid || e.markupInvalid
 }
 
 function computePrice(line: ProposalLine): number {

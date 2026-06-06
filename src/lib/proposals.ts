@@ -764,15 +764,22 @@ export async function addCustomLine(input: {
  * Patch a proposal_line. Editability guard via parent proposal. After
  * the patch lands, recompute the parent work area's subtotals so the
  * editor's per-section + grand-total roll-up stays current.
+ *
+ * Phase 3a additive: `frozen_markup_percent` is now patchable, but
+ * only on material / subcontractor / other lines (labor + equipment
+ * carry markup=0 by KYN convention — rates already include margin)
+ * and only within 0..200. The DB column is NOT NULL so NaN/negative
+ * patches would also be rejected by Postgres; we surface a cleaner
+ * error here first.
  */
 export async function updateProposalLine(
   id: string,
   patch: Partial<Pick<ProposalLine,
-    'label' | 'quantity' | 'frozen_unit_cost' | 'sort_order' | 'unit'>>
+    'label' | 'quantity' | 'frozen_unit_cost' | 'frozen_markup_percent' | 'sort_order' | 'unit'>>
 ): Promise<ProposalLine> {
   const { data: line, error: lookupErr } = await supabase
     .from('proposal_lines')
-    .select('proposal_id, proposal_work_area_id')
+    .select('proposal_id, proposal_work_area_id, category')
     .eq('id', id)
     .maybeSingle()
   if (lookupErr || !line) {
@@ -781,6 +788,19 @@ export async function updateProposalLine(
     )
   }
   await assertProposalEditable(line.proposal_id as string)
+
+  if (patch.frozen_markup_percent !== undefined) {
+    const category = line.category as ProposalLineCategory
+    if (category === 'labor' || category === 'equipment') {
+      throw new Error(
+        `Markup is fixed at 0 for ${category} lines (KYN methodology — rates already include margin).`
+      )
+    }
+    const m = Number(patch.frozen_markup_percent)
+    if (!Number.isFinite(m) || m < 0 || m > 200) {
+      throw new Error('Markup must be between 0 and 200.')
+    }
+  }
 
   const { data, error } = await supabase
     .from('proposal_lines')
