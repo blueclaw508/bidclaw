@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, FileText, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, FileText, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
-import { createProposal, deleteProposal, listProposalsByProject } from '@/lib/proposals'
+import {
+  createProposal,
+  deleteProposal,
+  duplicateProposal,
+  listProposalsByProject,
+} from '@/lib/proposals'
 import type { Project, ProposalListRow } from '@/lib/types'
 
 /**
@@ -39,6 +44,11 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
   // interactive elements + simplifies focus management).
   const [proposalToDelete, setProposalToDelete] = useState<ProposalListRow | null>(null)
 
+  // Per-row duplicating state — set to the id of the row whose Copy
+  // button is currently in flight. Allows disabling that specific
+  // button (not all rows) while the data-layer call runs. Phase 3d.
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     setLoadError(null)
     try {
@@ -64,6 +74,29 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
       toast.error(err instanceof Error ? err.message : 'Could not delete proposal.')
     }
   }, [proposalToDelete, load])
+
+  /**
+   * Duplicate a proposal then navigate directly into the new editor.
+   * Per-row in-flight guard via duplicatingId so the button on this
+   * specific row is disabled while the data-layer call runs.
+   */
+  const handleDuplicate = useCallback(
+    async (row: ProposalListRow) => {
+      if (duplicatingId) return
+      setDuplicatingId(row.id)
+      try {
+        const { newProposalId } = await duplicateProposal(row.id)
+        toast.success('Proposal duplicated.')
+        navigate(`/app/projects/${project.id}/proposals/${newProposalId}`)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not duplicate proposal.')
+        setDuplicatingId(null)
+      }
+      // No reset on success — we navigate away. If navigation is blocked
+      // the button stays disabled; refresh fixes it.
+    },
+    [duplicatingId, navigate, project.id]
+  )
 
   /**
    * One-click proposal creation. Picks the auto-name based on how
@@ -178,6 +211,8 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
           projectName={project.name}
           rows={rows}
           onRequestDelete={setProposalToDelete}
+          onRequestDuplicate={handleDuplicate}
+          duplicatingId={duplicatingId}
         />
       )}
 
@@ -221,11 +256,15 @@ function ProposalList({
   projectName,
   rows,
   onRequestDelete,
+  onRequestDuplicate,
+  duplicatingId,
 }: {
   projectId: string
   projectName: string
   rows: ProposalListRow[]
   onRequestDelete: (row: ProposalListRow) => void
+  onRequestDuplicate: (row: ProposalListRow) => void
+  duplicatingId: string | null
 }) {
   // Click handler for the trash button on each row. Lives inside a
   // <Link> so we must preventDefault AND stopPropagation to keep
@@ -236,13 +275,22 @@ function ProposalList({
     onRequestDelete(row)
   }
 
+  // Same Link-blocking pattern for the copy button.
+  const handleCopyClick = (e: React.MouseEvent, row: ProposalListRow) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (duplicatingId) return // a duplication is already in flight
+    void onRequestDuplicate(row)
+  }
+
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-      {/* Desktop header row — extra 36px col before chevron for the trash button */}
-      <div className="hidden grid-cols-[1.5fr_110px_140px_36px_32px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
+      {/* Desktop header row — extra 36px cols for copy + trash buttons */}
+      <div className="hidden grid-cols-[1.5fr_110px_140px_36px_36px_32px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
         <div>Proposal</div>
         <div>Status</div>
         <div className="text-right">Grand total</div>
+        <div />
         <div />
         <div />
       </div>
@@ -255,7 +303,7 @@ function ProposalList({
               className="block transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
             >
               {/* Desktop layout */}
-              <div className="hidden grid-cols-[1.5fr_110px_140px_36px_32px] items-center gap-4 px-6 py-4 lg:grid">
+              <div className="hidden grid-cols-[1.5fr_110px_140px_36px_36px_32px] items-center gap-4 px-6 py-4 lg:grid">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-gray-900">
                     {p.name}
@@ -279,6 +327,22 @@ function ProposalList({
                 </div>
                 <div className="text-right text-sm font-semibold text-gray-900">
                   {formatUSD(p.grand_total)}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyClick(e, p)}
+                    disabled={duplicatingId !== null}
+                    aria-label={`Duplicate ${p.name}`}
+                    title={
+                      duplicatingId === p.id
+                        ? 'Duplicating…'
+                        : 'Duplicate proposal'
+                    }
+                    className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-400"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
                 </div>
                 <div className="flex justify-end">
                   <button
@@ -322,7 +386,17 @@ function ProposalList({
                     Updated {formatRelative(p.updated_at)}
                   </span>
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyClick(e, p)}
+                    disabled={duplicatingId !== null}
+                    aria-label={`Duplicate ${p.name}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Copy className="h-3 w-3" />
+                    {duplicatingId === p.id ? 'Duplicating…' : 'Duplicate'}
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => handleTrashClick(e, p)}

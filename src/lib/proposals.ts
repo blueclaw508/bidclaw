@@ -312,6 +312,214 @@ export async function deleteProposal(id: string): Promise<void> {
   if (error) throw new Error(`Couldn't delete proposal: ${error.message}`)
 }
 
+/**
+ * Duplicate a proposal as a fresh draft, carrying forward every frozen
+ * snapshot field VERBATIM. The architectural keystone: a duplicate
+ * preserves the source's pricing snapshot — frozen_unit_cost,
+ * frozen_markup_percent, frozen_labor_rate, frozen_equipment_rate
+ * are copied as-is. Current settings are NEVER read.
+ *
+ *   Source name "Foo"  → new name "Foo (copy)"
+ *   Source status any  → new status 'draft' (only editable state)
+ *   Source notes verbatim
+ *   Source work areas: 1:1 copy with mapped FK
+ *   Source lines: 1:1 copy under the mapped pwa, frozen fields verbatim
+ *
+ * Atomicity: JS-side with defensive CASCADE cleanup on error. If a
+ * later step fails after the proposal row exists, we delete the
+ * partial proposal → DB cascade removes any inserted work areas + lines
+ * → no orphans. Phase 1.5 backlog: migrate to a Postgres RPC for true
+ * transactional atomicity.
+ *
+ * Note on `catalog_item_id`: the spec mentioned preserving a
+ * catalog_item_id FK for traceability, but that column doesn't exist on
+ * proposal_lines yet (Phase 1.5 backlog item from Phase 2 closeout —
+ * `source_catalog_item_id` is planned but not landed). Today the
+ * catalog hint lives in `frozen_reference_label`, which we DO preserve.
+ */
+export async function duplicateProposal(
+  sourceId: string
+): Promise<{ newProposalId: string }> {
+  // Step 1 — load full source. getProposal returns the proposal with
+  // resolved work areas + their lines, sorted, RLS-scoped.
+  const source = await getProposal(sourceId)
+  if (!source) {
+    throw new Error('Source proposal not found (or not yours).')
+  }
+
+  // Step 2 — insert the new proposal row. Always status='draft'
+  // regardless of source status; the standard "create-from-template"
+  // pattern. Name suffix " (copy)" is deliberately naive — no
+  // "(copy 2)" detection; contractor can rename in the editor.
+  const { data: newProposal, error: pErr } = await supabase
+    .from('proposals')
+    .insert({
+      project_id: source.project_id,
+      name: `${source.name} (copy)`,
+      notes: source.notes,
+      status: 'draft',
+    })
+    .select('id')
+    .single()
+  if (pErr || !newProposal) {
+    throw new Error(
+      `Couldn't create duplicate proposal: ${pErr?.message ?? 'no row returned'}`
+    )
+  }
+  const newProposalId = newProposal.id as string
+
+  // From here on, any error must trigger cleanup of the partial new
+  // proposal — delete cascades remove any work_areas / lines we may
+  // have inserted before the failure.
+  try {
+    // Edge case: source has zero work areas → skip the WA + line loops
+    // entirely. The new proposal is just an empty shell, which is fine.
+    if (source.work_areas.length === 0) {
+      return { newProposalId }
+    }
+
+    // Step 3 — bulk insert proposal_work_areas. Returning ids in the
+    // same order as the input array would let us pair source→new
+    // without a secondary lookup, but PostgREST insert+select doesn't
+    // guarantee insert order. So we do one-shot insert with all rows,
+    // then match by `position` (unique within a proposal).
+    type NewPwaRow = {
+      proposal_id: string
+      work_area_id: string | null
+      position: number
+      name_override: string | null
+      description_override: string | null
+      enabled: boolean
+      labor_subtotal: number
+      material_subtotal: number
+      equipment_subtotal: number
+      subcontractor_subtotal: number
+      other_subtotal: number
+    }
+    const newPwaRows: NewPwaRow[] = source.work_areas.map((wa) => ({
+      proposal_id: newProposalId,
+      // work_area_id stays NULL on ad-hoc WAs; otherwise points to the
+      // same source project work_area as the original.
+      work_area_id: wa.work_area_id ?? null,
+      position: wa.position,
+      name_override: wa.name_override,
+      description_override: wa.description_override,
+      enabled: wa.enabled,
+      labor_subtotal: Number(wa.labor_subtotal),
+      material_subtotal: Number(wa.material_subtotal),
+      equipment_subtotal: Number(wa.equipment_subtotal),
+      subcontractor_subtotal: Number(wa.subcontractor_subtotal),
+      other_subtotal: Number(wa.other_subtotal),
+    }))
+
+    const { data: insertedPwas, error: waErr } = await supabase
+      .from('proposal_work_areas')
+      .insert(newPwaRows)
+      .select('id, position')
+    if (waErr || !insertedPwas) {
+      throw new Error(
+        `Couldn't copy work areas: ${waErr?.message ?? 'no rows returned'}`
+      )
+    }
+
+    // Build map: sourcePwaId → newPwaId, keyed by position which is
+    // unique inside a proposal.
+    const positionToNewPwaId = new Map<number, string>()
+    for (const row of insertedPwas as Array<{ id: string; position: number }>) {
+      positionToNewPwaId.set(row.position, row.id)
+    }
+    const sourcePwaIdToNewPwaId = new Map<string, string>()
+    for (const sourceWa of source.work_areas) {
+      const newId = positionToNewPwaId.get(sourceWa.position)
+      if (!newId) {
+        throw new Error(
+          `Couldn't pair duplicated work area at position ${sourceWa.position} — insert returned mismatched positions.`
+        )
+      }
+      sourcePwaIdToNewPwaId.set(sourceWa.id, newId)
+    }
+
+    // Step 4 — bulk insert proposal_lines for all work areas in one
+    // call. Each line's frozen_* fields are copied VERBATIM — the
+    // architectural keystone of duplication. Skip work areas with
+    // zero lines (no-op insert is a wasted round-trip but harmless;
+    // we filter to keep the insert payload tight).
+    type NewLineRow = {
+      proposal_id: string
+      proposal_work_area_id: string
+      source_kit_id: string | null
+      source_kit_line_id: string | null
+      category: ProposalLineCategory
+      label: string
+      unit: string
+      quantity: number
+      frozen_unit_cost: number
+      frozen_labor_rate: number | null
+      frozen_equipment_rate: number | null
+      frozen_markup_percent: number
+      frozen_kit_factor: number | null
+      frozen_reference_label: string | null
+      sort_order: number
+    }
+    const newLineRows: NewLineRow[] = []
+    for (const sourceWa of source.work_areas) {
+      const newPwaId = sourcePwaIdToNewPwaId.get(sourceWa.id)!
+      for (const l of sourceWa.lines) {
+        newLineRows.push({
+          proposal_id: newProposalId,
+          proposal_work_area_id: newPwaId,
+          source_kit_id: l.source_kit_id,
+          source_kit_line_id: l.source_kit_line_id,
+          category: l.category,
+          label: l.label,
+          unit: l.unit,
+          quantity: Number(l.quantity),
+          // VERBATIM frozen-rate carry-forward. Do not coerce or
+          // re-resolve from current settings under any circumstance.
+          frozen_unit_cost: Number(l.frozen_unit_cost),
+          frozen_labor_rate:
+            l.frozen_labor_rate === null ? null : Number(l.frozen_labor_rate),
+          frozen_equipment_rate:
+            l.frozen_equipment_rate === null
+              ? null
+              : Number(l.frozen_equipment_rate),
+          frozen_markup_percent: Number(l.frozen_markup_percent),
+          frozen_kit_factor:
+            l.frozen_kit_factor === null ? null : Number(l.frozen_kit_factor),
+          frozen_reference_label: l.frozen_reference_label,
+          sort_order: l.sort_order,
+        })
+      }
+    }
+
+    if (newLineRows.length > 0) {
+      const { error: lErr } = await supabase
+        .from('proposal_lines')
+        .insert(newLineRows)
+      if (lErr) {
+        throw new Error(`Couldn't copy line items: ${lErr.message}`)
+      }
+    }
+
+    return { newProposalId }
+  } catch (err) {
+    // Defensive cleanup: delete the partial proposal. CASCADE on the
+    // 3 FKs (proposals → proposal_work_areas, proposals → proposal_lines,
+    // proposal_work_areas → proposal_lines) confirmed in Phase 3b
+    // means deleting the proposal removes everything we just inserted.
+    try {
+      await deleteProposal(newProposalId)
+    } catch (cleanupErr) {
+      // Swallow cleanup error so the original failure is what the user
+      // sees. Log to console for diagnostic.
+      console.error('[duplicateProposal] cleanup failed:', cleanupErr)
+    }
+    throw err instanceof Error
+      ? err
+      : new Error('Duplicate failed for an unknown reason.')
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // proposal_work_areas CRUD
 // ──────────────────────────────────────────────────────────────────────
