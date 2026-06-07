@@ -29,3 +29,7 @@ dist-ssr
 test-plans/
 
 .commit-msg-tmp.txt
+
+# Phase 9-lite verification artifacts (auth state + screenshots + PDFs)
+verifications/
+.env.local
