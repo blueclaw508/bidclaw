@@ -21,6 +21,7 @@ const CatalogPage               = lazy(() => import('@/pages/Catalog'))
 const KitsPage                  = lazy(() => import('@/pages/Kits'))
 const KitDetailPage             = lazy(() => import('@/pages/KitDetail'))
 const ProposalEditorPage        = lazy(() => import('@/pages/ProposalEditor'))
+const ProposalPrintViewPage     = lazy(() => import('@/pages/ProposalPrintView'))
 const SettingsPage                  = lazy(() => import('@/pages/Settings'))
 const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
 const EnterMyNumbersSettingsPage    = lazy(() => import('@/pages/EnterMyNumbersSettings'))
@@ -41,6 +42,19 @@ export default function App() {
 
               {/* Magic-link return URL */}
               <Route path="/auth/callback" element={<AuthCallback />} />
+
+              {/* Phase 9-lite — Print view. Lives INSIDE RequireAuth but
+                  OUTSIDE the AppShell chrome so the document fills the
+                  page edge-to-edge and prints cleanly. Defined before
+                  the AppShell-wrapped /app route so it wins the match. */}
+              <Route
+                path="/app/projects/:projectId/proposals/:proposalId/print"
+                element={
+                  <RequireAuth>
+                    <ProposalPrintViewPage />
+                  </RequireAuth>
+                }
+              />
 
               {/* Protected — /app/* lives behind RequireAuth + AppShell */}
               <Route

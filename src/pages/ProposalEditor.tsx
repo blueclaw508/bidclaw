@@ -28,6 +28,7 @@ import {
   Layers,
   Lock,
   Plus,
+  Printer,
   RotateCcw,
   Save,
   Send,
@@ -667,6 +668,21 @@ export default function ProposalEditor() {
             setPendingTransition(t)
           }}
         />
+
+        {/* Phase 9-lite — Print / customer view */}
+        <button
+          type="button"
+          onClick={() =>
+            navigate(
+              `/app/projects/${projectId}/proposals/${proposalId}/print`
+            )
+          }
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          title="Open customer view to print or save as PDF"
+        >
+          <Printer className="h-4 w-4" />
+          Print
+        </button>
 
         <button
           type="button"
