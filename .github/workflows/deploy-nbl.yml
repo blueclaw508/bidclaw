@@ -1,0 +1,24 @@
+name: Deploy NBL Canada site
+on:
+  workflow_dispatch:
+    inputs:
+      proxy_path:
+        description: Netlify MCP deploy proxy URL (short-lived, single-site token)
+        required: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Mask deploy token in logs
+        env:
+          PROXY_PATH: ${{ inputs.proxy_path }}
+        run: echo "::add-mask::$PROXY_PATH"
+      - name: Deploy nbl-site/ to Netlify
+        working-directory: nbl-site
+        env:
+          PROXY_PATH: ${{ inputs.proxy_path }}
+        run: npx -y @netlify/mcp@latest --site-id 70a991a5-fb3f-4b37-9c6f-23514d7da4a8 --proxy-path "$PROXY_PATH"

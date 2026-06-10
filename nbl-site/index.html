@@ -1,0 +1,1000 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>NBL Canada — Founding Owners Wanted | March 2027</title>
+  <meta name="description" content="Canada's professional spring basketball league. Inaugural tip-off March 2027. Six founding markets, expanding to twelve. Founding franchise ownership now forming." />
+  <meta name="theme-color" content="#0F0F0F" />
+  <link rel="canonical" href="https://nbl-canada-2027.netlify.app/" />
+
+  <meta property="og:title" content="NBL Canada — Founding Owners Wanted | March 2027" />
+  <meta property="og:description" content="Canada's professional spring basketball league. Inaugural tip-off March 2027. Six founding markets, expanding to twelve. Founding franchise ownership now forming." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://nbl-canada-2027.netlify.app/" />
+  <meta property="og:image" content="https://6a03910defabc798e25fe014--nbl-canada-2027.netlify.app/assets/og.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" type="image/png" href="https://6a03910defabc798e25fe014--nbl-canada-2027.netlify.app/assets/favicon.png" />
+
+  <!-- Fonts: preconnect + swap so text renders immediately -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Hero poster paints before the video arrives -->
+  <link rel="preload" as="image" href="https://6a03910defabc798e25fe014--nbl-canada-2027.netlify.app/assets/poster1.jpg" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SportsOrganization",
+    "name": "National Basketball League of Canada",
+    "alternateName": "NBL Canada",
+    "url": "https://nbl-canada-2027.netlify.app/",
+    "foundingDate": "2011",
+    "sport": "Basketball",
+    "email": "inquiry@nblcanada.ca",
+    "employee": [
+      { "@type": "Person", "name": "Andre Levingston", "jobTitle": "CEO, NBL Canada" },
+      { "@type": "Person", "name": "Ian McCarthy", "jobTitle": "COO, NBL Canada" }
+    ],
+    "sameAs": [
+      "https://www.instagram.com/officialnblc/",
+      "https://ca.linkedin.com/company/national-basketball-league-of-canada",
+      "https://www.youtube.com/user/thenblcanadalive"
+    ]
+  }
+  </script>
+
+  <style>
+    /* ============================================================
+       Design tokens
+       ============================================================ */
+    :root {
+      --charcoal: #0F0F0F;
+      --charcoal-2: #1A1A1A;
+      --red: #C8102E;
+      --red-hot: #E11233;
+      --white-85: rgba(255,255,255,0.85);
+      --white-80: rgba(255,255,255,0.80);
+      --white-65: rgba(255,255,255,0.65);
+      --white-55: rgba(255,255,255,0.55);
+      --white-40: rgba(255,255,255,0.40);
+      --hairline: rgba(255,255,255,0.07);
+      --display: 'Anton', Impact, system-ui, sans-serif;
+      --body: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+    html, body { background: var(--charcoal); color: #fff; }
+    body {
+      font-family: var(--body);
+      font-weight: 400;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      overflow-x: hidden;
+    }
+
+    img, video { display: block; max-width: 100%; }
+    a { color: inherit; }
+
+    .display { font-family: var(--display); letter-spacing: -0.01em; text-transform: uppercase; }
+
+    .eyebrow {
+      font-size: 11px;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--red);
+    }
+
+    .wrap   { max-width: 72rem; margin-inline: auto; padding-inline: 1.5rem; }
+    .wrap-n { max-width: 80rem; margin-inline: auto; padding-inline: 1.5rem; }
+    .wrap-s { max-width: 48rem; margin-inline: auto; padding-inline: 1.5rem; }
+
+    section { padding-block: 5rem; }
+    @media (min-width: 640px) { section { padding-block: 7rem; } }
+
+    .hairline-top { border-top: 1px solid var(--hairline); }
+
+    /* ============================================================
+       Reveal on scroll
+       ============================================================ */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+    }
+    .fade-in.is-visible { opacity: 1; transform: translateY(0); }
+
+    /* ============================================================
+       Buttons
+       ============================================================ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.125rem 2.25rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-decoration: none;
+      border-radius: 2px;
+      color: #fff;
+      cursor: pointer;
+      border: 0;
+      font-family: var(--body);
+    }
+    .btn-primary {
+      background: var(--red);
+      box-shadow: 0 0 0 0 rgba(200,16,46,0);
+      transition: background 0.2s ease, box-shadow 0.35s ease, transform 0.2s ease;
+    }
+    .btn-primary:hover {
+      background: var(--red-hot);
+      box-shadow: 0 0 32px 0 rgba(200,16,46,0.45);
+      transform: translateY(-1px);
+    }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.45);
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .btn-ghost:hover { border-color: #fff; background: rgba(255,255,255,0.06); }
+
+    /* ============================================================
+       HERO — cinematic layered treatment
+       Layers (back to front):
+         1. video / poster with slow Ken Burns drift
+         2. red ember glow drifting bottom-left
+         3. directional gradient for legibility
+         4. film grain
+         5. vignette
+       Swap footage: replace the <source> in #hero-video.
+       ============================================================ */
+    .hero {
+      position: relative;
+      min-height: 100svh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding-block: 0;
+    }
+
+    .hero-media {
+      position: absolute;
+      inset: -6%;            /* overscan so the drift never shows edges */
+      z-index: 0;
+    }
+    .hero-media video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      animation: kenburns 36s ease-in-out infinite alternate;
+    }
+    @keyframes kenburns {
+      from { transform: scale(1)    translate(0, 0); }
+      to   { transform: scale(1.08) translate(-1.2%, 1%); }
+    }
+
+    .hero-ember {
+      position: absolute;
+      z-index: 1;
+      width: 70vmax;
+      height: 70vmax;
+      left: -25vmax;
+      bottom: -30vmax;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(200,16,46,0.28) 0%, rgba(200,16,46,0.10) 40%, transparent 70%);
+      filter: blur(40px);
+      animation: ember 14s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+    @keyframes ember {
+      from { opacity: 0.55; transform: translate(0, 0) scale(1); }
+      to   { opacity: 1;    transform: translate(6vmax, -4vmax) scale(1.12); }
+    }
+
+    .hero-shade {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      background:
+        linear-gradient(to bottom,
+          rgba(15,15,15,0.72) 0%,
+          rgba(15,15,15,0.55) 35%,
+          rgba(15,15,15,0.62) 70%,
+          rgba(15,15,15,0.96) 100%);
+      pointer-events: none;
+    }
+
+    .grain {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      opacity: 0.5;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.14'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 256px 256px;
+    }
+
+    .vignette {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%);
+    }
+
+    .hero-eyebrow {
+      position: relative;
+      z-index: 10;
+      padding: 2.25rem 1.5rem 0;
+    }
+    @media (min-width: 640px) { .hero-eyebrow { padding: 2.5rem 2.5rem 0; } }
+
+    .hero-core {
+      position: relative;
+      z-index: 10;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 3rem 1.5rem;
+    }
+
+    .hero-h1 {
+      font-size: clamp(2.6rem, 9vw, 8rem);
+      line-height: 0.92;
+      max-width: 24ch;
+    }
+    .hero-h1 .accent { color: var(--red); }
+
+    .hero-sub {
+      margin-top: 2.5rem;
+      max-width: 42rem;
+      font-size: 1.0625rem;
+      line-height: 1.65;
+      color: var(--white-85);
+    }
+
+    .hero-ctas {
+      margin-top: 2.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      width: 100%;
+      max-width: 22rem;
+    }
+    @media (min-width: 640px) {
+      .hero-ctas { flex-direction: row; width: auto; max-width: none; }
+    }
+
+    .hero-note {
+      margin-top: 2.5rem;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--white-55);
+    }
+
+    .scroll-cue {
+      position: relative;
+      z-index: 10;
+      align-self: center;
+      margin-bottom: 1.75rem;
+      width: 1px;
+      height: 56px;
+      background: linear-gradient(to bottom, transparent, var(--red));
+      animation: cue 2.2s ease-in-out infinite;
+    }
+    @keyframes cue {
+      0%, 100% { opacity: 0.25; transform: scaleY(0.6); transform-origin: top; }
+      50%      { opacity: 1;    transform: scaleY(1);   transform-origin: top; }
+    }
+
+    /* ============================================================
+       Track record
+       ============================================================ */
+    .stats { background: var(--charcoal-2); }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2.5rem 1.5rem;
+      text-align: center;
+    }
+    @media (min-width: 768px) { .stats-grid { grid-template-columns: repeat(4, 1fr); } }
+
+    .stat-num {
+      font-family: var(--display);
+      font-size: clamp(3.5rem, 8vw, 5.5rem);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-num.accent { color: var(--red); }
+    .stat-label {
+      margin-top: 0.75rem;
+      font-size: 10.5px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--white-55);
+    }
+    .stats-caption {
+      margin: 3.5rem auto 0;
+      max-width: 48rem;
+      text-align: center;
+      font-size: 1.0625rem;
+      color: var(--white-80);
+    }
+
+    /* ============================================================
+       Two-column editorial blocks
+       ============================================================ */
+    .split {
+      display: grid;
+      gap: 3rem;
+    }
+    @media (min-width: 768px) { .split { grid-template-columns: 1fr 1fr; gap: 5rem; } }
+
+    .h2 {
+      font-size: clamp(2.6rem, 6vw, 4.5rem);
+      line-height: 0.97;
+    }
+    .h2-block { margin-bottom: 3.5rem; max-width: 56rem; }
+    @media (min-width: 640px) { .h2-block { margin-bottom: 5rem; } }
+
+    .prose p + p { margin-top: 1.5rem; }
+    .prose { font-size: 1.0625rem; color: var(--white-80); }
+    .prose .strong { color: #fff; font-weight: 600; }
+    .prose .accent { color: var(--red); font-weight: 600; }
+    .prose .muted  { color: var(--white-65); }
+
+    /* ============================================================
+       Operators section
+       ============================================================ */
+    .operators { background: var(--charcoal-2); }
+    .operators-grid { display: grid; gap: 2.5rem; }
+    @media (min-width: 768px) {
+      .operators-grid { grid-template-columns: 2fr 1fr; gap: 2.5rem; }
+    }
+    .fit-card {
+      background: var(--charcoal);
+      border-left: 3px solid var(--red);
+      padding: 2rem;
+    }
+    .fit-card h3 {
+      font-family: var(--display);
+      text-transform: uppercase;
+      color: var(--red);
+      font-size: 0.875rem;
+      letter-spacing: 0.22em;
+      margin-bottom: 1rem;
+      font-weight: 400;
+    }
+    .fit-card li { margin-top: 0.75rem; color: var(--white-85); list-style: none; padding-left: 1.1rem; position: relative; }
+    .fit-card li::before { content: ''; position: absolute; left: 0; top: 0.62em; width: 5px; height: 5px; background: var(--red); }
+
+    /* ============================================================
+       Deal cards
+       ============================================================ */
+    .deal-grid { display: grid; gap: 1.25rem; }
+    @media (min-width: 640px) { .deal-grid { grid-template-columns: 1fr 1fr; } }
+
+    .deal-card {
+      background: var(--charcoal-2);
+      border-top: 3px solid var(--red);
+      padding: 2.25rem;
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+    .deal-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 14px 40px rgba(200,16,46,0.12);
+    }
+    .deal-card .index {
+      font-family: var(--display);
+      color: var(--red);
+      font-size: clamp(2.25rem, 4vw, 3rem);
+      line-height: 1;
+      margin-bottom: 1.25rem;
+    }
+    .deal-card h3 {
+      font-family: var(--display);
+      text-transform: uppercase;
+      font-size: clamp(1.5rem, 3vw, 1.875rem);
+      letter-spacing: 0.04em;
+      margin-bottom: 1.25rem;
+      font-weight: 400;
+    }
+    .deal-card li { margin-top: 0.625rem; color: var(--white-85); line-height: 1.4; list-style: none; }
+
+    .terms-card {
+      margin-top: 3.5rem;
+      background: var(--charcoal-2);
+      border-left: 3px solid var(--red);
+      padding: 2.25rem;
+    }
+    .terms-card h3 {
+      font-family: var(--display);
+      text-transform: uppercase;
+      color: var(--red);
+      font-size: 0.875rem;
+      letter-spacing: 0.22em;
+      margin-bottom: 1rem;
+      font-weight: 400;
+    }
+    .terms-card li { margin-top: 0.875rem; color: var(--white-85); font-size: 1.0625rem; line-height: 1.6; list-style: none; }
+
+    .urgency {
+      margin-top: 2.5rem;
+      text-align: center;
+      color: var(--red);
+      font-weight: 600;
+      font-size: 1.0625rem;
+    }
+
+    /* ============================================================
+       Founders
+       ============================================================ */
+    .founders-grid { display: grid; gap: 3rem; }
+    @media (min-width: 768px) { .founders-grid { grid-template-columns: 1fr 1fr; gap: 4rem; } }
+
+    .founder-photo {
+      aspect-ratio: 1;
+      max-width: 400px;
+      margin-bottom: 1.5rem;
+      background: var(--charcoal-2);
+      overflow: hidden;
+    }
+    .founder-photo img {
+      width: 100%; height: 100%; object-fit: cover;
+      filter: grayscale(28%) contrast(1.05);
+      transition: filter 0.4s ease;
+    }
+    .founder-photo:hover img { filter: grayscale(0%) contrast(1); }
+    .founder-photo.pending {
+      border: 1px solid rgba(255,255,255,0.1);
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem; text-align: center;
+    }
+    .founder-photo.pending p {
+      font-family: ui-monospace, monospace;
+      font-size: 11px; color: var(--white-40); letter-spacing: 0.05em; line-height: 1.7;
+    }
+
+    .founder-name {
+      font-family: var(--display);
+      text-transform: uppercase;
+      font-size: clamp(1.875rem, 4vw, 2.25rem);
+      letter-spacing: 0.04em;
+      font-weight: 400;
+      margin-bottom: 0.25rem;
+    }
+    .founder-title {
+      font-size: 0.8125rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--white-55);
+      margin-bottom: 1.25rem;
+    }
+    .founder-bio { color: var(--white-85); }
+
+    .founders-caption {
+      margin: 4.5rem auto 0;
+      max-width: 48rem;
+      text-align: center;
+      font-size: 1.0625rem;
+      color: var(--white-85);
+    }
+
+    /* ============================================================
+       The Call — form
+       ============================================================ */
+    .call { position: relative; overflow: hidden; }
+    .call-media { position: absolute; inset: 0; z-index: 0; }
+    .call-media video { width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
+    .call-shade {
+      position: absolute; inset: 0; z-index: 1;
+      background: linear-gradient(to bottom, rgba(15,15,15,0.88), rgba(15,15,15,0.82), rgba(15,15,15,0.96));
+    }
+    .call-inner { position: relative; z-index: 10; }
+
+    .call h2 {
+      font-size: clamp(1.875rem, 4.5vw, 3rem);
+      line-height: 1.05;
+      text-align: center;
+      max-width: 36rem;
+      margin: 0 auto 1.5rem;
+    }
+    .call-sub {
+      text-align: center;
+      color: rgba(255,255,255,0.75);
+      max-width: 34rem;
+      margin: 0 auto 3rem;
+      font-size: 1.0625rem;
+    }
+
+    form { display: grid; gap: 1rem; }
+    .form-row { display: grid; gap: 1rem; }
+    @media (min-width: 640px) { .form-row { grid-template-columns: 1fr 1fr; } }
+
+    .field span {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--white-65);
+      margin-bottom: 0.25rem;
+    }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      background: var(--charcoal-2);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 2px;
+      padding: 0.7rem 0.75rem;
+      color: #fff;
+      font-family: var(--body);
+      font-size: 1rem;
+      transition: border-color 0.2s ease;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus {
+      outline: none;
+      border-color: var(--red);
+    }
+    .field ::placeholder { color: rgba(255,255,255,0.3); }
+    .field textarea { resize: vertical; min-height: 7rem; }
+
+    .form-submit { margin-top: 1rem; width: 100%; padding: 1.25rem; font-size: 1.0625rem; }
+
+    .call-fineprint { text-align: center; margin-top: 2rem; font-size: 0.875rem; color: var(--white-65); }
+    .call-fineprint + .call-fineprint { margin-top: 0.25rem; }
+    .call-fineprint a { color: #fff; text-decoration: underline; text-decoration-color: var(--red); text-underline-offset: 4px; }
+
+    /* ============================================================
+       Footer
+       ============================================================ */
+    footer {
+      border-top: 1px solid rgba(255,255,255,0.1);
+      padding-block: 3.5rem;
+      text-align: center;
+    }
+    footer .brand {
+      font-family: var(--display);
+      text-transform: uppercase;
+      font-size: 1.375rem;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.75rem;
+    }
+    footer p { font-size: 0.875rem; color: var(--white-65); }
+    footer a:hover { color: #fff; }
+    .socials {
+      display: flex; justify-content: center; gap: 1.5rem;
+      margin: 1.75rem 0;
+    }
+    .socials a { color: var(--white-55); transition: color 0.2s ease; }
+    .socials a:hover { color: #fff; }
+    .copyright { font-size: 0.75rem; color: var(--white-40); }
+
+    /* ============================================================
+       Reduced motion: kill all animation, show everything
+       ============================================================ */
+    @media (prefers-reduced-motion: reduce) {
+      .fade-in { opacity: 1; transform: none; transition: none; }
+      .hero-media video, .hero-ember, .scroll-cue { animation: none; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- =================================================================== -->
+  <!-- HERO                                                                 -->
+  <!-- =================================================================== -->
+  <section class="hero" id="hero">
+
+    <!-- HIGGSFIELD CLIP SLOT ─ swap the <source> below with your new clip.
+         Spec: 1920×1080 (or 2560×1440), H.264 MP4, 10–20s seamless loop,
+         under ~8MB, no audio track needed (muted anyway). -->
+    <div class="hero-media">
+      <video autoplay loop muted playsinline preload="metadata"
+             poster="https://6a03910defabc798e25fe014--nbl-canada-2027.netlify.app/assets/poster1.jpg"
+             aria-hidden="true">
+        <source src="https://6a03910defabc798e25fe014--nbl-canada-2027.netlify.app/clips/clip1.mp4" type="video/mp4" />
+      </video>
+    </div>
+
+    <div class="hero-ember" aria-hidden="true"></div>
+    <div class="hero-shade" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
+
+    <p class="hero-eyebrow eyebrow">Private Opportunity &nbsp;·&nbsp; By Invitation</p>
+
+    <div class="hero-core">
+      <h1 class="display hero-h1">
+        Canadian Pro Basketball.<br/>
+        Spring Season. Tipping Off March 2027.<br/>
+        <span class="accent">Founding Owners Wanted.</span>
+      </h1>
+
+      <p class="hero-sub">
+        National Basketball League of Canada — founded 2011, returning under original ownership with a modernized franchise model and a March-through-June season built for Canada's professional sports calendar.
+      </p>
+
+      <div class="hero-ctas">
+        <a href="#apply" class="btn btn-primary">Apply for a Founding Franchise</a>
+        <a href="mailto:inquiry@nblcanada.ca?subject=Investor%20Deck%20Request" class="btn btn-ghost">Request the Investor Deck</a>
+      </div>
+
+      <p class="hero-note">6 founding markets, expanding to 12 &nbsp;·&nbsp; Inaugural tip-off March 2027</p>
+    </div>
+
+    <div class="scroll-cue" aria-hidden="true"></div>
+  </section>
+
+  <!-- =================================================================== -->
+  <!-- THE TRACK RECORD                                                     -->
+  <!-- =================================================================== -->
+  <section class="stats" id="numbers">
+    <div class="wrap-n">
+      <p class="eyebrow fade-in" style="text-align:center; margin-bottom:2.5rem;">The Track Record</p>
+      <div class="stats-grid fade-in">
+        <div>
+          <p class="stat-num" data-count="280" data-suffix="K">280K</p>
+          <p class="stat-label">Year 1 league attendance</p>
+        </div>
+        <div>
+          <p class="stat-num" data-count="400" data-suffix="K">400K</p>
+          <p class="stat-label">Year 2 league attendance</p>
+        </div>
+        <div>
+          <p class="stat-num" data-count="3700" data-format="comma">3,700</p>
+          <p class="stat-label">Saint John Mill Rats, Year 1 average / game</p>
+        </div>
+        <div>
+          <p class="stat-num accent" data-count="2027">2027</p>
+          <p class="stat-label">Inaugural relaunch season</p>
+        </div>
+      </div>
+      <p class="stats-caption fade-in">
+        Profitable in Year 1. Rogers as a multi-market broadcast sponsor. $643K in first-year revenue. Saint John drew 48% above the 2,500-per-game break-even threshold in a brand-new market.
+      </p>
+    </div>
+  </section>
+
+  <!-- =================================================================== -->
+  <!-- WHY NOW                                                              -->
+  <!-- =================================================================== -->
+  <section id="why-now">
+    <div class="wrap split">
+      <div class="fade-in">
+        <p class="eyebrow" style="margin-bottom:1.5rem;">Why Now</p>
+        <h2 class="display h2">The Canadian basketball moment.</h2>
+      </div>
+      <div class="prose fade-in">
+        <p>
+          Canada produces more NBA players per capita than any country outside the United States. Shai Gilgeous-Alexander, Jamal Murray, RJ Barrett, Andrew Wiggins, Bennedict Mathurin — the pipeline is real, sustained, and visible to the global market.
+        </p>
+        <p>
+          The smart capital is moving in. In May 2026, Mark Cuban acquired a stake in the Brampton Honey Badgers, telling Front Office Sports there is &ldquo;<span class="accent">a ton of upside</span>&rdquo; in the Canadian market.
+        </p>
+        <p>
+          And the spring is wide open. <span class="strong">No well-capitalized, professionally operated spring league currently holds this position in the Canadian market.</span> March through June fits between the NHL playoffs and Canada's outdoor sports calendar. The NBLC is built to own it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================================================================== -->
+  <!-- BUILT FOR ARENA OPERATORS                                            -->
+  <!-- =================================================================== -->
+  <section class="operators hairline-top" id="who-its-for">
+    <div class="wrap">
+      <div class="fade-in">
+        <p class="eyebrow" style="margin-bottom:1.5rem;">Who This Is Built For</p>
+        <h2 class="display h2 h2-block">Your arena goes dark in March.<br/>We start in March.</h2>
+      </div>
+
+      <div class="operators-grid fade-in">
+        <div class="prose">
+          <p>
+            <span class="strong">Primary target: junior hockey ownership groups.</span>
+            You already control the arena. You already employ the front office. You already sell the season tickets and book the sponsors. After March, your building goes dark for five months and the fixed costs keep coming.
+          </p>
+          <p>
+            The NBLC fills those months. Same building. Same staff. Same sponsor relationships extended across two professional seasons instead of one. A second revenue stream amortizing the overhead you're already carrying.
+          </p>
+          <p class="muted">
+            Secondary targets: community business consortiums with operating depth, and standalone basketball investors with sports-business experience.
+          </p>
+        </div>
+
+        <div class="fit-card">
+          <h3>The Fit</h3>
+          <ul>
+            <li>Arena under existing operating control</li>
+            <li>Front office and sales staff already in place</li>
+            <li>Local sponsor book ready to extend</li>
+            <li>Season-ticket database ready to activate</li>
+            <li>Strong municipal and community relationships</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================================================================== -->
+  <!-- THE DEAL                                                             -->
+  <!-- =================================================================== -->
+  <section class="hairline-top" id="deal">
+    <div class="wrap">
+      <div class="fade-in">
+        <p class="eyebrow" style="margin-bottom:1.5rem;">The Deal</p>
+        <h2 class="display h2 h2-block">What a founding franchise gets you.</h2>
+      </div>
+
+      <div class="deal-grid fade-in">
+        <div class="deal-card">
+          <p class="index">01</p>
+          <h3>Territory</h3>
+          <ul>
+            <li>Exclusive ownership rights to your home market.</li>
+            <li>Protected geographic territory.</li>
+            <li>Right of first refusal on adjacent markets and the Maritime division (Phase 4, 2028).</li>
+          </ul>
+        </div>
+        <div class="deal-card">
+          <p class="index">02</p>
+          <h3>Economics</h3>
+          <ul>
+            <li>Share of national broadcast revenue.</li>
+            <li>Share of national sponsorship revenue.</li>
+            <li>100% of local game-day, ticket, and sponsorship revenue.</li>
+          </ul>
+        </div>
+        <div class="deal-card">
+          <p class="index">03</p>
+          <h3>Infrastructure</h3>
+          <ul>
+            <li>League brand, marketing, and digital platform.</li>
+            <li>Officiating, scheduling, and competition operations.</li>
+            <li>Player contracts, salary cap, and recruiting framework.</li>
+          </ul>
+        </div>
+        <div class="deal-card">
+          <p class="index">04</p>
+          <h3>Influence</h3>
+          <ul>
+            <li>Voting seat on the founding board.</li>
+            <li>Direct input on league rules, schedule, and expansion.</li>
+            <li>Founding-owner status, in perpetuity.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="terms-card fade-in">
+        <h3>Terms &amp; Structure</h3>
+        <ul>
+          <li>Founding franchise fees are <span style="color:#fff;font-weight:600;">tiered and escalating</span> — the earliest markets receive the most favorable terms. Contact us for the fee schedule.</li>
+          <li>Founding franchises are required to demonstrate <span style="color:#fff;font-weight:600;">full operating capitalization</span> before opening day.</li>
+          <li>For market context: comparable Canadian professional basketball franchises have publicly reported valuations above $2 million.</li>
+        </ul>
+      </div>
+
+      <p class="urgency fade-in">
+        Founding franchise fees increase after the sixth market is awarded. Applications are reviewed on a first-come, first-qualified basis.
+      </p>
+    </div>
+  </section>
+
+  <!-- =================================================================== -->
+  <!-- THE FOUNDERS                                                         -->
+  <!-- =================================================================== -->
+  <section class="hairline-top" id="founders">
+    <div class="wrap">
+      <p class="eyebrow fade-in" style="margin-bottom:2.5rem;">The Founders</p>
+
+      <div class="founders-grid fade-in">
+        <div>
+          <div class="founder-photo">
+            <img src="https://6a03910defabc798e25fe014--nbl-canada-2027.netlify.app/assets/archive/andre-levingston-portrait.jpg"
+                 alt="Andre Levingston, CEO, NBL Canada"
+                 loading="lazy" width="400" height="400" />
+          </div>
+          <h3 class="founder-name">Andre Levingston</h3>
+          <p class="founder-title">CEO, NBL Canada</p>
+          <p class="founder-bio">
+            Founded the NBL Canada in 2011. Founded the Halifax Rainmen in 2006. More than two decades building professional basketball infrastructure across Canada. Returns to lead the relaunch as Chief Executive Officer.
+          </p>
+        </div>
+        <div>
+          <div class="founder-photo pending">
+            <p>Photo pending<br/>/assets/founders/ian-mccarthy.jpg</p>
+          </div>
+          <h3 class="founder-name">Ian McCarthy</h3>
+          <p class="founder-title">COO, NBL Canada</p>
+          <p class="founder-bio">
+            Co-founded the NBL Canada in 2011. Original ownership group of the Saint John Mill Rats, which averaged 3,700 fans per game in their inaugural season — 48% above the league's break-even threshold. 30+ years operating service businesses and sports properties across Canada and the U.S. Returns to lead the relaunch as Chief Operating Officer.
+          </p>
+        </div>
+      </div>
+
+      <p class="founders-caption fade-in">
+        Same founders. New playbook. The operating data and the lessons learned from the league's first run are baked into the relaunch model.
+      </p>
+    </div>
+  </section>
+
+  <!-- =================================================================== -->
+  <!-- THE CALL                                                             -->
+  <!-- =================================================================== -->
+  <section class="call hairline-top" id="apply">
+
+    <!-- HIGGSFIELD CLIP SLOT ─ secondary background; same spec as hero. -->
+    <div class="call-media" aria-hidden="true">
+      <video autoplay loop muted playsinline preload="none"
+             poster="https://6a03910defabc798e25fe014--nbl-canada-2027.netlify.app/assets/poster3.jpg">
+        <source src="https://6a03910defabc798e25fe014--nbl-canada-2027.netlify.app/clips/clip3.mp4" type="video/mp4" />
+      </video>
+    </div>
+    <div class="call-shade" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <div class="call-inner wrap-s">
+      <div class="fade-in">
+        <p class="eyebrow" style="text-align:center; margin-bottom:1.5rem;">The Call</p>
+        <h2 class="display">If you've been waiting for the right deal in Canadian pro sports, this is it.</h2>
+        <p class="call-sub">
+          Three audiences. One inbox. Whether you're exploring franchise ownership, investor participation, or sponsorship — start here.
+        </p>
+      </div>
+
+      <form name="nblc-inquiry" method="POST" data-netlify="true" netlify-honeypot="bot-field" class="fade-in">
+        <input type="hidden" name="form-name" value="nblc-inquiry" />
+        <p hidden><label>Don't fill this out if you're human: <input name="bot-field" /></label></p>
+
+        <div class="form-row">
+          <label class="field">
+            <span>Full name *</span>
+            <input required type="text" name="name" autocomplete="name" />
+          </label>
+          <label class="field">
+            <span>Email *</span>
+            <input required type="email" name="email" autocomplete="email" />
+          </label>
+        </div>
+
+        <div class="form-row">
+          <label class="field">
+            <span>Phone *</span>
+            <input required type="tel" name="phone" autocomplete="tel" />
+          </label>
+          <label class="field">
+            <span>Inquiry type *</span>
+            <select required name="inquiry-type">
+              <option value="" disabled selected>Select one</option>
+              <option value="Franchise ownership">Franchise ownership</option>
+              <option value="Investor">Investor</option>
+              <option value="Sponsorship">Sponsorship</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Market / city of interest</span>
+          <input type="text" name="market"
+                 placeholder="Optional — leave blank for sponsorship or league-wide investor interest" />
+        </label>
+
+        <label class="field">
+          <span>Background *</span>
+          <textarea required name="background" rows="4"
+                    placeholder="Tell us about your operating history and what you're exploring."></textarea>
+        </label>
+
+        <button type="submit" class="btn btn-primary form-submit">
+          Request a Confidential Conversation
+        </button>
+      </form>
+
+      <p class="call-fineprint">All inquiries held in strict confidence.</p>
+      <p class="call-fineprint">
+        Or email <a href="mailto:inquiry@nblcanada.ca">inquiry@nblcanada.ca</a> directly.
+      </p>
+    </div>
+  </section>
+
+  <!-- =================================================================== -->
+  <!-- FOOTER                                                               -->
+  <!-- =================================================================== -->
+  <footer>
+    <div class="wrap-s">
+      <p class="brand">National Basketball League of Canada</p>
+      <p>Founded 2011. Returning March 2027.</p>
+      <p>Andre Levingston, CEO &nbsp;·&nbsp; Ian McCarthy, COO</p>
+      <p><a href="mailto:inquiry@nblcanada.ca">inquiry@nblcanada.ca</a></p>
+
+      <div class="socials">
+        <a href="https://www.instagram.com/officialnblc/" target="_blank" rel="noopener" aria-label="Instagram">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+            <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
+            <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+          </svg>
+        </a>
+        <a href="https://ca.linkedin.com/company/national-basketball-league-of-canada" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+        <a href="https://www.youtube.com/user/thenblcanadalive" target="_blank" rel="noopener" aria-label="YouTube">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19.1c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2A29 29 0 0 0 23 11.75a29 29 0 0 0-.46-5.33z"/>
+            <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"/>
+          </svg>
+        </a>
+      </div>
+
+      <p class="copyright">&copy; 2026 National Basketball League of Canada.</p>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var els = document.querySelectorAll('.fade-in');
+
+      if (reduceMotion) {
+        document.querySelectorAll('video').forEach(function (v) { v.removeAttribute('autoplay'); v.pause(); });
+        els.forEach(function (el) { el.classList.add('is-visible'); });
+        return;
+      }
+
+      if (!('IntersectionObserver' in window)) {
+        els.forEach(function (el) { el.classList.add('is-visible'); });
+        return;
+      }
+
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('is-visible');
+          io.unobserve(entry.target);
+          if (entry.target.classList.contains('stats-grid')) animateCounters(entry.target);
+        });
+      }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+      els.forEach(function (el) { io.observe(el); });
+
+      // Count-up on the track-record numbers
+      function animateCounters(container) {
+        container.querySelectorAll('[data-count]').forEach(function (el) {
+          var target = parseInt(el.getAttribute('data-count'), 10);
+          var suffix = el.getAttribute('data-suffix') || '';
+          var comma = el.getAttribute('data-format') === 'comma';
+          var dur = 1400;
+          var start = null;
+
+          function frame(ts) {
+            if (!start) start = ts;
+            var p = Math.min((ts - start) / dur, 1);
+            var eased = 1 - Math.pow(1 - p, 3);
+            var val = Math.round(target * eased);
+            el.textContent = (comma ? val.toLocaleString('en-CA') : val) + suffix;
+            if (p < 1) requestAnimationFrame(frame);
+          }
+          requestAnimationFrame(frame);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
