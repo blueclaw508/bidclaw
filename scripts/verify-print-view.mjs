@@ -17,6 +17,16 @@
  *   Optional env overrides:
  *     PRINT_URL       full URL to print at (overrides seeded proposal)
  *     DEV_SERVER_URL  default http://localhost:5174
+ *
+ * Permanent test fixtures (project 2b0d0a4b-200b-4ed2-a111-6edec4b03582):
+ *   • Default: "Phase 2f — Seeded Editor Walkthrough"
+ *       5e3e0c1e-8886-4877-a6e8-99cc07b87035 (2 WAs, ~10 lines, 3-page PDF)
+ *   • Stress:  "STRESS TEST — do not send"
+ *       662b6311-683b-4c1f-9823-7752bce8b6d8 (6 WAs, 66 lines, long
+ *       descriptions + 4-paragraph notes, ~9-page PDF; the Pool Deck WA
+ *       is deliberately too tall for one page to exercise break fallback)
+ *     Target it with:
+ *       PRINT_URL=http://localhost:5173/app/projects/2b0d0a4b-200b-4ed2-a111-6edec4b03582/proposals/662b6311-683b-4c1f-9823-7752bce8b6d8/print npm run verify:print
  */
 
 import { chromium } from 'playwright'
