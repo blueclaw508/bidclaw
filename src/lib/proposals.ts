@@ -27,6 +27,7 @@
 import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
 import { syncLeadStageForProposalStatus } from '@/lib/leads'
+import { categoryBearsMarkup, lineBase, lineMarkup, lineTotal } from '@/lib/money'
 import type {
   KitPreviewLine,
   Proposal,
@@ -166,8 +167,7 @@ export async function listProposalsByProject(
       line_count += lines.length
       if (!wa.enabled) continue // disabled work areas don't roll up
       for (const l of lines) {
-        const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
-        grand_total += lt + lt * (Number(l.frozen_markup_percent) / 100)
+        grand_total += lineTotal(l)
       }
     }
     // Strip embedded sub-resources before returning the row shape
@@ -712,8 +712,7 @@ export async function syncProposalWorkAreaSubtotals(
     frozen_unit_cost: number
     frozen_markup_percent: number
   }>) {
-    const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
-    subtotals[l.category] += lt + lt * (Number(l.frozen_markup_percent) / 100)
+    subtotals[l.category] += lineTotal(l)
   }
   const { data, error } = await supabase
     .from('proposal_work_areas')
@@ -1078,7 +1077,7 @@ export async function updateProposalLine(
 
   if (patch.frozen_markup_percent !== undefined) {
     const category = line.category as ProposalLineCategory
-    if (category === 'labor' || category === 'equipment') {
+    if (!categoryBearsMarkup(category)) {
       throw new Error(
         `Markup is fixed at 0 for ${category} lines (KYN methodology — rates already include margin).`
       )
@@ -1183,7 +1182,7 @@ export async function saveProposalLines(input: {
   for (const u of updates) {
     if (u.patch.frozen_markup_percent !== undefined) {
       const category = byId.get(u.id)!.category
-      if (category === 'labor' || category === 'equipment') {
+      if (!categoryBearsMarkup(category)) {
         throw new Error(
           `Markup is fixed at 0 for ${category} lines (KYN methodology — rates already include margin).`
         )
@@ -1296,10 +1295,9 @@ export async function getProposalTotals(proposalId: string): Promise<{
     let subtotal = 0
     let markupAmount = 0
     for (const l of wa.proposal_lines ?? []) {
-      const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
-      byCategory[l.category] += lt
-      subtotal += lt
-      markupAmount += lt * (Number(l.frozen_markup_percent) / 100)
+      byCategory[l.category] += lineBase(l)
+      subtotal += lineBase(l)
+      markupAmount += lineMarkup(l)
     }
     const total = subtotal + markupAmount
     workAreas.push({

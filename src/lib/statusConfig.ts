@@ -2,6 +2,7 @@ import type {
   CatalogCategory,
   LeadStage,
   ProjectStatus,
+  ProposalLineCategory,
   ProposalStatus,
   WorkAreaStatus,
 } from './types'
@@ -87,6 +88,25 @@ export const LEAD_STAGE_CONFIG: Record<LeadStage, BadgeStyle> = {
   in_progress: { label: 'In-Progress', className: 'bg-indigo-100  text-indigo-800  ring-indigo-200' },
   completed:   { label: 'Completed',   className: 'bg-emerald-200 text-emerald-900 ring-emerald-300' },
   lost:        { label: 'Lost',        className: 'bg-rose-100    text-rose-800    ring-rose-200' },
+}
+
+// Proposal line categories — display order + labels, consolidated from
+// per-file copies in ProposalEditor / ProposalPrintView /
+// ProposalWorkAreaSection (P1-D cleanup 2). All three agreed verbatim.
+export const PROPOSAL_LINE_CATEGORY_ORDER: ProposalLineCategory[] = [
+  'labor',
+  'material',
+  'equipment',
+  'subcontractor',
+  'other',
+]
+
+export const PROPOSAL_LINE_CATEGORY_LABELS: Record<ProposalLineCategory, string> = {
+  labor: 'Labor',
+  material: 'Materials',
+  equipment: 'Equipment',
+  subcontractor: 'Subcontractor',
+  other: 'Other',
 }
 
 export const CATALOG_CATEGORY_ORDER: CatalogCategory[] = [

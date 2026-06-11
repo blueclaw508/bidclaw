@@ -15,6 +15,7 @@ import {
   addLinesFromKitPreview,
   previewKitLines,
 } from '@/lib/proposals'
+import { formatUSD, lineBase, lineMarkup, lineTotal } from '@/lib/money'
 import type { Kit, KitPreviewLine } from '@/lib/types'
 
 /**
@@ -247,9 +248,8 @@ export function AddFromKitModal({
       else re.push(tagged)
       if (l.selected && l.quantity > 0) {
         count++
-        const lineTotal = l.quantity * l.frozen_unit_cost
-        subtotal += lineTotal
-        markup += lineTotal * (l.frozen_markup_percent / 100)
+        subtotal += lineBase(l)
+        markup += lineMarkup(l)
       }
     })
     return {
@@ -549,10 +549,9 @@ function PreviewRow({
   onQuantityChange: (idx: number, qty: number) => void
   disabled?: boolean
 }) {
-  const lineTotal =
+  const rowTotal =
     line.selected && line.quantity > 0
-      ? line.quantity * line.frozen_unit_cost +
-        line.quantity * line.frozen_unit_cost * (line.frozen_markup_percent / 100)
+      ? lineTotal(line)
       : 0
 
   return (
@@ -617,7 +616,7 @@ function PreviewRow({
         </div>
       ) : (
         <span className="shrink-0 text-right text-sm font-semibold text-gray-900 sm:w-32">
-          {lineTotal > 0 ? formatUSD(lineTotal) : '—'}
+          {rowTotal > 0 ? formatUSD(rowTotal) : '—'}
         </span>
       )}
     </li>
@@ -670,10 +669,6 @@ function FormField({
   )
 }
 
-function formatUSD(n: number): string {
-  if (!Number.isFinite(n)) return '$0.00'
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
 
 function formatQty(n: number): string {
   if (!Number.isFinite(n)) return '0'

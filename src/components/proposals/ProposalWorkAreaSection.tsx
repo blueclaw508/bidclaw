@@ -38,6 +38,11 @@ import {
   updateProposalWorkArea,
 } from '@/lib/proposals'
 import { ProposalLineRow, validateLine } from '@/components/proposals/ProposalLineRow'
+import { categoryBearsMarkup, formatUSD } from '@/lib/money'
+import {
+  PROPOSAL_LINE_CATEGORY_LABELS,
+  PROPOSAL_LINE_CATEGORY_ORDER,
+} from '@/lib/statusConfig'
 
 // Lazy-load the 3 add-line modals — they only need to be in the bundle
 // after the contractor clicks "+ From kit" / "+ From catalog" / "+ Custom".
@@ -388,7 +393,7 @@ export default function ProposalWorkAreaSection({
             </div>
 
             {/* 5 per-category subsections — Phase 2f populates with live rows */}
-            {(CATEGORY_ORDER as ProposalLineCategory[]).map((cat) => (
+            {PROPOSAL_LINE_CATEGORY_ORDER.map((cat) => (
               <Subsection
                 key={cat}
                 category={cat}
@@ -402,7 +407,7 @@ export default function ProposalWorkAreaSection({
                 onLineReorder={onLineReorder}
                 onOpenAddFromKit={() => setAddModal({ type: 'kit', category: cat })}
                 onOpenAddOther={() => {
-                  if (cat === 'material' || cat === 'subcontractor' || cat === 'other') {
+                  if (categoryBearsMarkup(cat)) {
                     setAddModal({ type: 'catalog', category: cat })
                   } else {
                     setAddModal({ type: 'custom', category: cat })
@@ -519,10 +524,7 @@ function Subsection({
   // Material/sub/other carry markup; labor/equipment don't. Determined
   // by category alone — settings-markup linkage was removed in Phase 2h
   // cleanup so the UI never implies the line's frozen rate could shift.
-  const showMarkupCols =
-    category === 'material' ||
-    category === 'subcontractor' ||
-    category === 'other'
+  const showMarkupCols = categoryBearsMarkup(category)
 
   // Per-subsection sensors so each category drag-drop is independent.
   const sensors = useSensors(
@@ -649,17 +651,12 @@ interface CategoryStyle {
   footerBg: string
 }
 
-const CATEGORY_ORDER: ProposalLineCategory[] = [
-  'labor',
-  'material',
-  'equipment',
-  'subcontractor',
-  'other',
-]
-
+// Order + labels come from the shared statusConfig maps (P1-D cleanup
+// 2); this config keeps only the component-specific icons + colors,
+// with label values sourced from the shared map so they can't drift.
 const CATEGORY_CONFIG: Record<ProposalLineCategory, CategoryStyle> = {
   labor: {
-    label: 'Labor',
+    label: PROPOSAL_LINE_CATEGORY_LABELS.labor,
     icon: Users,
     icon_color: 'text-blue-600',
     label_color: 'text-blue-800',
@@ -667,7 +664,7 @@ const CATEGORY_CONFIG: Record<ProposalLineCategory, CategoryStyle> = {
     footerBg: 'bg-blue-50/40',
   },
   material: {
-    label: 'Materials',
+    label: PROPOSAL_LINE_CATEGORY_LABELS.material,
     icon: Package,
     icon_color: 'text-green-600',
     label_color: 'text-green-800',
@@ -675,7 +672,7 @@ const CATEGORY_CONFIG: Record<ProposalLineCategory, CategoryStyle> = {
     footerBg: 'bg-green-50/40',
   },
   equipment: {
-    label: 'Equipment',
+    label: PROPOSAL_LINE_CATEGORY_LABELS.equipment,
     icon: Wrench,
     icon_color: 'text-purple-600',
     label_color: 'text-purple-800',
@@ -683,7 +680,7 @@ const CATEGORY_CONFIG: Record<ProposalLineCategory, CategoryStyle> = {
     footerBg: 'bg-purple-50/40',
   },
   subcontractor: {
-    label: 'Subcontractor',
+    label: PROPOSAL_LINE_CATEGORY_LABELS.subcontractor,
     icon: HardHat,
     icon_color: 'text-orange-600',
     label_color: 'text-orange-800',
@@ -691,7 +688,7 @@ const CATEGORY_CONFIG: Record<ProposalLineCategory, CategoryStyle> = {
     footerBg: 'bg-orange-50/40',
   },
   other: {
-    label: 'Other',
+    label: PROPOSAL_LINE_CATEGORY_LABELS.other,
     icon: FileText,
     icon_color: 'text-gray-600',
     label_color: 'text-gray-700',
@@ -722,7 +719,3 @@ function getDenormalizedSubtotal(
   }
 }
 
-function formatUSD(n: number): string {
-  if (!Number.isFinite(n)) return '$0.00'
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}

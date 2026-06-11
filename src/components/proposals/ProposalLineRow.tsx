@@ -2,7 +2,8 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, Trash2 } from 'lucide-react'
 import DecimalInput from '@/components/decimal-input/DecimalInput'
-import type { ProposalLine, ProposalLineCategory } from '@/lib/types'
+import { categoryBearsMarkup, formatUSD, lineTotal } from '@/lib/money'
+import type { ProposalLine } from '@/lib/types'
 
 /**
  * Inline-editable line row inside a category subsection.
@@ -68,8 +69,8 @@ export function ProposalLineRow({
     opacity: isDragging ? 0.4 : 1,
   }
 
-  const price = computePrice(line)
-  const showMarkup = showMarkupForCategory(line.category)
+  const price = lineTotal(line)
+  const showMarkup = categoryBearsMarkup(line.category)
   const hasError =
     errors.nameInvalid ||
     errors.quantityInvalid ||
@@ -269,7 +270,7 @@ export function validateLine(line: ProposalLine): LineErrors {
   // Markup validation only applies to categories that bear markup.
   // Labor + equipment carry frozen_markup_percent=0 by KYN convention
   // and the column is non-editable in the UI, so we never flag them.
-  const markupRelevant = showMarkupForCategory(line.category)
+  const markupRelevant = categoryBearsMarkup(line.category)
   const m = Number(line.frozen_markup_percent)
   const markupInvalid = markupRelevant
     ? !Number.isFinite(m) || m < 0 || m > 200
@@ -288,26 +289,8 @@ export function lineHasErrors(line: ProposalLine): boolean {
   return e.nameInvalid || e.quantityInvalid || e.costInvalid || e.markupInvalid
 }
 
-function computePrice(line: ProposalLine): number {
-  const q = Number(line.quantity)
-  const c = Number(line.frozen_unit_cost)
-  const m = Number(line.frozen_markup_percent)
-  if (!Number.isFinite(q) || !Number.isFinite(c) || !Number.isFinite(m)) return 0
-  return q * c * (1 + m / 100)
-}
-
-function showMarkupForCategory(cat: ProposalLineCategory): boolean {
-  return cat === 'material' || cat === 'subcontractor' || cat === 'other'
-}
-
-/* ============================================================
- * Format helpers
- * ============================================================ */
-
-function formatUSD(n: number): string {
-  if (!Number.isFinite(n)) return '$0.00'
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
+// Price display + markup-column visibility now come from the shared
+// money module (P1-D cleanup 2): lineTotal() and categoryBearsMarkup().
 
 /* ============================================================
  * Shared input styling — desktop cell + mobile inline-edit

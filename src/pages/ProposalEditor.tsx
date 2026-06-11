@@ -57,6 +57,8 @@ import {
 } from '@/lib/proposals'
 import { lineHasErrors } from '@/components/proposals/ProposalLineRow'
 import { getLinkedLeadForLostPrompt, updateLead } from '@/lib/leads'
+import { categoryBearsMarkup, formatUSD, lineBase, lineMarkup } from '@/lib/money'
+import { PROPOSAL_LINE_CATEGORY_LABELS } from '@/lib/statusConfig'
 import type {
   Lead,
   Project,
@@ -362,14 +364,9 @@ export default function ProposalEditor() {
           sort_order: l.sort_order,
         }
         // Markup is patchable only on markup-bearing categories — the
-        // data layer throws if a labor/equipment patch carries the field
-        // at all (Phase 3a guard). Cleanup session 2 consolidates this
-        // check into a shared categoryBearsMarkup() helper.
-        if (
-          l.category === 'material' ||
-          l.category === 'subcontractor' ||
-          l.category === 'other'
-        ) {
+        // data layer throws if a labor/equipment patch carries the
+        // field at all (Phase 3a guard).
+        if (categoryBearsMarkup(l.category)) {
           patch.frozen_markup_percent = Number(l.frozen_markup_percent)
         }
         return { id, patch }
@@ -1063,14 +1060,6 @@ export default function ProposalEditor() {
  * Totals breakdown — per-category subtotals + markup + grand
  * ============================================================ */
 
-const CATEGORY_LABELS: Record<ProposalLineCategory, string> = {
-  labor: 'Labor',
-  material: 'Materials',
-  equipment: 'Equipment',
-  subcontractor: 'Subcontractor',
-  other: 'Other',
-}
-
 function TotalsBreakdown({
   totals,
   proposal,
@@ -1093,10 +1082,8 @@ function TotalsBreakdown({
   for (const wa of proposal.work_areas) {
     if (!wa.enabled) continue
     for (const l of wa.lines) {
-      const lineTotal = Number(l.quantity) * Number(l.frozen_unit_cost)
-      const lineMarkup = lineTotal * (Number(l.frozen_markup_percent) / 100)
-      rollup[l.category].base += lineTotal
-      rollup[l.category].markup += lineMarkup
+      rollup[l.category].base += lineBase(l)
+      rollup[l.category].markup += lineMarkup(l)
       rollup[l.category].count += 1
     }
   }
@@ -1147,7 +1134,7 @@ function TotalsBreakdown({
             return (
               <tr key={cat}>
                 <td className="px-4 py-2 font-medium text-gray-700">
-                  {CATEGORY_LABELS[cat]}
+                  {PROPOSAL_LINE_CATEGORY_LABELS[cat]}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums text-gray-900">
                   {formatUSD(base)}
@@ -1182,7 +1169,7 @@ function TotalsBreakdown({
               className="rounded-lg border border-gray-100 p-3"
             >
               <div className="text-sm font-semibold text-gray-900">
-                {CATEGORY_LABELS[cat]}
+                {PROPOSAL_LINE_CATEGORY_LABELS[cat]}
               </div>
               <dl className="mt-2 space-y-1 text-xs">
                 <div className="flex items-center justify-between">
@@ -1240,10 +1227,6 @@ function ReadOnlyField({
   )
 }
 
-function formatUSD(n: number): string {
-  if (!Number.isFinite(n)) return '$0.00'
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso)

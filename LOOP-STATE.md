@@ -1,7 +1,7 @@
 # LOOP-STATE — BidClaw
 Phase: 1 — Dogfooding Sprint Support
 Sprint start: 2026-06-11        Gate-1 date check: 2026-06-25 (max 07-02)
-Session count: 2
+Session count: 3
 
 ## GATE PROGRESS (current phase)
 - [ ] 14 days elapsed (day 0 of sprint)
@@ -10,19 +10,29 @@ Session count: 2
 - [ ] Eval set: 0/50 catalog items · 0/3 proposals · 0 WoZ logs
 - [x] Cleanup 1 (save-path) — SHIPPED session 2 (batched save +
       falsy-zero fix; UI round-trip pending harness, see watch list)
-- [ ] Cleanup 2 (money consolidation) — not started
+- [x] Cleanup 2 (money consolidation) — SHIPPED session 3
+      (src/lib/money.ts; Phase 2 prerequisite met)
 - [ ] jamie-spec-notes.md — not started
 - [ ] Hand-simulated Jamie passing last 2 evals — n/a yet
 
 ## TASK QUEUE (priority order)
-1. P1-D cleanup 2: money/domain consolidation — src/lib/money.ts with
-   lineTotal(line) + formatUSD(); categoryBearsMarkup(cat) next to the
-   types; category label/order maps consolidated (MUST land before
-   Phase 2 — Jamie consumes these)
+1. P1-D cleanup 3 (integrity & polish, nice-to-have for Gate 1):
+   unique index (proposal_id, position) + pair-by-index in
+   duplicateProposal; print-view not-found state; tone ternary fix;
+   ProposalEditor extraction (StatusBanner/StatusMenu/TotalsBreakdown)
 2. P1-B polish (only if Ian asks): board drag-and-drop, lead-detail
    proposal list, visual walkthrough once .env.local is restored
+3. P1-C support: eval/ scaffolding when Ian's first WoZ eval is ready
 
 ## DONE (newest first — task · commit · verification)
+- 2026-06-11 · P1-D cleanup 2: money consolidation — src/lib/money.ts
+  (lineBase/lineMarkup/lineTotal/formatUSD/categoryBearsMarkup as type
+  predicate) + PROPOSAL_LINE_CATEGORY_ORDER/LABELS in statusConfig;
+  6 formatUSD copies → 1, ~8 math copies → helpers, 5 bears-markup
+  checks → 1, 3 label/order maps → 1 · this commit · TS-green;
+  formula byte-identical (code trace); grep sweep: zero stray copies;
+  mojibake check clean. Catalog.tsx formatCurrency intentionally left
+  (catalog unit costs, different signature/locale — not proposal money).
 - 2026-06-11 · P1-D cleanup 1: batched save path (saveProposalLines —
   one editability check, grouped writes, one subtotal sync per work
   area; kills sync race + 5N queries) + totals-card falsy-zero fix

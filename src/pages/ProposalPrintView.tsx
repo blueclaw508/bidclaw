@@ -4,6 +4,11 @@ import { ArrowLeft, Printer } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
 import { getProposal } from '@/lib/proposals'
+import { categoryBearsMarkup, formatUSD, lineBase, lineMarkup, lineTotal } from '@/lib/money'
+import {
+  PROPOSAL_LINE_CATEGORY_LABELS,
+  PROPOSAL_LINE_CATEGORY_ORDER,
+} from '@/lib/statusConfig'
 import type {
   CompanySettings,
   Customer,
@@ -499,22 +504,6 @@ function CustomerProjectBlock({
  * Per-work-area section — group by category, line tables
  * ============================================================ */
 
-const CATEGORY_ORDER: ProposalLineCategory[] = [
-  'labor',
-  'material',
-  'equipment',
-  'subcontractor',
-  'other',
-]
-
-const CATEGORY_LABEL: Record<ProposalLineCategory, string> = {
-  labor: 'Labor',
-  material: 'Materials',
-  equipment: 'Equipment',
-  subcontractor: 'Subcontractor',
-  other: 'Other',
-}
-
 function WorkAreaPrintSection({
   workArea,
   accent,
@@ -536,7 +525,7 @@ function WorkAreaPrintSection({
     return map
   }, [workArea.lines])
 
-  const visibleCategories = CATEGORY_ORDER.filter(
+  const visibleCategories = PROPOSAL_LINE_CATEGORY_ORDER.filter(
     (c) => linesByCategory[c].length > 0
   )
 
@@ -546,8 +535,7 @@ function WorkAreaPrintSection({
   const workAreaTotal = useMemo(() => {
     let sum = 0
     for (const l of workArea.lines) {
-      const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
-      sum += lt + lt * (Number(l.frozen_markup_percent) / 100)
+      sum += lineTotal(l)
     }
     return sum
   }, [workArea.lines])
@@ -599,25 +587,19 @@ function CategoryLineTable({
   category: ProposalLineCategory
   lines: ProposalLine[]
 }) {
-  const showMarkup =
-    category === 'material' ||
-    category === 'subcontractor' ||
-    category === 'other'
+  const showMarkup = categoryBearsMarkup(category)
 
   const sorted = useMemo(
     () => [...lines].sort((a, b) => a.sort_order - b.sort_order),
     [lines]
   )
 
-  const subtotal = sorted.reduce((acc, l) => {
-    const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
-    return acc + lt + lt * (Number(l.frozen_markup_percent) / 100)
-  }, 0)
+  const subtotal = sorted.reduce((acc, l) => acc + lineTotal(l), 0)
 
   return (
     <div className="pv-category-table">
       <h4 className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-        {CATEGORY_LABEL[category]}
+        {PROPOSAL_LINE_CATEGORY_LABELS[category]}
       </h4>
       {/* Wrap in overflow-x-auto so mobile scrolls the table horizontally
           within its container instead of overflowing the page. The min-w
@@ -665,7 +647,7 @@ function CategoryLineTable({
           })}
           <tr className="bg-gray-50">
             <td colSpan={4} className="py-1.5 pr-2 text-right text-[10px] font-bold uppercase tracking-wider text-gray-600">
-              {CATEGORY_LABEL[category]} subtotal
+              {PROPOSAL_LINE_CATEGORY_LABELS[category]} subtotal
             </td>
             <td className="py-1.5 text-right font-bold tabular-nums text-gray-900">
               {formatUSD(subtotal)}
@@ -703,10 +685,8 @@ function GrandTotalsCard({
       }
       for (const wa of workAreas) {
         for (const l of wa.lines) {
-          const lt = Number(l.quantity) * Number(l.frozen_unit_cost)
-          const lm = lt * (Number(l.frozen_markup_percent) / 100)
-          r[l.category].base += lt
-          r[l.category].markup += lm
+          r[l.category].base += lineBase(l)
+          r[l.category].markup += lineMarkup(l)
           r[l.category].count += 1
         }
       }
@@ -716,7 +696,9 @@ function GrandTotalsCard({
   // Visibility by LINE COUNT, not dollars (P1-D cleanup 1 falsy-zero
   // fix): a category whose lines are all $0 (unpriced yet) must still
   // show on the customer document rather than silently vanishing.
-  const visibleCategories = CATEGORY_ORDER.filter((c) => rollup[c].count > 0)
+  const visibleCategories = PROPOSAL_LINE_CATEGORY_ORDER.filter(
+    (c) => rollup[c].count > 0
+  )
 
   const grandTotal = visibleCategories.reduce(
     (acc, c) => acc + rollup[c].base + rollup[c].markup,
@@ -750,11 +732,10 @@ function GrandTotalsCard({
         <tbody className="divide-y divide-gray-100">
           {visibleCategories.map((cat) => {
             const { base, markup } = rollup[cat]
-            const showMarkup =
-              cat === 'material' || cat === 'subcontractor' || cat === 'other'
+            const showMarkup = categoryBearsMarkup(cat)
             return (
               <tr key={cat}>
-                <td className="px-4 py-2 text-gray-700">{CATEGORY_LABEL[cat]}</td>
+                <td className="px-4 py-2 text-gray-700">{PROPOSAL_LINE_CATEGORY_LABELS[cat]}</td>
                 <td className="px-4 py-2 text-right tabular-nums text-gray-900">
                   {formatUSD(base)}
                 </td>
@@ -855,10 +836,6 @@ function formatQty(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2)
 }
 
-function formatUSD(n: number): string {
-  if (!Number.isFinite(n)) return '$0.00'
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
 
 /** Hex color + alpha → rgba() string. Accepts #RRGGBB; defaults to navy. */
 function hexA(hex: string, a: number): string {

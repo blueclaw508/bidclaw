@@ -10,6 +10,7 @@ import {
   duplicateProposal,
   listProposalsByProject,
 } from '@/lib/proposals'
+import { formatUSD } from '@/lib/money'
 import type { Project, ProposalListRow } from '@/lib/types'
 
 /**
@@ -420,10 +421,6 @@ function ProposalList({
  * Helpers
  * ============================================================ */
 
-function formatUSD(n: number): string {
-  if (!Number.isFinite(n)) return '$0.00'
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
 
 /**
  * Format a timestamp as relative-to-now: "just now", "5 min ago",
