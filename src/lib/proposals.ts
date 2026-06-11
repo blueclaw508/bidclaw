@@ -1055,10 +1055,14 @@ export async function addCustomLine(input: {
  * patches would also be rejected by Postgres; we surface a cleaner
  * error here first.
  */
+/** Patchable fields on a proposal line — shared by the single-line and
+ * batched save paths. */
+export type ProposalLinePatch = Partial<Pick<ProposalLine,
+  'label' | 'quantity' | 'frozen_unit_cost' | 'frozen_markup_percent' | 'sort_order' | 'unit'>>
+
 export async function updateProposalLine(
   id: string,
-  patch: Partial<Pick<ProposalLine,
-    'label' | 'quantity' | 'frozen_unit_cost' | 'frozen_markup_percent' | 'sort_order' | 'unit'>>
+  patch: ProposalLinePatch
 ): Promise<ProposalLine> {
   const { data: line, error: lookupErr } = await supabase
     .from('proposal_lines')
@@ -1114,6 +1118,107 @@ export async function deleteProposalLine(id: string): Promise<void> {
   const { error } = await supabase.from('proposal_lines').delete().eq('id', id)
   if (error) throw new Error(`Couldn't delete proposal line: ${error.message}`)
   await syncProposalWorkAreaSubtotals(line.proposal_work_area_id as string)
+}
+
+/**
+ * Batched save path for the editor's unified Save bar (P1-D cleanup 1).
+ *
+ * Replaces N independent updateProposalLine / deleteProposalLine calls.
+ * The per-line functions each do lookup + editability check + write +
+ * full subtotal re-sync (5 queries per line), and when fired in
+ * parallel their subtotal syncs RACE on a shared work area — a sync
+ * can read the line set mid-batch and persist a stale subtotal.
+ *
+ * This path does:
+ *   1. ONE editability check on the parent proposal
+ *   2. ONE lookup for every touched line (validates ownership +
+ *      markup-patch rules before any write)
+ *   3. Parallel per-line UPDATEs (distinct rows — no conflict) + one
+ *      bulk DELETE
+ *   4. ONE subtotal sync per affected work area, only after every
+ *      write has landed
+ *
+ * Lines present in both `updates` and `deleteIds` are treated as
+ * deletes (the old code raced an update against the delete).
+ */
+export async function saveProposalLines(input: {
+  proposalId: string
+  updates: Array<{ id: string; patch: ProposalLinePatch }>
+  deleteIds: string[]
+}): Promise<void> {
+  const deleteIdSet = new Set(input.deleteIds)
+  const updates = input.updates.filter((u) => !deleteIdSet.has(u.id))
+  if (updates.length === 0 && deleteIdSet.size === 0) return
+
+  await assertProposalEditable(input.proposalId)
+
+  const touchedIds = [...new Set([...updates.map((u) => u.id), ...deleteIdSet])]
+  const { data: lines, error: lookupErr } = await supabase
+    .from('proposal_lines')
+    .select('id, proposal_id, proposal_work_area_id, category')
+    .in('id', touchedIds)
+  if (lookupErr) {
+    throw new Error(`Couldn't load lines for save: ${lookupErr.message}`)
+  }
+  type TouchedLine = {
+    id: string
+    proposal_id: string
+    proposal_work_area_id: string
+    category: ProposalLineCategory
+  }
+  const byId = new Map(((lines ?? []) as TouchedLine[]).map((l) => [l.id, l]))
+  for (const id of touchedIds) {
+    const row = byId.get(id)
+    if (!row) {
+      throw new Error(
+        'One of the edited lines no longer exists — reload the proposal and try again.'
+      )
+    }
+    if (row.proposal_id !== input.proposalId) {
+      throw new Error('Line does not belong to this proposal.')
+    }
+  }
+
+  // Markup-patch rules — identical to updateProposalLine (Phase 3a).
+  for (const u of updates) {
+    if (u.patch.frozen_markup_percent !== undefined) {
+      const category = byId.get(u.id)!.category
+      if (category === 'labor' || category === 'equipment') {
+        throw new Error(
+          `Markup is fixed at 0 for ${category} lines (KYN methodology — rates already include margin).`
+        )
+      }
+      const m = Number(u.patch.frozen_markup_percent)
+      if (!Number.isFinite(m) || m < 0 || m > 200) {
+        throw new Error('Markup must be between 0 and 200.')
+      }
+    }
+  }
+
+  // Writes — no per-write subtotal sync.
+  const writeOps: Promise<void>[] = updates.map(async (u) => {
+    const { error } = await supabase
+      .from('proposal_lines')
+      .update(u.patch)
+      .eq('id', u.id)
+    if (error) throw new Error(`Couldn't update proposal line: ${error.message}`)
+  })
+  if (deleteIdSet.size > 0) {
+    writeOps.push(
+      (async () => {
+        const { error } = await supabase
+          .from('proposal_lines')
+          .delete()
+          .in('id', [...deleteIdSet])
+        if (error) throw new Error(`Couldn't delete proposal lines: ${error.message}`)
+      })()
+    )
+  }
+  await Promise.all(writeOps)
+
+  // One sync per affected work area, after all writes are visible.
+  const pwaIds = [...new Set(touchedIds.map((id) => byId.get(id)!.proposal_work_area_id))]
+  await Promise.all(pwaIds.map((id) => syncProposalWorkAreaSubtotals(id)))
 }
 
 // ──────────────────────────────────────────────────────────────────────

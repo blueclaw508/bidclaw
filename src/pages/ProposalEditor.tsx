@@ -45,14 +45,14 @@ import { supabase } from '@/lib/supabase'
 import {
   availableTransitions,
   deleteProposal,
-  deleteProposalLine,
   getProposal,
   getProposalTotals,
   isProposalEditable,
   reorderProposalWorkAreas,
+  saveProposalLines,
   syncProposalWorkAreaSubtotals,
   updateProposal,
-  updateProposalLine,
+  type ProposalLinePatch,
   type StatusTransition,
 } from '@/lib/proposals'
 import { lineHasErrors } from '@/components/proposals/ProposalLineRow'
@@ -349,13 +349,13 @@ export default function ProposalEditor() {
           })
         )
       }
-      // Dirty line patches (each auto-syncs its pwa subtotals via the
-      // Phase 2c data-layer guard — redundant when multiple lines on
-      // the same pwa change, but functionally correct; can batch in a
-      // Phase 1.5 polish pass).
-      for (const id of dirtyLineIds) {
+      // Batched line save (P1-D cleanup 1): one editability check, all
+      // line updates + deletes grouped, each affected work area's
+      // subtotals synced exactly ONCE at the end — replaces the old
+      // per-line calls whose parallel syncs raced on shared work areas.
+      const updates = [...dirtyLineIds].map((id) => {
         const l = localLines[id]
-        const patch: Parameters<typeof updateProposalLine>[1] = {
+        const patch: ProposalLinePatch = {
           label: l.label.trim(),
           quantity: Number(l.quantity),
           frozen_unit_cost: Number(l.frozen_unit_cost),
@@ -372,11 +372,16 @@ export default function ProposalEditor() {
         ) {
           patch.frozen_markup_percent = Number(l.frozen_markup_percent)
         }
-        ops.push(updateProposalLine(id, patch))
-      }
-      // Deletes
-      for (const id of deletedLineIds) {
-        ops.push(deleteProposalLine(id))
+        return { id, patch }
+      })
+      if (updates.length > 0 || deletedLineIds.size > 0) {
+        ops.push(
+          saveProposalLines({
+            proposalId: proposal.id,
+            updates,
+            deleteIds: [...deletedLineIds],
+          })
+        )
       }
       await Promise.all(ops)
 
@@ -1078,12 +1083,12 @@ function TotalsBreakdown({
   // work areas still show their own subtotals on their cards but are
   // excluded from grand total per the architecture decision locked at
   // Phase 2c.
-  const rollup: Record<ProposalLineCategory, { base: number; markup: number }> = {
-    labor: { base: 0, markup: 0 },
-    material: { base: 0, markup: 0 },
-    equipment: { base: 0, markup: 0 },
-    subcontractor: { base: 0, markup: 0 },
-    other: { base: 0, markup: 0 },
+  const rollup: Record<ProposalLineCategory, { base: number; markup: number; count: number }> = {
+    labor: { base: 0, markup: 0, count: 0 },
+    material: { base: 0, markup: 0, count: 0 },
+    equipment: { base: 0, markup: 0, count: 0 },
+    subcontractor: { base: 0, markup: 0, count: 0 },
+    other: { base: 0, markup: 0, count: 0 },
   }
   for (const wa of proposal.work_areas) {
     if (!wa.enabled) continue
@@ -1092,11 +1097,15 @@ function TotalsBreakdown({
       const lineMarkup = lineTotal * (Number(l.frozen_markup_percent) / 100)
       rollup[l.category].base += lineTotal
       rollup[l.category].markup += lineMarkup
+      rollup[l.category].count += 1
     }
   }
 
+  // Visibility by LINE COUNT, not dollars (P1-D cleanup 1 falsy-zero
+  // fix): a category whose lines are all $0 (unpriced yet) must still
+  // show — hiding it made present-but-unpriced work invisible here.
   const visibleCategories = (Object.keys(rollup) as ProposalLineCategory[]).filter(
-    (cat) => rollup[cat].base > 0 || rollup[cat].markup > 0
+    (cat) => rollup[cat].count > 0
   )
 
   if (visibleCategories.length === 0) {

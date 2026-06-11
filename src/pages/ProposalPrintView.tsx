@@ -692,14 +692,14 @@ function GrandTotalsCard({
   // Per-category rollup across all enabled work areas. Material /
   // subcontractor / other carry markup; labor + equipment do not
   // (markup column shows "—" + base = total).
-  const rollup: Record<ProposalLineCategory, { base: number; markup: number }> =
+  const rollup: Record<ProposalLineCategory, { base: number; markup: number; count: number }> =
     useMemo(() => {
-      const r: Record<ProposalLineCategory, { base: number; markup: number }> = {
-        labor: { base: 0, markup: 0 },
-        material: { base: 0, markup: 0 },
-        equipment: { base: 0, markup: 0 },
-        subcontractor: { base: 0, markup: 0 },
-        other: { base: 0, markup: 0 },
+      const r: Record<ProposalLineCategory, { base: number; markup: number; count: number }> = {
+        labor: { base: 0, markup: 0, count: 0 },
+        material: { base: 0, markup: 0, count: 0 },
+        equipment: { base: 0, markup: 0, count: 0 },
+        subcontractor: { base: 0, markup: 0, count: 0 },
+        other: { base: 0, markup: 0, count: 0 },
       }
       for (const wa of workAreas) {
         for (const l of wa.lines) {
@@ -707,14 +707,16 @@ function GrandTotalsCard({
           const lm = lt * (Number(l.frozen_markup_percent) / 100)
           r[l.category].base += lt
           r[l.category].markup += lm
+          r[l.category].count += 1
         }
       }
       return r
     }, [workAreas])
 
-  const visibleCategories = CATEGORY_ORDER.filter(
-    (c) => rollup[c].base > 0 || rollup[c].markup > 0
-  )
+  // Visibility by LINE COUNT, not dollars (P1-D cleanup 1 falsy-zero
+  // fix): a category whose lines are all $0 (unpriced yet) must still
+  // show on the customer document rather than silently vanishing.
+  const visibleCategories = CATEGORY_ORDER.filter((c) => rollup[c].count > 0)
 
   const grandTotal = visibleCategories.reduce(
     (acc, c) => acc + rollup[c].base + rollup[c].markup,

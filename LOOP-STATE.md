@@ -1,25 +1,36 @@
 # LOOP-STATE — BidClaw
 Phase: 1 — Dogfooding Sprint Support
 Sprint start: 2026-06-11        Gate-1 date check: 2026-06-25 (max 07-02)
-Session count: 1
+Session count: 2
 
 ## GATE PROGRESS (current phase)
 - [ ] 14 days elapsed (day 0 of sprint)
 - [~] Leads & Bids pipeline live — BUILT + deployed this session; needs
       Ian's real leads flowing through stages to check off
 - [ ] Eval set: 0/50 catalog items · 0/3 proposals · 0 WoZ logs
-- [ ] Cleanup 1 (save-path) — not started
+- [x] Cleanup 1 (save-path) — SHIPPED session 2 (batched save +
+      falsy-zero fix; UI round-trip pending harness, see watch list)
 - [ ] Cleanup 2 (money consolidation) — not started
 - [ ] jamie-spec-notes.md — not started
 - [ ] Hand-simulated Jamie passing last 2 evals — n/a yet
 
 ## TASK QUEUE (priority order)
-1. P1-D cleanup 1: save-path batching + totals-card filter
-2. P1-D cleanup 2: money/domain consolidation (must land before Phase 2)
-3. P1-B polish (only if Ian asks): board drag-and-drop, lead-detail
+1. P1-D cleanup 2: money/domain consolidation — src/lib/money.ts with
+   lineTotal(line) + formatUSD(); categoryBearsMarkup(cat) next to the
+   types; category label/order maps consolidated (MUST land before
+   Phase 2 — Jamie consumes these)
+2. P1-B polish (only if Ian asks): board drag-and-drop, lead-detail
    proposal list, visual walkthrough once .env.local is restored
 
 ## DONE (newest first — task · commit · verification)
+- 2026-06-11 · P1-D cleanup 1: batched save path (saveProposalLines —
+  one editability check, grouped writes, one subtotal sync per work
+  area; kills sync race + 5N queries) + totals-card falsy-zero fix
+  (count-based visibility, editor + print view) · this commit ·
+  TS-green; DB consistency assert: 0 drift rows across all
+  proposal_work_areas (clean baseline); code trace — patches identical
+  to old path, markup guard rules mirrored. Live UI round-trip pending
+  .env.local harness.
 - 2026-06-11 · P1-B Leads & Bids pipeline (stages, CRM-lite, board+list,
   filters, lifecycle wiring) · ff94932 + this commit · TS-green build;
   live-DB smoke test (8-stage walk, CHECK rejection, note cascade,
