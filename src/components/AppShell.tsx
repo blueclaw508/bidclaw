@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ClipboardList,
+  Inbox,
   Users,
   BookOpen,
   Wrench,
@@ -24,6 +25,8 @@ const WizardModal = lazy(() =>
 )
 
 const navItems = [
+  // Leads & Bids is the front door (LOOP.md P1-B) — first in nav.
+  { to: '/app/leads',     label: 'Leads & Bids', icon: Inbox },
   { to: '/app/projects',  label: 'Projects',  icon: ClipboardList },
   { to: '/app/customers', label: 'Customers', icon: Users },
   { to: '/app/catalog',   label: 'Catalog',   icon: BookOpen },

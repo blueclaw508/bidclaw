@@ -5,7 +5,8 @@ Session count: 1
 
 ## GATE PROGRESS (current phase)
 - [ ] 14 days elapsed (day 0 of sprint)
-- [ ] Leads & Bids pipeline live with real leads
+- [~] Leads & Bids pipeline live — BUILT + deployed this session; needs
+      Ian's real leads flowing through stages to check off
 - [ ] Eval set: 0/50 catalog items · 0/3 proposals · 0 WoZ logs
 - [ ] Cleanup 1 (save-path) — not started
 - [ ] Cleanup 2 (money consolidation) — not started
@@ -13,12 +14,18 @@ Session count: 1
 - [ ] Hand-simulated Jamie passing last 2 evals — n/a yet
 
 ## TASK QUEUE (priority order)
-1. P1-B: Leads & Bids pipeline — drift-gate the schema, then build
-   (stages, CRM fields, filters, proposal-status wiring)
-2. P1-D cleanup 1: save-path batching + totals-card filter
-3. P1-D cleanup 2: money/domain consolidation (must land before Phase 2)
+1. P1-D cleanup 1: save-path batching + totals-card filter
+2. P1-D cleanup 2: money/domain consolidation (must land before Phase 2)
+3. P1-B polish (only if Ian asks): board drag-and-drop, lead-detail
+   proposal list, visual walkthrough once .env.local is restored
 
 ## DONE (newest first — task · commit · verification)
+- 2026-06-11 · P1-B Leads & Bids pipeline (stages, CRM-lite, board+list,
+  filters, lifecycle wiring) · ff94932 + this commit · TS-green build;
+  live-DB smoke test (8-stage walk, CHECK rejection, note cascade,
+  cleanup verified 0 rows); migration applied + verified on
+  cdjpzvyqvohwmlmquldt; duplicateProposal presented_at leak checked.
+  Visual walkthrough PENDING (see watch list).
 - (pre-Loop) Phase 1 Prompt 3 phases 1–3: plan measure tool (PDF render,
   overlay canvas, scale calibration) · 47c66f8 · committed pre-Loop
 - (pre-Loop) Phase 1 rebuild through Prompt 2: unified foundation, CRUD,
@@ -46,5 +53,11 @@ Session count: 1
 - Rotate Supabase service_role key (Ian, dashboard) — Ian's to-do, do not execute
 - Call 2–3 QC users for trust/pricing input — Ian's to-do, do not execute
 - Optimistic concurrency still open — dogfooding data at risk on multi-tab edits
-- Plan measure tool (Prompt 3): phases 1–3 committed; confirm with Ian whether
-  later phases remain or tool is feature-complete
+- .env.local is MISSING on this machine (only .env with VITE_ vars exists) —
+  the Path B visual harness (verify-print-view.mjs and any leads variant)
+  can't run until Ian restores SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+  there. P1-B visual walkthrough deferred to Ian's first dogfood; any
+  friction is P1-A same-session priority.
+- Leads P1-B conventions to know: lead stage auto-advance is FORWARD-ONLY
+  (reopened/reverted proposals never demote a lead — manual board move);
+  proposal declined prompts (never forces) lead → Lost in ProposalEditor.

@@ -56,7 +56,9 @@ import {
   type StatusTransition,
 } from '@/lib/proposals'
 import { lineHasErrors } from '@/components/proposals/ProposalLineRow'
+import { getLinkedLeadForLostPrompt, updateLead } from '@/lib/leads'
 import type {
+  Lead,
   Project,
   ProposalLine,
   ProposalLineCategory,
@@ -117,6 +119,11 @@ export default function ProposalEditor() {
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [pendingTransition, setPendingTransition] = useState<StatusTransition | null>(null)
   const [transitioning, setTransitioning] = useState(false)
+
+  // P1-B: after a decline, if the project has a linked lead, offer
+  // (never force) moving it to Lost. Holds the lead while the prompt
+  // is open; null = closed.
+  const [lostPromptLead, setLostPromptLead] = useState<Lead | null>(null)
 
   // Per-line draft state. `localLines` holds the live edited values
   // keyed by line id; `originalLines` is the server snapshot for diff
@@ -421,12 +428,22 @@ export default function ProposalEditor() {
       if (fresh) setProposal(fresh)
       toast.success(`Marked as ${pendingTransition.target}.`)
       setPendingTransition(null)
+      // P1-B: declined → offer to move the linked lead to Lost
+      // (confirm, don't force). Best-effort lookup; silence failures.
+      if (pendingTransition.target === 'declined' && projectId) {
+        try {
+          const lead = await getLinkedLeadForLostPrompt(projectId)
+          if (lead) setLostPromptLead(lead)
+        } catch {
+          /* best-effort */
+        }
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Status update failed.')
     } finally {
       setTransitioning(false)
     }
-  }, [proposalId, pendingTransition])
+  }, [proposalId, pendingTransition, projectId])
 
   /* ---------- delete proposal ---------- */
 
@@ -969,6 +986,34 @@ export default function ProposalEditor() {
         }
         confirmLabel={pendingTransition?.label ?? 'Confirm'}
         tone={pendingTransition?.tone === 'primary' ? 'primary' : 'primary'}
+      />
+
+      {/* P1-B: post-decline prompt — move the linked lead to Lost?
+          Confirm, don't force (LOOP.md). Declining alone never moves
+          the pipeline. */}
+      <ConfirmDialog
+        open={lostPromptLead !== null}
+        onClose={() => setLostPromptLead(null)}
+        onConfirm={async () => {
+          if (lostPromptLead) {
+            try {
+              await updateLead(lostPromptLead.id, { stage: 'lost' })
+              toast.success('Lead moved to Lost.')
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Couldn't move lead.")
+            }
+          }
+          setLostPromptLead(null)
+        }}
+        title="Move the lead to Lost too?"
+        description={
+          lostPromptLead
+            ? `This project is linked to the lead "${lostPromptLead.name}". Mark that lead as Lost on the pipeline board? Skipping leaves it where it is.`
+            : ''
+        }
+        confirmLabel="Mark lead as Lost"
+        cancelLabel="Keep lead where it is"
+        tone="danger"
       />
 
       {/* Delete-proposal confirm — dynamic copy with cascade preview +

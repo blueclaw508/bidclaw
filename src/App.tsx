@@ -13,6 +13,8 @@ import { RouteLoading } from '@/components/RouteLoading'
 // AppShell layout is shared across every /app/* route, so loading it
 // once is fine). Everything else is lazy.
 const AuthCallback              = lazy(() => import('@/pages/AuthCallback'))
+const LeadsPage                 = lazy(() => import('@/pages/Leads'))
+const LeadDetailPage            = lazy(() => import('@/pages/LeadDetail'))
 const ProjectsPage              = lazy(() => import('@/pages/Projects'))
 const ProjectDetailPage         = lazy(() => import('@/pages/ProjectDetail'))
 const CustomersPage             = lazy(() => import('@/pages/Customers'))
@@ -68,6 +70,8 @@ export default function App() {
                 }
               >
                 <Route index element={<Navigate to="projects" replace />} />
+                <Route path="leads"         element={<LeadsPage />} />
+                <Route path="leads/:id"     element={<LeadDetailPage />} />
                 <Route path="projects"      element={<ProjectsPage />} />
                 <Route path="projects/:id"  element={<ProjectDetailPage />} />
                 <Route
