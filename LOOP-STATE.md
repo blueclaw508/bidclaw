@@ -25,41 +25,22 @@ Session count: 1
   Files tab · 8e47818..95647b8 · committed pre-Loop
 
 ## RECONCILIATION NOTES (2026-06-11, session 1)
-- Repo was rebuilt 2026-05-14 (commit 8e47818); old history (incl. hotfix
-  89831c9 referenced in the LOOP.md §5 template) lives on
-  origin/pre-rebuild-archive, not master.
+- CORRECTION: the first drift gate this session ran against a STALE local
+  clone (HEAD 47c66f8, ~3.5 weeks behind). After fetch + rebase onto
+  origin/master (89831c9 = LOOP.md's hotfix #1), the codebase matches
+  LOOP.md: proposals use draft/presented/accepted/declined/completed
+  (0007), ProposalEditor.tsx exists (54 KB), proposals.ts is the data
+  layer. The 4 "conflicts" recorded in the first commit of this file were
+  stale-clone artifacts — disregard.
+- Drift gate re-run vs real code: <3 conflicts. Spec's proposal-status
+  list matches 0007 exactly. Open design points resolved by spec text:
+  (a) board shows Ian's stage labels (Signed/Completed/In-Progress) over
+  existing project statuses (approved/complete/in_progress) — no enum
+  rename; (b) leads table owns pre-project stages, stage auto-advances on
+  lifecycle events, manual moves allowed where no proposal exists.
 - eval/ directory does not exist yet — create when first WoZ log lands.
-- Working tree clean at session start (HEAD 47c66f8).
-
-## P1-B DRIFT GATE — STOPPED, AWAITING IAN (2026-06-11, session 1)
-Pattern C scan of the LOOP.md P1-B spec vs the rebuilt codebase found 4
-conflicts (threshold 3) → stop-and-ask per Loop §4. No migration written.
-
-1. Stage names vs projects.status CHECK: spec stages Signed/Completed/
-   Pending/Leads don't exist in the DB enum (draft, estimating, proposed,
-   approved, in_progress, complete, lost, archived — 0001 migration +
-   types.ts + statusConfig.ts). Recommended: new leads table owns
-   pre-project stages (Leads, Pending); after conversion the stage is the
-   project status displayed under Ian's labels (approved→"Signed",
-   complete→"Completed", in_progress→"In-Progress"). No enum rename.
-2. Proposal statuses: spec says map from draft/presented/accepted/
-   declined/completed, but the rebuilt proposals.status CHECK is
-   draft/sent/approved/rejected/expired (pre-rebuild status list no
-   longer exists). Recommended mapping: sent→Proposed, approved→Signed,
-   rejected→Lost (with confirm), expired→surface as follow-up due.
-3. Lead contact vs customers table: spec gives leads their own contact
-   fields; customers table already holds the same fields. Recommended:
-   leads carry their own contact (a lead isn't a customer yet); converting
-   creates/links a customer + project, customer_id nullable on leads.
-4. P1-D Cleanup 1 (save-path batching, totals-card filter, ProposalEditor
-   1,443 lines, duplicateProposal) targets pre-rebuild code that does not
-   exist on master — there is no proposal UI in the rebuild at all.
-   Affects Gate 1 criterion "Cleanup items 1–2 verified shipped."
-   Recommended: mark Cleanup 1 N/A-for-rebuild in Gate 1; keep Cleanup 2
-   (money.ts helpers) as a hard Phase 2 prerequisite (greenfield).
-
-NEXT SESSION: if Ian has answered, build P1-B per the locked answers
-(additive migration → data layer → board/list UI → lifecycle wiring).
+- LESSON for future sessions: run `git fetch` BEFORE the startup
+  `git log`/`git status` reconcile — a stale clone fails silently.
 
 ## WATCH LIST
 - Rotate Supabase service_role key (Ian, dashboard) — Ian's to-do, do not execute

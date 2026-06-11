@@ -26,6 +26,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
+import { syncLeadStageForProposalStatus } from '@/lib/leads'
 import type {
   KitPreviewLine,
   Proposal,
@@ -270,6 +271,15 @@ export async function createProposal(input: {
 /**
  * Patch a proposal header. Editability guard: once status != 'draft'
  * only the `status` field may be patched.
+ *
+ * Lifecycle side-effects (Phase 1 P1-B):
+ *   • First transition to 'presented' stamps presented_at (0010) —
+ *     powers the leads list "proposal sent" date filter.
+ *   • Status writes advance the linked lead's pipeline stage
+ *     (presented → Proposed, accepted → Signed, completed →
+ *     Completed). Best-effort: a sync failure never fails the
+ *     proposal write. Declined intentionally does NOT auto-move the
+ *     lead — the editor confirms Lost with the contractor instead.
  */
 export async function updateProposal(
   id: string,
@@ -277,7 +287,7 @@ export async function updateProposal(
 ): Promise<Proposal> {
   const { data: current, error: lookupErr } = await supabase
     .from('proposals')
-    .select('status')
+    .select('status, presented_at')
     .eq('id', id)
     .maybeSingle()
   if (lookupErr || !current) {
@@ -295,16 +305,28 @@ export async function updateProposal(
       )
     }
   }
+  const writePatch: Record<string, unknown> = { ...patch }
+  if (patch.status === 'presented' && !current.presented_at) {
+    writePatch.presented_at = new Date().toISOString()
+  }
   const { data, error } = await supabase
     .from('proposals')
-    .update(patch)
+    .update(writePatch)
     .eq('id', id)
     .select()
     .single()
   if (error || !data) {
     throw new Error(`Couldn't update proposal: ${error?.message ?? 'no row returned'}`)
   }
-  return data as Proposal
+  const updated = data as Proposal
+  if (patch.status) {
+    try {
+      await syncLeadStageForProposalStatus(updated.project_id, patch.status)
+    } catch {
+      // Best-effort — the proposal write already succeeded.
+    }
+  }
+  return updated
 }
 
 export async function deleteProposal(id: string): Promise<void> {

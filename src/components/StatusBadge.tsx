@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import {
+  LEAD_STAGE_CONFIG,
   PROJECT_STATUS_CONFIG,
   PROPOSAL_STATUS_CONFIG,
   WORK_AREA_STATUS_CONFIG,
@@ -7,6 +8,7 @@ import {
 } from '@/lib/statusConfig'
 import type {
   CatalogCategory,
+  LeadStage,
   ProjectStatus,
   ProposalStatus,
   WorkAreaStatus,
@@ -17,6 +19,7 @@ type Kind =
   | { kind: 'work_area'; value: WorkAreaStatus }
   | { kind: 'proposal'; value: ProposalStatus }
   | { kind: 'category'; value: CatalogCategory }
+  | { kind: 'lead'; value: LeadStage }
 
 export function StatusBadge(props: Kind & { className?: string }) {
   const cfg =
@@ -26,7 +29,9 @@ export function StatusBadge(props: Kind & { className?: string }) {
         ? WORK_AREA_STATUS_CONFIG[props.value]
         : props.kind === 'proposal'
           ? PROPOSAL_STATUS_CONFIG[props.value]
-          : CATALOG_CATEGORY_CONFIG[props.value]
+          : props.kind === 'lead'
+            ? LEAD_STAGE_CONFIG[props.value]
+            : CATALOG_CATEGORY_CONFIG[props.value]
   return (
     <span
       className={cn(

@@ -461,6 +461,8 @@ export interface Proposal {
   name: string
   status: ProposalStatus
   notes: string | null
+  /** Stamped the FIRST time the proposal transitions to 'presented' (0010). */
+  presented_at: string | null
   created_at: string
   updated_at: string
 }
@@ -621,4 +623,60 @@ export interface KitPreviewLine {
    * entry before committing.
    */
   placeholder: boolean
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Leads & Bids pipeline (Phase 1 P1-B — LOOP.md)
+// ──────────────────────────────────────────────────────────────────────
+// Mirrors 0010_leads_pipeline.sql. Stage values are snake_case wire
+// format; the UI renders Ian's exact stage names via LEAD_STAGE_CONFIG
+// (Leads, Pending, Estimating, Proposed, Signed, In-Progress,
+// Completed, Lost). Lost is reachable from any stage.
+
+export type LeadStage =
+  | 'lead'
+  | 'pending'
+  | 'estimating'
+  | 'proposed'
+  | 'signed'
+  | 'in_progress'
+  | 'completed'
+  | 'lost'
+
+export interface Lead {
+  id: string
+  user_id: string
+  /** Contact name — a lead carries its own contact until conversion. */
+  name: string
+  phone: string | null
+  email: string | null
+  job_address: string | null
+  town: string | null
+  source: string | null
+  stage: LeadStage
+  /** DATE column — 'YYYY-MM-DD' string, no time component. */
+  follow_up_date: string | null
+  /** Set at conversion. ON DELETE SET NULL — never deletes the lead. */
+  project_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Timestamped, append-only note on a lead. */
+export interface LeadNote {
+  id: string
+  lead_id: string
+  body: string
+  created_at: string
+}
+
+/**
+ * List/board row returned by `listLeads` — lead + embedded project
+ * summary + proposal aggregates, single round-trip. last_presented_at
+ * powers the "proposal sent" date-range filter.
+ */
+export interface LeadListRow extends Lead {
+  project: { id: string; name: string; status: ProjectStatus } | null
+  proposal_count: number
+  last_presented_at: string | null
 }

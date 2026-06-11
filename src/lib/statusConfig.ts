@@ -1,5 +1,6 @@
 import type {
   CatalogCategory,
+  LeadStage,
   ProjectStatus,
   ProposalStatus,
   WorkAreaStatus,
@@ -61,6 +62,31 @@ export const PROPOSAL_STATUS_CONFIG: Record<ProposalStatus, BadgeStyle> = {
   accepted:  { label: 'Accepted',  className: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
   declined:  { label: 'Declined',  className: 'bg-rose-100    text-rose-800    ring-rose-200' },
   completed: { label: 'Completed', className: 'bg-emerald-200 text-emerald-900 ring-emerald-300' },
+}
+
+// Pipeline order is Ian's exact sequence (LOOP.md P1-B). Labels are
+// Ian's words verbatim — do not rename. 'lost' sits last; it's
+// reachable from any stage, not a sequence step.
+export const LEAD_STAGE_ORDER: LeadStage[] = [
+  'lead',
+  'pending',
+  'estimating',
+  'proposed',
+  'signed',
+  'in_progress',
+  'completed',
+  'lost',
+]
+
+export const LEAD_STAGE_CONFIG: Record<LeadStage, BadgeStyle> = {
+  lead:        { label: 'Leads',       className: 'bg-slate-100   text-slate-700   ring-slate-200' },
+  pending:     { label: 'Pending',     className: 'bg-purple-100  text-purple-800  ring-purple-200' },
+  estimating:  { label: 'Estimating',  className: 'bg-sky-100     text-sky-800     ring-sky-200' },
+  proposed:    { label: 'Proposed',    className: 'bg-amber-100   text-amber-800   ring-amber-200' },
+  signed:      { label: 'Signed',      className: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
+  in_progress: { label: 'In-Progress', className: 'bg-indigo-100  text-indigo-800  ring-indigo-200' },
+  completed:   { label: 'Completed',   className: 'bg-emerald-200 text-emerald-900 ring-emerald-300' },
+  lost:        { label: 'Lost',        className: 'bg-rose-100    text-rose-800    ring-rose-200' },
 }
 
 export const CATALOG_CATEGORY_ORDER: CatalogCategory[] = [

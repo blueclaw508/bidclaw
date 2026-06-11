@@ -29,6 +29,7 @@ import {
   PROJECT_STATUS_CONFIG,
   PROJECT_STATUS_ORDER,
 } from '@/lib/statusConfig'
+import { syncLeadStageForProjectStatus } from '@/lib/leads'
 import { cn } from '@/lib/utils'
 import type { Customer, Project, ProjectStatus } from '@/lib/types'
 
@@ -130,6 +131,16 @@ export default function ProjectDetailPage() {
         return false
       }
       setProject(data as ProjectDetail)
+      // Phase 1 P1-B: a manual status change advances the linked
+      // lead's pipeline stage (forward-only). Best-effort — never
+      // fails the project save.
+      if (changes.status) {
+        try {
+          await syncLeadStageForProjectStatus(project.id, changes.status)
+        } catch {
+          /* best-effort */
+        }
+      }
       return true
     },
     [project]
