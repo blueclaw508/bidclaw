@@ -1,7 +1,7 @@
 # LOOP-STATE — BidClaw
 Phase: 1 — Dogfooding Sprint Support
 Sprint start: 2026-06-11        Gate-1 date check: 2026-06-25 (max 07-02)
-Session count: 3
+Session count: 4
 
 ## GATE PROGRESS (current phase)
 - [ ] 14 days elapsed (day 0 of sprint)
@@ -16,15 +16,25 @@ Session count: 3
 - [ ] Hand-simulated Jamie passing last 2 evals — n/a yet
 
 ## TASK QUEUE (priority order)
-1. P1-D cleanup 3 (integrity & polish, nice-to-have for Gate 1):
-   unique index (proposal_id, position) + pair-by-index in
-   duplicateProposal; print-view not-found state; tone ternary fix;
-   ProposalEditor extraction (StatusBanner/StatusMenu/TotalsBreakdown)
+1. P1-D cleanup 4 / Phase 1.5 backlog (optional): optimistic
+   concurrency (multi-tab last-write-wins), transactional
+   duplicate/reorder via RPC, memoized validation
 2. P1-B polish (only if Ian asks): board drag-and-drop, lead-detail
    proposal list, visual walkthrough once .env.local is restored
 3. P1-C support: eval/ scaffolding when Ian's first WoZ eval is ready
 
 ## DONE (newest first — task · commit · verification)
+- 2026-06-11 · P1-D cleanup 3: 0011 unique (proposal_id, position)
+  index (applied + verified live) + two-phase reorder (stage negatives
+  then finals — single-phase swap would violate the index, DB-proven
+  via fixture test incl. cleanup); tone ternary fixed (declined →
+  danger red, was always-primary no-op); ProposalEditor 1,493 → 1,052
+  lines (StatusBanner/StatusMenu/transitionDescription →
+  ProposalStatusControls.tsx, TotalsBreakdown → TotalsBreakdown.tsx;
+  STATUS_LABEL map replaced by PROPOSAL_STATUS_CONFIG labels) · this
+  commit · TS-green; encoding scan clean. NOTE: print-view not-found
+  state was already shipped pre-Loop (commit 150c0b5) — verified
+  present, nothing to do.
 - 2026-06-11 · P1-D cleanup 2: money consolidation — src/lib/money.ts
   (lineBase/lineMarkup/lineTotal/formatUSD/categoryBearsMarkup as type
   predicate) + PROPOSAL_LINE_CATEGORY_ORDER/LABELS in statusConfig;

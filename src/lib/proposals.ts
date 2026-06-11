@@ -404,7 +404,9 @@ export async function duplicateProposal(
     // same order as the input array would let us pair source→new
     // without a secondary lookup, but PostgREST insert+select doesn't
     // guarantee insert order. So we do one-shot insert with all rows,
-    // then match by `position` (unique within a proposal).
+    // then match by `position` — unique within a proposal, ENFORCED by
+    // 0011's unique (proposal_id, position) index, so this pairing
+    // can't silently mismatch (a duplicate would fail the insert loudly).
     type NewPwaRow = {
       proposal_id: string
       work_area_id: string | null
@@ -663,21 +665,38 @@ export async function removeWorkAreaFromProposal(id: string): Promise<void> {
 /**
  * Rewrite position for every work area in the supplied order. Used
  * after dnd-kit drag-drop of the work area cards in the editor.
- * Skips no-op writes when the position already matches.
+ *
+ * Two-phase since 0011's unique (proposal_id, position) index: each
+ * UPDATE is its own statement, so writing final positions directly
+ * can transiently collide on a swap (A 0→1 lands while B still holds
+ * 1). Phase 1 stages every row at a negative position (never used by
+ * real data, so collision-free); phase 2 writes the finals.
  */
 export async function reorderProposalWorkAreas(
   proposalId: string,
   proposalWorkAreaIdsInOrder: string[]
 ): Promise<void> {
   await assertProposalEditable(proposalId)
-  const results = await Promise.all(
+  const staged = await Promise.all(
+    proposalWorkAreaIdsInOrder.map((id, idx) =>
+      supabase
+        .from('proposal_work_areas')
+        .update({ position: -(idx + 1) })
+        .eq('id', id)
+    )
+  )
+  const stageErr = staged.find((r) => r.error)
+  if (stageErr?.error) {
+    throw new Error(`Reorder failed: ${stageErr.error.message}`)
+  }
+  const finals = await Promise.all(
     proposalWorkAreaIdsInOrder.map((id, idx) =>
       supabase.from('proposal_work_areas').update({ position: idx }).eq('id', id)
     )
   )
-  const firstErr = results.find((r) => r.error)
-  if (firstErr?.error) {
-    throw new Error(`Reorder failed: ${firstErr.error.message}`)
+  const finalErr = finals.find((r) => r.error)
+  if (finalErr?.error) {
+    throw new Error(`Reorder failed: ${finalErr.error.message}`)
   }
 }
 
@@ -1321,3 +1340,6 @@ export async function getProposalTotals(proposalId: string): Promise<{
     grandTotal: grandSubtotal + grandMarkupAmount,
   }
 }
+
+/** Resolved totals payload — named so extracted components can type props. */
+export type ProposalTotals = Awaited<ReturnType<typeof getProposalTotals>>

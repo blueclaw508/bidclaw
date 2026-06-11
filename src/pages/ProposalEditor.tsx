@@ -18,15 +18,11 @@ import {
   AlertTriangle,
   ArrowLeft,
   Calculator,
-  ChevronDown,
-  CircleCheck,
-  CircleX,
   ClipboardList,
   Download,
   FileText,
   Info,
   Layers,
-  Lock,
   Plus,
   Printer,
   RotateCcw,
@@ -56,15 +52,18 @@ import {
   type StatusTransition,
 } from '@/lib/proposals'
 import { lineHasErrors } from '@/components/proposals/ProposalLineRow'
+import {
+  StatusBanner,
+  StatusMenu,
+  transitionDescription,
+} from '@/components/proposals/ProposalStatusControls'
+import { TotalsBreakdown } from '@/components/proposals/TotalsBreakdown'
 import { getLinkedLeadForLostPrompt, updateLead } from '@/lib/leads'
-import { categoryBearsMarkup, formatUSD, lineBase, lineMarkup } from '@/lib/money'
-import { PROPOSAL_LINE_CATEGORY_LABELS } from '@/lib/statusConfig'
+import { categoryBearsMarkup } from '@/lib/money'
 import type {
   Lead,
   Project,
   ProposalLine,
-  ProposalLineCategory,
-  ProposalStatus,
   ProposalWithWorkAreas,
   ProposalWorkAreaResolved,
   WorkArea,
@@ -987,7 +986,7 @@ export default function ProposalEditor() {
             : null
         }
         confirmLabel={pendingTransition?.label ?? 'Confirm'}
-        tone={pendingTransition?.tone === 'primary' ? 'primary' : 'primary'}
+        tone={pendingTransition?.target === 'declined' ? 'danger' : 'primary'}
       />
 
       {/* P1-B: post-decline prompt — move the linked lead to Lost?
@@ -1052,153 +1051,6 @@ export default function ProposalEditor() {
         confirmLabel="Delete"
         tone="danger"
       />
-    </div>
-  )
-}
-
-/* ============================================================
- * Totals breakdown — per-category subtotals + markup + grand
- * ============================================================ */
-
-function TotalsBreakdown({
-  totals,
-  proposal,
-}: {
-  totals: TotalsView
-  proposal: ProposalWithWorkAreas
-}) {
-  // Per-category rollup: base (pre-markup) + markup amount. Computed
-  // from line-level data — only enabled work areas contribute. Disabled
-  // work areas still show their own subtotals on their cards but are
-  // excluded from grand total per the architecture decision locked at
-  // Phase 2c.
-  const rollup: Record<ProposalLineCategory, { base: number; markup: number; count: number }> = {
-    labor: { base: 0, markup: 0, count: 0 },
-    material: { base: 0, markup: 0, count: 0 },
-    equipment: { base: 0, markup: 0, count: 0 },
-    subcontractor: { base: 0, markup: 0, count: 0 },
-    other: { base: 0, markup: 0, count: 0 },
-  }
-  for (const wa of proposal.work_areas) {
-    if (!wa.enabled) continue
-    for (const l of wa.lines) {
-      rollup[l.category].base += lineBase(l)
-      rollup[l.category].markup += lineMarkup(l)
-      rollup[l.category].count += 1
-    }
-  }
-
-  // Visibility by LINE COUNT, not dollars (P1-D cleanup 1 falsy-zero
-  // fix): a category whose lines are all $0 (unpriced yet) must still
-  // show — hiding it made present-but-unpriced work invisible here.
-  const visibleCategories = (Object.keys(rollup) as ProposalLineCategory[]).filter(
-    (cat) => rollup[cat].count > 0
-  )
-
-  if (visibleCategories.length === 0) {
-    return (
-      <div className="rounded-xl border border-gray-200 bg-white">
-        <header className="border-b border-gray-100 bg-slate-50 px-4 py-2">
-          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">
-            Proposal total
-          </h3>
-        </header>
-        <div className="px-4 py-6 text-center text-xs italic text-gray-400">
-          No line items yet.
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-      <header className="border-b border-gray-100 bg-slate-50 px-4 py-2">
-        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">
-          Proposal total
-        </h3>
-      </header>
-
-      {/* Desktop tabular layout — Base / Markup / Total columns */}
-      <table className="hidden w-full text-sm sm:table">
-        <thead>
-          <tr className="border-b border-gray-100 bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
-            <th className="px-4 py-2 text-left font-semibold">Category</th>
-            <th className="px-4 py-2 text-right font-semibold">Base</th>
-            <th className="px-4 py-2 text-right font-semibold">Markup</th>
-            <th className="px-4 py-2 text-right font-semibold">Total</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {visibleCategories.map((cat) => {
-            const { base, markup } = rollup[cat]
-            return (
-              <tr key={cat}>
-                <td className="px-4 py-2 font-medium text-gray-700">
-                  {PROPOSAL_LINE_CATEGORY_LABELS[cat]}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums text-gray-900">
-                  {formatUSD(base)}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums text-gray-700">
-                  {markup > 0 ? `+ ${formatUSD(markup)}` : '—'}
-                </td>
-                <td className="px-4 py-2 text-right font-semibold tabular-nums text-gray-900">
-                  {formatUSD(base + markup)}
-                </td>
-              </tr>
-            )
-          })}
-          <tr className="border-t-2 border-gray-200 bg-brand-navy/5">
-            <td colSpan={3} className="px-4 py-3 text-base font-bold text-gray-900">
-              GRAND TOTAL
-            </td>
-            <td className="px-4 py-3 text-right text-lg font-bold tabular-nums text-brand-navy">
-              {formatUSD(totals.grandTotal)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* Mobile stacked layout — per-category card with Base / Markup / Total dl */}
-      <div className="space-y-3 px-4 py-3 sm:hidden">
-        {visibleCategories.map((cat) => {
-          const { base, markup } = rollup[cat]
-          return (
-            <div
-              key={cat}
-              className="rounded-lg border border-gray-100 p-3"
-            >
-              <div className="text-sm font-semibold text-gray-900">
-                {PROPOSAL_LINE_CATEGORY_LABELS[cat]}
-              </div>
-              <dl className="mt-2 space-y-1 text-xs">
-                <div className="flex items-center justify-between">
-                  <dt className="text-gray-500">Base</dt>
-                  <dd className="tabular-nums text-gray-900">{formatUSD(base)}</dd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <dt className="text-gray-500">Markup</dt>
-                  <dd className="tabular-nums text-gray-700">
-                    {markup > 0 ? `+ ${formatUSD(markup)}` : '—'}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between border-t border-gray-100 pt-1">
-                  <dt className="font-semibold text-gray-700">Total</dt>
-                  <dd className="font-semibold tabular-nums text-gray-900">
-                    = {formatUSD(base + markup)}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          )
-        })}
-        <div className="flex items-center justify-between rounded-lg bg-brand-navy/5 p-3">
-          <span className="text-base font-bold text-gray-900">GRAND TOTAL</span>
-          <span className="text-lg font-bold tabular-nums text-brand-navy">
-            {formatUSD(totals.grandTotal)}
-          </span>
-        </div>
-      </div>
     </div>
   )
 }
@@ -1272,222 +1124,5 @@ function buildDirtyLabel(linesDirtyCount: number, notesDirty: boolean): string {
   return parts.join(' + ') + '.'
 }
 
-/* ============================================================
- * Phase 3c status lifecycle UI helpers
- * ============================================================ */
-
-/**
- * Status banner above the toolbar — only renders when status != 'draft'.
- * Status-tinted, with a quick "Revert to draft" CTA on the right.
- */
-function StatusBanner({
-  status,
-  onRevertToDraft,
-}: {
-  status: ProposalStatus
-  onRevertToDraft: () => void
-}) {
-  const cfg = STATUS_BANNER_CONFIG[status]
-  if (!cfg) return null
-  const Icon = cfg.icon
-  return (
-    <div
-      className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 ${cfg.tint}`}
-    >
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        <Icon className="h-4 w-4 shrink-0" />
-        <span>{cfg.message}</span>
-      </div>
-      <button
-        type="button"
-        onClick={onRevertToDraft}
-        className={`inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5 text-xs font-semibold transition-colors ${cfg.revertButton}`}
-      >
-        Revert to draft
-      </button>
-    </div>
-  )
-}
-
-const STATUS_BANNER_CONFIG: Partial<
-  Record<
-    ProposalStatus,
-    {
-      tint: string
-      revertButton: string
-      icon: typeof Lock
-      message: string
-    }
-  >
-> = {
-  presented: {
-    tint: 'border-blue-200 bg-blue-50 text-blue-700',
-    revertButton: 'border-blue-200 text-blue-700 hover:bg-blue-100',
-    icon: Send,
-    message: 'This proposal is marked as presented. Inline edits are locked.',
-  },
-  accepted: {
-    tint: 'border-green-200 bg-green-50 text-green-700',
-    revertButton: 'border-green-200 text-green-700 hover:bg-green-100',
-    icon: CircleCheck,
-    message: 'This proposal is marked as accepted. Inline edits are locked.',
-  },
-  declined: {
-    tint: 'border-rose-200 bg-rose-50 text-rose-700',
-    revertButton: 'border-rose-200 text-rose-700 hover:bg-rose-100',
-    icon: CircleX,
-    message: 'This proposal is marked as declined. Inline edits are locked.',
-  },
-  completed: {
-    tint: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    revertButton: 'border-emerald-200 text-emerald-700 hover:bg-emerald-100',
-    icon: CircleCheck,
-    message:
-      'This proposal is marked as completed — wrapped up successfully. Inline edits are locked.',
-  },
-}
-
-/**
- * Toolbar status dropdown — single button "Status: {label} ▾" that
- * opens a menu of available transitions per availableTransitions().
- * Click outside or pick a transition to close.
- */
-function StatusMenu({
-  status,
-  transitions,
-  open,
-  onToggle,
-  onClose,
-  onSelect,
-}: {
-  status: ProposalStatus
-  transitions: StatusTransition[]
-  open: boolean
-  onToggle: () => void
-  onClose: () => void
-  onSelect: (t: StatusTransition) => void
-}) {
-  // Click-outside close: clicking anywhere besides the menu closes it.
-  useEffect(() => {
-    if (!open) return
-    const handler = () => onClose()
-    // Defer one tick so the toggle click that opened us doesn't immediately close.
-    const id = window.setTimeout(() => {
-      window.addEventListener('click', handler)
-    }, 0)
-    return () => {
-      window.clearTimeout(id)
-      window.removeEventListener('click', handler)
-    }
-  }, [open, onClose])
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onToggle()
-        }}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-      >
-        <Lock className="h-4 w-4" />
-        Status: {STATUS_LABEL[status]}
-        <ChevronDown className="h-3.5 w-3.5" />
-      </button>
-      {open && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl"
-        >
-          {transitions.length === 0 ? (
-            <div className="px-3 py-2 text-xs italic text-gray-500">
-              No transitions available.
-            </div>
-          ) : (
-            <ul className="py-1">
-              {transitions.map((t) => (
-                <li key={t.target}>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(t)}
-                    className={`block w-full px-3 py-2 text-left text-sm transition-colors ${
-                      t.tone === 'primary'
-                        ? 'font-semibold text-brand-navy hover:bg-blue-50'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-const STATUS_LABEL: Record<ProposalStatus, string> = {
-  draft: 'Draft',
-  presented: 'Presented',
-  accepted: 'Accepted',
-  declined: 'Declined',
-  completed: 'Completed',
-}
-
-/**
- * ConfirmDialog body copy per (from → to) transition. Short, contractor-
- * direct; explains the side-effect when relevant (e.g. "this will lock
- * inline edits").
- */
-function transitionDescription(
-  from: ProposalStatus,
-  to: ProposalStatus
-): React.ReactNode {
-  if (to === 'presented') {
-    return (
-      <>
-        Mark this proposal as presented to the client? Inline editing will
-        be locked. You can still refresh totals or delete the proposal, and
-        you can revert to draft at any time.
-      </>
-    )
-  }
-  if (to === 'accepted') {
-    return (
-      <>
-        Mark this proposal as accepted? The proposal stays locked from
-        inline edits. You can advance to completed when the work is done,
-        or revert to draft to rework.
-      </>
-    )
-  }
-  if (to === 'declined') {
-    return (
-      <>
-        Mark this proposal as declined? The proposal stays locked from
-        inline edits. You can revert to draft to rework and re-present.
-      </>
-    )
-  }
-  if (to === 'completed') {
-    return (
-      <>
-        Mark this proposal as completed — work delivered and accepted by
-        the client? You can reopen back to accepted or revert to draft if
-        needed.
-      </>
-    )
-  }
-  if (to === 'draft') {
-    return (
-      <>
-        Revert this proposal to draft? Inline editing will be unlocked.
-        The proposal stays attached to the same project; no data is lost.
-      </>
-    )
-  }
-  return <>Change status from {from} to {to}?</>
-}
+// StatusBanner / StatusMenu / transitionDescription extracted to
+// components/proposals/ProposalStatusControls.tsx (P1-D cleanup 3).
