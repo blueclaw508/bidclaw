@@ -246,6 +246,9 @@ export default function ProposalEditor() {
         local.label !== orig.label ||
         Number(local.quantity) !== Number(orig.quantity) ||
         Number(local.frozen_unit_cost) !== Number(orig.frozen_unit_cost) ||
+        // NaN !== n is true, so a cleared markup field (NaN) correctly
+        // marks the line dirty; markupInvalid then blocks Save.
+        Number(local.frozen_markup_percent) !== Number(orig.frozen_markup_percent) ||
         Number(local.sort_order) !== Number(orig.sort_order)
       ) {
         ids.add(id)
@@ -345,14 +348,24 @@ export default function ProposalEditor() {
       // Phase 1.5 polish pass).
       for (const id of dirtyLineIds) {
         const l = localLines[id]
-        ops.push(
-          updateProposalLine(id, {
-            label: l.label.trim(),
-            quantity: Number(l.quantity),
-            frozen_unit_cost: Number(l.frozen_unit_cost),
-            sort_order: l.sort_order,
-          })
-        )
+        const patch: Parameters<typeof updateProposalLine>[1] = {
+          label: l.label.trim(),
+          quantity: Number(l.quantity),
+          frozen_unit_cost: Number(l.frozen_unit_cost),
+          sort_order: l.sort_order,
+        }
+        // Markup is patchable only on markup-bearing categories — the
+        // data layer throws if a labor/equipment patch carries the field
+        // at all (Phase 3a guard). Cleanup session 2 consolidates this
+        // check into a shared categoryBearsMarkup() helper.
+        if (
+          l.category === 'material' ||
+          l.category === 'subcontractor' ||
+          l.category === 'other'
+        ) {
+          patch.frozen_markup_percent = Number(l.frozen_markup_percent)
+        }
+        ops.push(updateProposalLine(id, patch))
       }
       // Deletes
       for (const id of deletedLineIds) {
