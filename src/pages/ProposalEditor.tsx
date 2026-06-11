@@ -39,6 +39,7 @@ import { AddAdHocWorkAreaModal } from '@/components/proposals/AddAdHocWorkAreaMo
 import ProposalWorkAreaSection from '@/components/proposals/ProposalWorkAreaSection'
 import { supabase } from '@/lib/supabase'
 import {
+  assertProposalVersion,
   availableTransitions,
   deleteProposal,
   getProposal,
@@ -341,6 +342,12 @@ export default function ProposalEditor() {
     if (!proposal || !canSave) return
     setSaving(true)
     try {
+      // Optimistic-concurrency guard (0012): one atomic version check
+      // for the whole batch. Throws ProposalConflictError (user-ready
+      // message, surfaced by the catch below) when another tab changed
+      // this proposal since we loaded it — instead of overwriting.
+      await assertProposalVersion(proposal.id, proposal.lock_version)
+
       const ops: Promise<unknown>[] = []
       // Notes
       if (notesDirty) {
@@ -422,7 +429,13 @@ export default function ProposalEditor() {
     if (!proposalId || !pendingTransition) return
     setTransitioning(true)
     try {
-      await updateProposal(proposalId, { status: pendingTransition.target })
+      await updateProposal(
+        proposalId,
+        { status: pendingTransition.target },
+        // 0012 guard — a status change from a stale tab raises
+        // ProposalConflictError instead of clobbering newer edits.
+        { expectedLockVersion: proposal?.lock_version }
+      )
       // Refetch the proposal so the local state mirrors the new status
       // (editability flips immediately, banner updates, etc.)
       const fresh = await getProposal(proposalId)
@@ -444,7 +457,7 @@ export default function ProposalEditor() {
     } finally {
       setTransitioning(false)
     }
-  }, [proposalId, pendingTransition, projectId])
+  }, [proposalId, pendingTransition, projectId, proposal?.lock_version])
 
   /* ---------- delete proposal ---------- */
 

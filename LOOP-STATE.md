@@ -1,7 +1,7 @@
 # LOOP-STATE — BidClaw
 Phase: 1 — Dogfooding Sprint Support
 Sprint start: 2026-06-11        Gate-1 date check: 2026-06-25 (max 07-02)
-Session count: 4
+Session count: 5
 
 ## GATE PROGRESS (current phase)
 - [ ] 14 days elapsed (day 0 of sprint)
@@ -16,14 +16,22 @@ Session count: 4
 - [ ] Hand-simulated Jamie passing last 2 evals — n/a yet
 
 ## TASK QUEUE (priority order)
-1. P1-D cleanup 4 / Phase 1.5 backlog (optional): optimistic
-   concurrency (multi-tab last-write-wins), transactional
-   duplicate/reorder via RPC, memoized validation
+1. Phase 1.5 remainder (optional): transactional duplicate/reorder via
+   Postgres RPC; memoized validation in the editor
 2. P1-B polish (only if Ian asks): board drag-and-drop, lead-detail
    proposal list, visual walkthrough once .env.local is restored
 3. P1-C support: eval/ scaffolding when Ian's first WoZ eval is ready
 
 ## DONE (newest first — task · commit · verification)
+- 2026-06-11 · Phase 1.5: optimistic concurrency — 0012 (applied +
+  DB-smoke-tested: bumps on proposal update + every child line/WA
+  insert/update/delete; stale conditional touch matches 0 rows,
+  current matches 1 and bumps; fixture cleaned). proposals.lock_version
+  + ProposalConflictError + assertProposalVersion; handleSaveAll guards
+  the batch, status transitions guarded via updateProposal
+  expectedLockVersion · this commit · TS-green. Multi-tab stale saves
+  now error with a reload prompt instead of silently overwriting.
+  Watch-list item "optimistic concurrency still open" → CLOSED.
 - 2026-06-11 · P1-D cleanup 3: 0011 unique (proposal_id, position)
   index (applied + verified live) + two-phase reorder (stage negatives
   then finals — single-phase swap would violate the index, DB-proven
@@ -83,7 +91,6 @@ Session count: 4
 ## WATCH LIST
 - Rotate Supabase service_role key (Ian, dashboard) — Ian's to-do, do not execute
 - Call 2–3 QC users for trust/pricing input — Ian's to-do, do not execute
-- Optimistic concurrency still open — dogfooding data at risk on multi-tab edits
 - .env.local is MISSING on this machine (only .env with VITE_ vars exists) —
   the Path B visual harness (verify-print-view.mjs and any leads variant)
   can't run until Ian restores SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY

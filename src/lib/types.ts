@@ -463,6 +463,13 @@ export interface Proposal {
   notes: string | null
   /** Stamped the FIRST time the proposal transitions to 'presented' (0010). */
   presented_at: string | null
+  /**
+   * Document-level version counter (0012). Bumped by DB triggers on
+   * EVERY proposal/work-area/line mutation. The editor's save path
+   * passes the loaded value back; a mismatch means another tab changed
+   * the document → ProposalConflictError instead of last-write-wins.
+   */
+  lock_version: number
   created_at: string
   updated_at: string
 }

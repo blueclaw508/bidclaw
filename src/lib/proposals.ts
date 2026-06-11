@@ -62,6 +62,57 @@ export function isProposalEditable(status: ProposalStatus): boolean {
   return status === 'draft'
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Optimistic concurrency (Phase 1.5 — 0012)
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown when a guarded write finds the proposal's lock_version moved
+ * since this tab loaded it — i.e. another tab/window changed the
+ * document. Callers surface it instead of letting the stale save
+ * overwrite (last-write-wins was the Phase 1.5 risk).
+ */
+export class ProposalConflictError extends Error {
+  constructor() {
+    super(
+      'This proposal was changed in another tab or window. Reload the page to see the latest version before saving.'
+    )
+    this.name = 'ProposalConflictError'
+  }
+}
+
+export function isProposalConflict(err: unknown): err is ProposalConflictError {
+  return err instanceof ProposalConflictError
+}
+
+/**
+ * Version guard for a batched save: a conditional touch
+ * (UPDATE … WHERE id AND lock_version = expected). One statement —
+ * the match check and the bump are atomic. 0 rows = another tab
+ * changed the document → ProposalConflictError.
+ *
+ * Call this ONCE before a batch of unguarded writes (notes + lines).
+ * The subsequent writes re-bump the version via the 0012 triggers,
+ * so any OTHER tab's in-flight guard then fails — which is the point.
+ */
+export async function assertProposalVersion(
+  proposalId: string,
+  expectedLockVersion: number
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('proposals')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', proposalId)
+    .eq('lock_version', expectedLockVersion)
+    .select('id')
+  if (error) {
+    throw new Error(`Couldn't verify proposal version: ${error.message}`)
+  }
+  if (!data || data.length === 0) {
+    throw new ProposalConflictError()
+  }
+}
+
 /**
  * Available status transitions per current status — single source of
  * truth for the editor's status dropdown items.
@@ -283,7 +334,16 @@ export async function createProposal(input: {
  */
 export async function updateProposal(
   id: string,
-  patch: Partial<Pick<Proposal, 'name' | 'notes' | 'status'>>
+  patch: Partial<Pick<Proposal, 'name' | 'notes' | 'status'>>,
+  opts?: {
+    /**
+     * Optimistic-concurrency guard (0012): when set, the write only
+     * lands if the proposal's lock_version still equals this value;
+     * otherwise ProposalConflictError. Pass the lock_version from the
+     * row the UI loaded.
+     */
+    expectedLockVersion?: number
+  }
 ): Promise<Proposal> {
   const { data: current, error: lookupErr } = await supabase
     .from('proposals')
@@ -309,14 +369,22 @@ export async function updateProposal(
   if (patch.status === 'presented' && !current.presented_at) {
     writePatch.presented_at = new Date().toISOString()
   }
-  const { data, error } = await supabase
-    .from('proposals')
-    .update(writePatch)
-    .eq('id', id)
-    .select()
-    .single()
-  if (error || !data) {
-    throw new Error(`Couldn't update proposal: ${error?.message ?? 'no row returned'}`)
+  let query = supabase.from('proposals').update(writePatch).eq('id', id)
+  if (opts?.expectedLockVersion !== undefined) {
+    query = query.eq('lock_version', opts.expectedLockVersion)
+  }
+  const { data: rows, error } = await query.select()
+  if (error) {
+    throw new Error(`Couldn't update proposal: ${error.message}`)
+  }
+  const data = rows?.[0]
+  if (!data) {
+    // The row exists (lookup above succeeded). With a version guard, an
+    // empty result means the version moved — a concurrent edit.
+    if (opts?.expectedLockVersion !== undefined) {
+      throw new ProposalConflictError()
+    }
+    throw new Error(`Couldn't update proposal: no row returned`)
   }
   const updated = data as Proposal
   if (patch.status) {
