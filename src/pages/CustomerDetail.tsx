@@ -12,6 +12,8 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { AddressFields } from '@/components/AddressFields'
+import { hasSplitAddress, type SplitAddress } from '@/lib/address'
 import { StatusBadge } from '@/components/StatusBadge'
 import { BlurSaveInput, BlurSaveTextarea } from '@/components/InlineEdit'
 import type { Customer, Project } from '@/lib/types'
@@ -192,20 +194,54 @@ export default function CustomerDetailPage() {
             />
           </Field>
           <Field label="Billing address" className="sm:col-span-2">
-            <BlurSaveTextarea
-              value={customer.billing_address ?? ''}
-              onSave={(v) => patch({ billing_address: v.trim() || null })}
-              rows={2}
-              placeholder="Where the invoice goes"
+            <AddressFields
+              idPrefix="cd-billing"
+              value={{
+                line1: customer.billing_address_line1,
+                city: customer.billing_address_city,
+                state: customer.billing_address_state,
+                zip: customer.billing_address_zip,
+              }}
+              onChange={(f, v) =>
+                setCustomer((prev) =>
+                  prev ? { ...prev, [`billing_address_${f}`]: v } : prev
+                )
+              }
+              onFieldBlur={(f, v) =>
+                void patch({ [`billing_address_${f}`]: v.trim() || null })
+              }
             />
+            {legacyHint(customer.billing_address, {
+              line1: customer.billing_address_line1,
+              city: customer.billing_address_city,
+              state: customer.billing_address_state,
+              zip: customer.billing_address_zip,
+            })}
           </Field>
           <Field label="Site address" className="sm:col-span-2">
-            <BlurSaveTextarea
-              value={customer.site_address ?? ''}
-              onSave={(v) => patch({ site_address: v.trim() || null })}
-              rows={2}
-              placeholder="Where the work happens"
+            <AddressFields
+              idPrefix="cd-site"
+              value={{
+                line1: customer.site_address_line1,
+                city: customer.site_address_city,
+                state: customer.site_address_state,
+                zip: customer.site_address_zip,
+              }}
+              onChange={(f, v) =>
+                setCustomer((prev) =>
+                  prev ? { ...prev, [`site_address_${f}`]: v } : prev
+                )
+              }
+              onFieldBlur={(f, v) =>
+                void patch({ [`site_address_${f}`]: v.trim() || null })
+              }
             />
+            {legacyHint(customer.site_address, {
+              line1: customer.site_address_line1,
+              city: customer.site_address_city,
+              state: customer.site_address_state,
+              zip: customer.site_address_zip,
+            })}
           </Field>
           <Field label="Notes" className="sm:col-span-2">
             <BlurSaveTextarea
@@ -345,4 +381,18 @@ function formatShortDate(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/**
+ * Pre-R5 customers carry freeform addresses in the dormant legacy
+ * columns. Show them as a hint until re-entered in the split fields.
+ */
+function legacyHint(legacy: string | null, split: SplitAddress) {
+  if (!legacy?.trim() || hasSplitAddress(split)) return null
+  return (
+    <p className="mt-1.5 text-xs text-amber-700">
+      Address on file (old format): "{legacy}" — re-enter it in the fields
+      above and it will carry to proposals.
+    </p>
+  )
 }

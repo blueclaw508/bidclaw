@@ -3,6 +3,8 @@ import { toast } from 'sonner'
 import { Modal } from '@/components/Modal'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { AddressFields } from '@/components/AddressFields'
+import type { SplitAddress } from '@/lib/address'
 import type { Customer } from '@/lib/types'
 
 interface NewCustomerModalProps {
@@ -16,14 +18,16 @@ interface NewCustomerModalProps {
   onCreated?: (customer: Customer) => void
 }
 
+const EMPTY_ADDR: SplitAddress = { line1: '', city: '', state: '', zip: '' }
+
 export function NewCustomerModal({ open, onClose, onCreated }: NewCustomerModalProps) {
   const { user } = useAuth()
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
-  const [billingAddress, setBillingAddress] = useState('')
-  const [siteAddress, setSiteAddress] = useState('')
+  const [billing, setBilling] = useState<SplitAddress>(EMPTY_ADDR)
+  const [site, setSite] = useState<SplitAddress>(EMPTY_ADDR)
   const [sameAsBilling, setSameAsBilling] = useState(false)
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -34,8 +38,8 @@ export function NewCustomerModal({ open, onClose, onCreated }: NewCustomerModalP
     setName('')
     setEmail('')
     setPhone('')
-    setBillingAddress('')
-    setSiteAddress('')
+    setBilling(EMPTY_ADDR)
+    setSite(EMPTY_ADDR)
     setSameAsBilling(false)
     setNotes('')
     setSubmitting(false)
@@ -44,8 +48,8 @@ export function NewCustomerModal({ open, onClose, onCreated }: NewCustomerModalP
   // Mirror billing → site when the checkbox is on. We keep this as a
   // one-way mirror (typing in billing copies to site only while checked).
   useEffect(() => {
-    if (sameAsBilling) setSiteAddress(billingAddress)
-  }, [sameAsBilling, billingAddress])
+    if (sameAsBilling) setSite(billing)
+  }, [sameAsBilling, billing])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,8 +72,14 @@ export function NewCustomerModal({ open, onClose, onCreated }: NewCustomerModalP
         name: trimmedName,
         email: trimmedEmail || null,
         phone: phone.trim() || null,
-        billing_address: billingAddress.trim() || null,
-        site_address: siteAddress.trim() || null,
+        billing_address_line1: billing.line1?.trim() || null,
+        billing_address_city: billing.city?.trim() || null,
+        billing_address_state: billing.state?.trim() || null,
+        billing_address_zip: billing.zip?.trim() || null,
+        site_address_line1: site.line1?.trim() || null,
+        site_address_city: site.city?.trim() || null,
+        site_address_state: site.state?.trim() || null,
+        site_address_zip: site.zip?.trim() || null,
         notes: notes.trim() || null,
       })
       .select()
@@ -128,12 +138,11 @@ export function NewCustomerModal({ open, onClose, onCreated }: NewCustomerModalP
         </div>
 
         <FormField label="Billing address">
-          <textarea
-            value={billingAddress}
-            onChange={(e) => setBillingAddress(e.target.value)}
-            rows={2}
-            placeholder="Where the invoice goes"
-            className={inputClasses}
+          <AddressFields
+            idPrefix="cust-billing"
+            value={billing}
+            onChange={(f, v) => setBilling((prev) => ({ ...prev, [f]: v }))}
+            disabled={submitting}
           />
         </FormField>
 
@@ -148,13 +157,11 @@ export function NewCustomerModal({ open, onClose, onCreated }: NewCustomerModalP
         </label>
 
         <FormField label="Site address">
-          <textarea
-            value={siteAddress}
-            onChange={(e) => setSiteAddress(e.target.value)}
-            rows={2}
-            placeholder="Where the work happens"
-            className={inputClasses}
-            disabled={sameAsBilling}
+          <AddressFields
+            idPrefix="cust-site"
+            value={site}
+            onChange={(f, v) => setSite((prev) => ({ ...prev, [f]: v }))}
+            disabled={submitting || sameAsBilling}
           />
         </FormField>
 

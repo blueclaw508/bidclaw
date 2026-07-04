@@ -6,6 +6,8 @@ import { Modal } from '@/components/Modal'
 import { NewCustomerModal } from '@/components/NewCustomerModal'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { AddressFields } from '@/components/AddressFields'
+import type { SplitAddress } from '@/lib/address'
 import { PROJECT_STATUS_CONFIG, PROJECT_STATUS_ORDER } from '@/lib/statusConfig'
 import type { Customer, Project, ProjectStatus } from '@/lib/types'
 
@@ -16,6 +18,8 @@ interface NewProjectModalProps {
   onCreated?: (project: Project) => void
 }
 
+const EMPTY_ADDR: SplitAddress = { line1: '', city: '', state: '', zip: '' }
+
 export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalProps) {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -23,10 +27,21 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
   const [name, setName] = useState('')
   const [customerId, setCustomerId] = useState<string>('')
   const [status, setStatus] = useState<ProjectStatus>('draft')
-  const [siteAddress, setSiteAddress] = useState('')
+  const [site, setSite] = useState<SplitAddress>(EMPTY_ADDR)
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [customers, setCustomers] = useState<Pick<Customer, 'id' | 'name'>[]>([])
+  const [customers, setCustomers] = useState<
+    Pick<
+      Customer,
+      | 'id'
+      | 'name'
+      | 'site_address'
+      | 'site_address_line1'
+      | 'site_address_city'
+      | 'site_address_state'
+      | 'site_address_zip'
+    >[]
+  >([])
   const [customersLoading, setCustomersLoading] = useState(false)
   const [newCustomerOpen, setNewCustomerOpen] = useState(false)
 
@@ -36,7 +51,7 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     setName('')
     setCustomerId('')
     setStatus('draft')
-    setSiteAddress('')
+    setSite(EMPTY_ADDR)
     setNotes('')
     setSubmitting(false)
   }, [open])
@@ -47,7 +62,7 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     setCustomersLoading(true)
     const { data, error } = await supabase
       .from('customers')
-      .select('id, name')
+      .select('id, name, site_address, site_address_line1, site_address_city, site_address_state, site_address_zip')
       .eq('user_id', user.id)
       .order('name', { ascending: true })
     if (error) toast.error('Could not load customers.')
@@ -59,6 +74,33 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     if (!open) return
     void loadCustomers()
   }, [open, loadCustomers])
+
+  /**
+   * R5 — prefill the job address from the selected customer's site
+   * address (split fields; legacy freeform lands in Street as a
+   * fallback). Editable after — projects can differ from the
+   * customer's default site.
+   */
+  useEffect(() => {
+    if (!customerId) return
+    const c = customers.find((x) => x.id === customerId)
+    if (!c) return
+    if (
+      c.site_address_line1 ||
+      c.site_address_city ||
+      c.site_address_state ||
+      c.site_address_zip
+    ) {
+      setSite({
+        line1: c.site_address_line1 ?? '',
+        city: c.site_address_city ?? '',
+        state: c.site_address_state ?? '',
+        zip: c.site_address_zip ?? '',
+      })
+    } else if (c.site_address?.trim()) {
+      setSite({ line1: c.site_address.trim(), city: '', state: '', zip: '' })
+    }
+  }, [customerId, customers])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -76,7 +118,10 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
         customer_id: customerId || null,
         name: trimmedName,
         status,
-        site_address: siteAddress.trim() || null,
+        site_address_line1: site.line1?.trim() || null,
+        site_address_city: site.city?.trim() || null,
+        site_address_state: site.state?.trim() || null,
+        site_address_zip: site.zip?.trim() || null,
         notes: notes.trim() || null,
       })
       .select()
@@ -160,13 +205,16 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
         </div>
 
         <FormField label="Site address">
-          <textarea
-            value={siteAddress}
-            onChange={(e) => setSiteAddress(e.target.value)}
-            rows={2}
-            placeholder="Street, city, state, zip"
-            className={inputClasses}
+          <AddressFields
+            idPrefix="proj-site"
+            value={site}
+            onChange={(f, v) => setSite((prev) => ({ ...prev, [f]: v }))}
+            disabled={submitting}
           />
+          <p className="mt-1 text-[11px] text-gray-400">
+            Prefills from the customer's site address — edit freely if this
+            project is somewhere else.
+          </p>
         </FormField>
 
         <FormField label="Notes">
@@ -205,10 +253,10 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
         onClose={() => setNewCustomerOpen(false)}
         onCreated={(c) => {
           // Optimistically include + select the just-created customer.
+          // Full row kept so the R5 job-address prefill sees its site
+          // address immediately.
           setCustomers((prev) =>
-            [...prev, { id: c.id, name: c.name }].sort((a, b) =>
-              a.name.localeCompare(b.name)
-            )
+            [...prev, c].sort((a, b) => a.name.localeCompare(b.name))
           )
           setCustomerId(c.id)
         }}

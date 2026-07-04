@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Printer } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
+import { resolveAddress } from '@/lib/address'
 import { getProposal } from '@/lib/proposals'
 import { categoryBearsMarkup, formatUSD, lineBase, lineMarkup, lineTotal } from '@/lib/money'
 import {
@@ -459,8 +460,40 @@ function CustomerProjectBlock({
   project: Project
   customer: Customer | null
 }) {
-  const siteAddress =
-    project.site_address?.trim() || customer?.site_address?.trim() || '—'
+  // R5 — split fields win, legacy freeform falls back, customer's site
+  // address backs up the project's (same chain the app edits with).
+  const projectSite = resolveAddress(
+    {
+      line1: project.site_address_line1,
+      city: project.site_address_city,
+      state: project.site_address_state,
+      zip: project.site_address_zip,
+    },
+    project.site_address
+  )
+  const customerSite = customer
+    ? resolveAddress(
+        {
+          line1: customer.site_address_line1,
+          city: customer.site_address_city,
+          state: customer.site_address_state,
+          zip: customer.site_address_zip,
+        },
+        customer.site_address
+      )
+    : ''
+  const siteAddress = projectSite || customerSite || '—'
+  const billingAddress = customer
+    ? resolveAddress(
+        {
+          line1: customer.billing_address_line1,
+          city: customer.billing_address_city,
+          state: customer.billing_address_state,
+          zip: customer.billing_address_zip,
+        },
+        customer.billing_address
+      )
+    : ''
   const customerContact = [customer?.phone, customer?.email]
     .filter(Boolean)
     .join(' • ')
@@ -474,9 +507,9 @@ function CustomerProjectBlock({
         <p className="mt-1 text-sm font-semibold text-gray-900">
           {customer?.name || '—'}
         </p>
-        {customer?.billing_address?.trim() ? (
+        {billingAddress ? (
           <p className="mt-0.5 whitespace-pre-line text-xs text-gray-700">
-            {customer.billing_address}
+            {billingAddress}
           </p>
         ) : (
           <p className="mt-0.5 text-xs text-gray-400">—</p>

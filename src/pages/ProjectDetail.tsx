@@ -19,6 +19,13 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewCustomerModal } from '@/components/NewCustomerModal'
 import { BlurSaveTextarea } from '@/components/InlineEdit'
+import { AddressFields } from '@/components/AddressFields'
+import {
+  formatAddressSingleLine,
+  hasSplitAddress,
+  mapsUrl,
+  type SplitAddress,
+} from '@/lib/address'
 
 // Lazy-loaded so dnd-kit only ships when the Work Areas tab is opened.
 const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
@@ -405,12 +412,7 @@ function DetailsTab({
               <CustomerSelect project={project} onPatch={onPatch} />
             </Field>
             <Field label="Site address" className="sm:col-span-2">
-              <BlurSaveTextarea
-                value={project.site_address ?? ''}
-                onSave={(v) => onPatch({ site_address: v || null })}
-                rows={2}
-                placeholder="Street, city, state, zip"
-              />
+              <ProjectSiteAddress project={project} onPatch={onPatch} />
             </Field>
             <Field label="Notes" className="sm:col-span-2">
               <BlurSaveTextarea
@@ -689,4 +691,74 @@ function formatLongDate(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   })
+}
+
+/**
+ * R5 — split job address with blur-save per field + Maps link (QC
+ * parity). Legacy freeform shows as a hint until re-entered.
+ */
+function ProjectSiteAddress({
+  project,
+  onPatch,
+}: {
+  project: Project
+  onPatch: (changes: Partial<Project>) => Promise<boolean>
+}) {
+  const [addr, setAddr] = useState<SplitAddress>({
+    line1: project.site_address_line1,
+    city: project.site_address_city,
+    state: project.site_address_state,
+    zip: project.site_address_zip,
+  })
+  useEffect(() => {
+    setAddr({
+      line1: project.site_address_line1,
+      city: project.site_address_city,
+      state: project.site_address_state,
+      zip: project.site_address_zip,
+    })
+  }, [
+    project.site_address_line1,
+    project.site_address_city,
+    project.site_address_state,
+    project.site_address_zip,
+  ])
+
+  const display = hasSplitAddress(addr)
+    ? formatAddressSingleLine(addr)
+    : project.site_address?.trim() ?? ''
+  const maps = mapsUrl(display)
+
+  return (
+    <div>
+      <AddressFields
+        idPrefix="proj-detail-site"
+        value={addr}
+        onChange={(f, v) => setAddr((prev) => ({ ...prev, [f]: v }))}
+        onFieldBlur={(f, v) =>
+          void onPatch({ [`site_address_${f}`]: v.trim() || null })
+        }
+      />
+      <div className="mt-1.5 flex items-center justify-between gap-3">
+        {!hasSplitAddress(addr) && project.site_address?.trim() ? (
+          <p className="text-xs text-amber-700">
+            Address on file (old format): "{project.site_address}" — re-enter
+            above to carry it into proposals.
+          </p>
+        ) : (
+          <span />
+        )}
+        {maps && (
+          <a
+            href={maps}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-xs font-semibold text-brand-navy underline-offset-2 hover:underline"
+          >
+            View on Google Maps ↗
+          </a>
+        )}
+      </div>
+    </div>
+  )
 }

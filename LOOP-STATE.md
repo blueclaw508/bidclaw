@@ -54,8 +54,14 @@ remainder items (RPC duplicate/reorder, memoized editor validation)
 are LOWER priority than R2-R5 — don't polish the surface being replaced.
 
 ## TASK QUEUE — REVISED (priority order)
-1. R5: client fidelity (customer form split-address UI, prefill
-   project job address from customer, Maps link)
+1. (R5 SHIPPED in interactive session — REWORK COMPLETE R1-R5:
+   split billing/site/job addresses across NewCustomerModal,
+   CustomerDetail, NewProjectModal (prefills from customer, legacy
+   freeform falls back into Street), ProjectDetail Details tab
+   (blur-save + Google Maps link), print view resolves split-with-
+   legacy-fallback chain. Live-verified: blur-save persistence, print
+   render, prefill. Legacy freeform columns stay dormant with amber
+   re-enter hints.)
 3. (was queue 1-3: Phase 1.5 RPC remainder / P1-B polish / P1-C
    eval scaffolding — deprioritized behind R2-R5)
 
