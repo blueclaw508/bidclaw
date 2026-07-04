@@ -1,4 +1,6 @@
-import { Trash2, X } from 'lucide-react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { GripVertical, Trash2, X } from 'lucide-react'
 import DecimalInput from '@/components/decimal-input/DecimalInput'
 import { BlurSaveInput } from '@/components/InlineEdit'
 import {
@@ -45,9 +47,27 @@ export function WorkAreaLineRow({
   const base = estimateLineBase(line)
   const overridden = line.price_override !== null
 
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: line.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  }
+
   return (
-    <div className="px-3 py-2 hover:bg-white/70 sm:px-4">
+    <div ref={setNodeRef} style={style} className="px-3 py-2 hover:bg-white/70 sm:px-4">
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Drag handle — reorder within this category */}
+        <button
+          {...listeners}
+          {...attributes}
+          aria-label="Drag to reorder"
+          className="flex h-6 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-gray-300 hover:text-gray-500 active:cursor-grabbing"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+
         {/* Item name — blur-save inline edit */}
         <div className="min-w-[140px] flex-[2]">
           <BlurSaveInput

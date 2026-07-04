@@ -1,4 +1,5 @@
 import type {
+  EstimateStatus,
   CatalogCategory,
   LeadStage,
   ProjectStatus,
@@ -47,6 +48,15 @@ export const WORK_AREA_STATUS_CONFIG: Record<WorkAreaStatus, BadgeStyle> = {
   approved:    { label: 'Approved',    className: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
   in_progress: { label: 'In Progress', className: 'bg-indigo-100  text-indigo-800  ring-indigo-200' },
   complete:    { label: 'Complete',    className: 'bg-emerald-200 text-emerald-900 ring-emerald-300' },
+}
+
+/**
+ * Per-WA estimate lifecycle (estimate-first rework, R3). 'approved'
+ * gates the work area into proposal generation (R4).
+ */
+export const ESTIMATE_STATUS_CONFIG: Record<EstimateStatus, BadgeStyle> = {
+  drafting: { label: 'Drafting', className: 'bg-amber-100   text-amber-800   ring-amber-200' },
+  approved: { label: 'Approved', className: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
 }
 
 export const PROPOSAL_STATUS_ORDER: ProposalStatus[] = [

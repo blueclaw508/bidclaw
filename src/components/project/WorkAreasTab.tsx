@@ -36,11 +36,7 @@ import {
   formatUSD,
   type LiveMarkupSettings,
 } from '@/lib/money'
-import {
-  WORK_AREA_STATUS_CONFIG,
-  WORK_AREA_STATUS_ORDER,
-} from '@/lib/statusConfig'
-import type { WorkArea, WorkAreaLine, WorkAreaStatus } from '@/lib/types'
+import type { WorkArea, WorkAreaLine } from '@/lib/types'
 
 interface WorkAreasTabProps {
   projectId: string
@@ -302,6 +298,17 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
         </DndContext>
       )}
 
+      {/* Live project estimate total (R3) — always current, no
+          Calculate button needed: instant-save means the numbers can
+          never be stale (QC needed Calculate because its state could). */}
+      {!loadError && rows.length > 0 && settings && (
+        <ProjectEstimateTotals
+          rows={rows}
+          linesByWA={linesByWA}
+          settings={settings}
+        />
+      )}
+
       <NewWorkAreaModal
         open={newOpen}
         onClose={() => setNewOpen(false)}
@@ -334,6 +341,69 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
         tone="danger"
       />
     </div>
+  )
+}
+
+/* ============================================================
+ * ProjectEstimateTotals — live rollup across all work areas (R3)
+ * ============================================================ */
+
+function ProjectEstimateTotals({
+  rows,
+  linesByWA,
+  settings,
+}: {
+  rows: WorkArea[]
+  linesByWA: Record<string, WorkAreaLine[]>
+  settings: LiveMarkupSettings
+}) {
+  const perWA = rows.map((wa) => ({
+    wa,
+    total: (linesByWA[wa.id] ?? []).reduce(
+      (s, l) => s + estimateLineTotal(l, settings),
+      0
+    ),
+    count: (linesByWA[wa.id] ?? []).length,
+  }))
+  const grand = perWA.reduce((s, x) => s + x.total, 0)
+  const approvedCount = rows.filter((w) => w.estimate_status === 'approved').length
+
+  if (perWA.every((x) => x.count === 0)) return null
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+      <header className="flex items-center justify-between border-b border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-2.5">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-blue-800">
+          Project Estimate
+        </h3>
+        <span className="text-xs font-medium text-blue-700">
+          {approvedCount} of {rows.length} work area{rows.length === 1 ? '' : 's'} approved
+        </span>
+      </header>
+      <ul className="divide-y divide-gray-100">
+        {perWA.map(({ wa, total, count }) => (
+          <li key={wa.id} className="flex items-center justify-between px-4 py-2 text-sm">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-gray-700">{wa.name}</span>
+              <StatusBadge kind="estimate" value={wa.estimate_status} />
+            </span>
+            <span className="shrink-0 tabular-nums text-gray-900">
+              {count === 0 ? (
+                <span className="text-xs italic text-gray-400">no lines</span>
+              ) : (
+                formatUSD(total)
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center justify-between border-t-2 border-blue-200 bg-blue-50 px-4 py-3">
+        <span className="text-sm font-bold text-blue-900">PROJECT TOTAL</span>
+        <span className="text-xl font-bold tabular-nums text-blue-700">
+          {formatUSD(grand)}
+        </span>
+      </div>
+    </section>
   )
 }
 
@@ -421,7 +491,12 @@ function SortableRow({
         <span className="shrink-0 font-mono text-[11px] text-gray-400">
           #{workArea.sequence_order + 1}
         </span>
-        <StatusBadge kind="work_area" value={workArea.status} className="shrink-0" />
+        {/* Estimate lifecycle badge (R3) — replaces the generic WA status. */}
+        <StatusBadge
+          kind="estimate"
+          value={workArea.estimate_status}
+          className="shrink-0"
+        />
       </div>
 
       {/* Accordion body */}
@@ -449,7 +524,10 @@ function SortableRow({
             />
           </Field>
 
-          {/* THE ESTIMATE — line items live here (estimate-first, R2). */}
+          {/* THE ESTIMATE — line items live here (estimate-first, R2).
+              The generic per-WA status picker is gone (R3): the estimate
+              lifecycle (Drafting → Approved) IS the work area's status,
+              driven by the Approve button in the estimate footer. */}
           <div>
             <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
               Estimate
@@ -460,6 +538,14 @@ function SortableRow({
                 lines={lines}
                 settings={settings}
                 onLinesChange={onLinesChange}
+                onToggleApproved={() =>
+                  void onPatch({
+                    estimate_status:
+                      workArea.estimate_status === 'approved'
+                        ? 'drafting'
+                        : 'approved',
+                  })
+                }
               />
             ) : (
               <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-400">
@@ -468,21 +554,6 @@ function SortableRow({
             )}
           </div>
 
-          <Field label="Status">
-            <select
-              value={workArea.status}
-              onChange={(e) =>
-                void onPatch({ status: e.target.value as WorkAreaStatus })
-              }
-              className={inputClasses}
-            >
-              {WORK_AREA_STATUS_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {WORK_AREA_STATUS_CONFIG[s].label}
-                </option>
-              ))}
-            </select>
-          </Field>
           <div className="flex justify-end">
             <button
               type="button"

@@ -1,9 +1,35 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
-import { FileText, HardHat, Package, Percent, Plus, Users, Wrench } from 'lucide-react'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import {
+  CheckCircle2,
+  FileText,
+  HardHat,
+  Layers,
+  Package,
+  Percent,
+  Plus,
+  Users,
+  Wrench,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   addWorkAreaLine,
+  addWorkAreaLinesBulk,
   deleteWorkAreaLine,
+  reorderWorkAreaLines,
   updateWorkAreaLine,
 } from '@/lib/workAreaLines'
 import {
@@ -19,11 +45,21 @@ import {
 } from '@/lib/statusConfig'
 import { WorkAreaLineRow } from '@/components/project/estimate/WorkAreaLineRow'
 import type { AddLinePayload } from '@/components/project/estimate/AddLineItemModal'
-import type { ProposalLineCategory, WorkArea, WorkAreaLine } from '@/lib/types'
+import type {
+  KitPreviewLine,
+  ProposalLineCategory,
+  WorkArea,
+  WorkAreaLine,
+} from '@/lib/types'
 
 const AddLineItemModal = lazy(() =>
   import('@/components/project/estimate/AddLineItemModal').then((m) => ({
     default: m.AddLineItemModal,
+  }))
+)
+const KitToEstimateModal = lazy(() =>
+  import('@/components/project/estimate/KitToEstimateModal').then((m) => ({
+    default: m.KitToEstimateModal,
   }))
 )
 
@@ -64,6 +100,8 @@ interface WorkAreaEstimateProps {
   settings: LiveMarkupSettings
   /** Replace this WA's lines in the parent's state (optimistic + confirmed). */
   onLinesChange: (updater: (prev: WorkAreaLine[]) => WorkAreaLine[]) => void
+  /** Toggle estimate_status drafting ↔ approved (R3 lifecycle). */
+  onToggleApproved: () => void
 }
 
 export function WorkAreaEstimate({
@@ -71,8 +109,17 @@ export function WorkAreaEstimate({
   lines,
   settings,
   onLinesChange,
+  onToggleApproved,
 }: WorkAreaEstimateProps) {
   const [addOpen, setAddOpen] = useState(false)
+  const [kitOpen, setKitOpen] = useState(false)
+  const approved = workArea.estimate_status === 'approved'
+
+  // Per-estimate dnd sensors — line drag is scoped within a category.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
 
   const byCategory = useMemo(() => {
     const map: Record<ProposalLineCategory, WorkAreaLine[]> = {
@@ -136,6 +183,58 @@ export function WorkAreaEstimate({
     })
   }
 
+  /** Kit → estimate bulk add (R3). Markup snapshot ignored — live math. */
+  const handleKitAdd = async (previewLines: KitPreviewLine[]) => {
+    const startSort = lines.length
+      ? Math.max(...lines.map((l) => l.sort_order)) + 1
+      : 0
+    const created = await addWorkAreaLinesBulk(
+      previewLines.map((l, idx) => ({
+        workAreaId: workArea.id,
+        category: l.category,
+        label: l.label,
+        unit: l.unit,
+        quantity: Number(l.quantity),
+        unitCost: Number(l.frozen_unit_cost),
+        sortOrder: startSort + idx,
+        sourceKitId: l.source_kit_id,
+      }))
+    )
+    onLinesChange((prev) => [...prev, ...created])
+  }
+
+  /**
+   * Drag-reorder within one category. Rebuilds the GLOBAL sort order
+   * (categories in display order, lines within) so R4 generation and
+   * fresh loads render identically.
+   */
+  const handleDragEnd = (cat: ProposalLineCategory) => (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const catLines = byCategory[cat]
+    const oldIdx = catLines.findIndex((l) => l.id === active.id)
+    const newIdx = catLines.findIndex((l) => l.id === over.id)
+    if (oldIdx < 0 || newIdx < 0) return
+    const reorderedCat = arrayMove(catLines, oldIdx, newIdx)
+
+    // Global order: every category in display order, the dragged one swapped in
+    const globalOrder: WorkAreaLine[] = []
+    for (const c of PROPOSAL_LINE_CATEGORY_ORDER) {
+      globalOrder.push(...(c === cat ? reorderedCat : byCategory[c]))
+    }
+    const withNewSort = globalOrder.map((l, idx) => ({ ...l, sort_order: idx }))
+    const currentSortById = Object.fromEntries(lines.map((l) => [l.id, l.sort_order]))
+
+    onLinesChange(() => withNewSort) // optimistic
+    void reorderWorkAreaLines(
+      withNewSort.map((l) => l.id),
+      currentSortById
+    ).catch((err) => {
+      toast.error(err instanceof Error ? err.message : 'Reorder failed.')
+      onLinesChange(() => lines) // revert
+    })
+  }
+
   /* ---------- render ---------- */
 
   return (
@@ -168,6 +267,7 @@ export function WorkAreaEstimate({
 
             {/* Column headers */}
             <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 sm:gap-3 sm:px-4">
+              <div className="w-4 shrink-0" />
               <div className="min-w-[140px] flex-[2]">Item</div>
               <div className="w-16 text-right sm:w-20">Qty</div>
               <div className="w-20 text-right sm:w-24">Cost</div>
@@ -176,17 +276,24 @@ export function WorkAreaEstimate({
               <div className="w-5 shrink-0" />
             </div>
 
-            <div className="divide-y divide-blue-50">
-              {catLines.map((l) => (
-                <WorkAreaLineRow
-                  key={l.id}
-                  line={l}
-                  settings={settings}
-                  onPatch={(patch) => handlePatch(l, patch)}
-                  onDelete={() => handleDelete(l)}
-                />
-              ))}
-            </div>
+            <DndContext sensors={sensors} onDragEnd={handleDragEnd(cat)}>
+              <SortableContext
+                items={catLines.map((l) => l.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="divide-y divide-blue-50">
+                  {catLines.map((l) => (
+                    <WorkAreaLineRow
+                      key={l.id}
+                      line={l}
+                      settings={settings}
+                      onPatch={(patch) => handlePatch(l, patch)}
+                      onDelete={() => handleDelete(l)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
 
             {catLines.length > 1 && (
               <div className={`flex items-center justify-between border-t border-gray-100 px-3 py-1 text-[11px] sm:px-4 ${CATEGORY_TINTS[cat]} bg-opacity-40`}>
@@ -200,27 +307,56 @@ export function WorkAreaEstimate({
         )
       })}
 
-      {/* "+ Add Line Item" — the ONE entry point (QC model) */}
-      <div className="p-3">
+      {/* Add buttons — "+ Add Line Item" (QC's one entry point) + the
+          BidClaw kit advantage as a secondary bulk-add. */}
+      <div className="flex gap-2 p-3">
         <button
           type="button"
           onClick={() => setAddOpen(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-blue-300 py-2.5 text-sm font-medium text-blue-600 transition-all hover:bg-blue-100/60"
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg border-2 border-dashed border-blue-300 py-2.5 text-sm font-medium text-blue-600 transition-all hover:bg-blue-100/60"
         >
           <Plus className="h-4 w-4" />
           Add Line Item
         </button>
+        <button
+          type="button"
+          onClick={() => setKitOpen(true)}
+          title="Bulk-add a kit assembly (factors × input quantity)"
+          className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-indigo-300 px-4 py-2.5 text-sm font-medium text-indigo-600 transition-all hover:bg-indigo-100/60"
+        >
+          <Layers className="h-4 w-4" />
+          From Kit
+        </button>
       </div>
 
-      {/* Work area total */}
+      {/* Work area total + estimate approval (R3 lifecycle) */}
       {lines.length > 0 && (
-        <div className="flex items-center justify-between border-t border-blue-200 bg-blue-100/70 px-4 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-blue-200 bg-blue-100/70 px-4 py-2.5">
           <span className="text-sm font-semibold text-blue-800">
             Total {workArea.name}
           </span>
-          <span className="text-lg font-bold tabular-nums text-blue-700">
-            {formatUSD(workAreaTotal)}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-lg font-bold tabular-nums text-blue-700">
+              {formatUSD(workAreaTotal)}
+            </span>
+            <button
+              type="button"
+              onClick={onToggleApproved}
+              title={
+                approved
+                  ? 'Estimate approved — click to reopen for edits'
+                  : 'Approve this estimate — approved work areas flow into the proposal'
+              }
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                approved
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'border border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50'
+              }`}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {approved ? 'Approved' : 'Approve Estimate'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -239,6 +375,16 @@ export function WorkAreaEstimate({
             onClose={() => setAddOpen(false)}
             workAreaName={workArea.name}
             onAdd={handleAdd}
+          />
+        </Suspense>
+      )}
+      {kitOpen && (
+        <Suspense fallback={null}>
+          <KitToEstimateModal
+            open={kitOpen}
+            onClose={() => setKitOpen(false)}
+            workAreaName={workArea.name}
+            onAdd={handleKitAdd}
           />
         </Suspense>
       )}

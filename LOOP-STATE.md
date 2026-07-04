@@ -15,23 +15,32 @@ client share/approve loop deferred.
 in the interactive session: WorkAreaEstimate + WorkAreaLineRow +
 AddLineItemModal on the Work Areas tab, instant-save, live-verified
 end-to-end on Ian's real 50 Lovers Lane project (add -> qty -> reload
--> persisted; test line cleaned up after).** R3-R5 queued below.
-R2 DEFERRED bits for R3: kit bulk-add into estimates (port
-AddFromKitModal preview commit to work_area_lines) + line drag-reorder
-(sort_order exists, rows render sorted).
+-> persisted; test line cleaned up after).R3 SHIPPED (interactive
+session): estimate lifecycle (Drafting/Approved badge + Approve button
+in estimate footer; generic WA status picker REMOVED — friction #2
+closed), live Project Estimate totals card (no Calculate button —
+instant-save can't go stale), kit bulk-add (KitToEstimateModal via
+previewKitLines; markup snapshot ignored, live math), per-category
+line drag-reorder. Live-verified on 50 Lovers Lane; Ian was dogfooding
+LIVE during verification (his 3 lines preserved, test data surgically
+removed).** R4-R5 queued below.
+NOTE: kits table is EMPTY — the 25-kit jamie-kit-library was never
+seeded in-app. Kit modal ships with graceful empty state. Seeding the
+library is a dogfood-sprint task (feeds the 50-catalog-item gate).
+NOTE for R4/R5: ProjectDetail sidebar 'Estimated value' still reads
+from proposals ($0) while the tab's PROJECT ESTIMATE card shows live
+estimate totals — reconcile in R4.
 IMPACT ON THIS LOOP: dogfooding + eval-set targets now happen on the
 Work Areas tab once R2 lands, not the proposal editor. Phase 1.5
 remainder items (RPC duplicate/reorder, memoized editor validation)
 are LOWER priority than R2-R5 — don't polish the surface being replaced.
 
 ## TASK QUEUE — REVISED (priority order)
-1. R3: per-WA calculate/totals + estimate lifecycle (replaces generic
-   WA status picker — Ian's friction #2)
-2. R4: Create Proposal = generate from approved WAs (freeze at
+1. R4: Create Proposal = generate from approved WAs (freeze at
    generation into existing proposals tables); slim proposal editor
-3. R5: client fidelity (customer form split-address UI, prefill
+2. R5: client fidelity (customer form split-address UI, prefill
    project job address from customer, Maps link)
-4. (was queue 1-3: Phase 1.5 RPC remainder / P1-B polish / P1-C
+3. (was queue 1-3: Phase 1.5 RPC remainder / P1-B polish / P1-C
    eval scaffolding — deprioritized behind R2-R5)
 
 ## GATE PROGRESS (current phase)

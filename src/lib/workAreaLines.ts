@@ -88,3 +88,67 @@ export async function deleteWorkAreaLine(id: string): Promise<void> {
   const { error } = await supabase.from('work_area_lines').delete().eq('id', id)
   if (error) throw new Error(`Couldn't delete line: ${error.message}`)
 }
+
+/**
+ * Bulk insert (kit → estimate, R3). One INSERT for the whole batch;
+ * sort orders are assigned by the caller starting after its current
+ * max. Returns the created rows in insert order.
+ */
+export async function addWorkAreaLinesBulk(
+  rows: Array<{
+    workAreaId: string
+    category: ProposalLineCategory
+    label: string
+    unit: string
+    quantity: number
+    unitCost: number
+    sortOrder: number
+    catalogItemId?: string | null
+    sourceKitId?: string | null
+  }>
+): Promise<WorkAreaLine[]> {
+  if (rows.length === 0) return []
+  const { data, error } = await supabase
+    .from('work_area_lines')
+    .insert(
+      rows.map((r) => ({
+        work_area_id: r.workAreaId,
+        category: r.category,
+        label: r.label,
+        unit: r.unit,
+        quantity: r.quantity,
+        unit_cost: r.unitCost,
+        price_override: null,
+        catalog_item_id: r.catalogItemId ?? null,
+        source_kit_id: r.sourceKitId ?? null,
+        sort_order: r.sortOrder,
+      }))
+    )
+    .select()
+  if (error || !data) {
+    throw new Error(`Couldn't add kit lines: ${error?.message ?? 'no rows returned'}`)
+  }
+  return data as WorkAreaLine[]
+}
+
+/**
+ * Rewrite sort_order for the supplied ids in order (drag-reorder, R3).
+ * Skips rows already in position. Estimate lines are single-writer
+ * instant-save rows — per-row updates are fine here.
+ */
+export async function reorderWorkAreaLines(
+  orderedIds: string[],
+  currentSortById: Record<string, number>
+): Promise<void> {
+  const results = await Promise.all(
+    orderedIds.map((id, idx) =>
+      currentSortById[id] === idx
+        ? Promise.resolve({ error: null })
+        : supabase.from('work_area_lines').update({ sort_order: idx }).eq('id', id)
+    )
+  )
+  const firstErr = results.find((r) => r.error)
+  if (firstErr?.error) {
+    throw new Error(`Reorder failed: ${firstErr.error.message}`)
+  }
+}

@@ -1,12 +1,14 @@
 import { cn } from '@/lib/utils'
 import {
   LEAD_STAGE_CONFIG,
+  ESTIMATE_STATUS_CONFIG,
   PROJECT_STATUS_CONFIG,
   PROPOSAL_STATUS_CONFIG,
   WORK_AREA_STATUS_CONFIG,
   CATALOG_CATEGORY_CONFIG,
 } from '@/lib/statusConfig'
 import type {
+  EstimateStatus,
   CatalogCategory,
   LeadStage,
   ProjectStatus,
@@ -20,13 +22,16 @@ type Kind =
   | { kind: 'proposal'; value: ProposalStatus }
   | { kind: 'category'; value: CatalogCategory }
   | { kind: 'lead'; value: LeadStage }
+  | { kind: 'estimate'; value: EstimateStatus }
 
 export function StatusBadge(props: Kind & { className?: string }) {
   const cfg =
     props.kind === 'project'
       ? PROJECT_STATUS_CONFIG[props.value]
-      : props.kind === 'work_area'
-        ? WORK_AREA_STATUS_CONFIG[props.value]
+      : props.kind === 'estimate'
+        ? ESTIMATE_STATUS_CONFIG[props.value]
+        : props.kind === 'work_area'
+          ? WORK_AREA_STATUS_CONFIG[props.value]
         : props.kind === 'proposal'
           ? PROPOSAL_STATUS_CONFIG[props.value]
           : props.kind === 'lead'
