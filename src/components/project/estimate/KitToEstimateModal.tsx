@@ -3,7 +3,18 @@ import { Layers, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Modal } from '@/components/Modal'
 import DecimalInput from '@/components/decimal-input/DecimalInput'
-import { loadKits } from '@/lib/kits'
+import { NewKitModal } from '@/components/kits/NewKitModal'
+import {
+  AddKitLineModal,
+  type NewKitLineDraft,
+} from '@/components/kits/AddKitLineModal'
+import {
+  addKitLine,
+  loadCatalogItemsForKitLines,
+  loadEquipmentRatesForKitLines,
+  loadKits,
+  loadLaborTypesForKitLines,
+} from '@/lib/kits'
 import { previewKitLines } from '@/lib/proposals'
 import { formatUSD } from '@/lib/money'
 import type { Kit, KitPreviewLine } from '@/lib/types'
@@ -21,6 +32,11 @@ import type { Kit, KitPreviewLine } from '@/lib/types'
  * Placeholder lines (missing factor or cost) are listed but default
  * UNCHECKED — checking one adds it at qty 0 / $0 for inline completion
  * (estimates allow qty 0, unlike frozen proposal lines).
+ *
+ * On-the-fly kit creation: "+ New" opens NewKitModal (reused); the
+ * created kit is auto-selected and AddKitLineModal (reused) opens so
+ * lines can be added without leaving the estimate. Lines persist
+ * immediately via addKitLine (no KitDetail save bar here).
  */
 
 interface KitToEstimateModalProps {
@@ -44,6 +60,17 @@ export function KitToEstimateModal({
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [busy, setBusy] = useState(false)
 
+  // On-the-fly kit creation
+  const [showNewKit, setShowNewKit] = useState(false)
+  const [showAddLine, setShowAddLine] = useState(false)
+  const [createdKitId, setCreatedKitId] = useState<string | null>(null)
+  const [createdLineCount, setCreatedLineCount] = useState(0)
+  const [lineRefs, setLineRefs] = useState<{
+    laborTypes: Awaited<ReturnType<typeof loadLaborTypesForKitLines>>
+    equipmentRates: Awaited<ReturnType<typeof loadEquipmentRatesForKitLines>>
+    catalogItems: Awaited<ReturnType<typeof loadCatalogItemsForKitLines>>
+  } | null>(null)
+
   useEffect(() => {
     if (!open) return
     setKitId('')
@@ -51,6 +78,10 @@ export function KitToEstimateModal({
     setPreview(null)
     setChecked(new Set())
     setBusy(false)
+    setShowNewKit(false)
+    setShowAddLine(false)
+    setCreatedKitId(null)
+    setCreatedLineCount(0)
     loadKits()
       .then((ks) => setKits(ks.filter((k) => k.status === 'active')))
       .catch((err) =>
@@ -58,10 +89,62 @@ export function KitToEstimateModal({
       )
   }, [open])
 
+  // Reference options for AddKitLineModal — loaded once, on first need.
+  useEffect(() => {
+    if (!showAddLine || lineRefs) return
+    Promise.all([
+      loadLaborTypesForKitLines(),
+      loadEquipmentRatesForKitLines(),
+      loadCatalogItemsForKitLines(),
+    ])
+      .then(([laborTypes, equipmentRates, catalogItems]) =>
+        setLineRefs({ laborTypes, equipmentRates, catalogItems })
+      )
+      .catch((err) =>
+        toast.error(
+          err instanceof Error ? err.message : 'Could not load line options.'
+        )
+      )
+  }, [showAddLine, lineRefs])
+
   const selectedKit = useMemo(
     () => kits?.find((k) => k.id === kitId) ?? null,
     [kits, kitId]
   )
+
+  const handleKitCreated = (kit: Kit) => {
+    setKits((prev) => (prev ? [...prev, kit] : [kit]))
+    setKitId(kit.id)
+    setPreview(null)
+    setChecked(new Set())
+    setCreatedKitId(kit.id)
+    setCreatedLineCount(0)
+    // Straight into line entry — a header-only kit previews to nothing.
+    setShowAddLine(true)
+  }
+
+  const handleLineDraft = async (draft: NewKitLineDraft) => {
+    if (!createdKitId) return
+    try {
+      await addKitLine(createdKitId, {
+        position: createdLineCount,
+        type: draft.type,
+        display_name: draft.display_name,
+        reference_type: draft.reference_type,
+        reference_labor_type_id: draft.reference_labor_type_id,
+        reference_equipment_rate_id: draft.reference_equipment_rate_id,
+        reference_catalog_item_id: draft.reference_catalog_item_id,
+        factor: draft.factor,
+        factor_unit: draft.factor_unit,
+        notes: draft.notes,
+      })
+      setCreatedLineCount((n) => n + 1)
+      setPreview(null) // stale — re-preview picks up the new line
+      toast.success(`Line added to ${selectedKit?.name ?? 'kit'}.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not add line.')
+    }
+  }
 
   const handlePreview = async () => {
     if (!kitId || !inputQty || inputQty <= 0) return
@@ -108,22 +191,34 @@ export function KitToEstimateModal({
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
               Kit
             </span>
-            <select
-              value={kitId}
-              onChange={(e) => {
-                setKitId(e.target.value)
-                setPreview(null)
-              }}
-              disabled={busy || kits === null}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
-            >
-              <option value="">{kits === null ? 'Loading kits…' : 'Select a kit…'}</option>
-              {(kits ?? []).map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                value={kitId}
+                onChange={(e) => {
+                  setKitId(e.target.value)
+                  setPreview(null)
+                }}
+                disabled={busy || kits === null}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+              >
+                <option value="">{kits === null ? 'Loading kits…' : 'Select a kit…'}</option>
+                {(kits ?? []).map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setShowNewKit(true)}
+                disabled={busy}
+                title="Create a new kit without leaving the estimate"
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-brand-navy hover:border-brand-navy hover:bg-brand-navy/5 disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                New
+              </button>
+            </div>
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -148,6 +243,29 @@ export function KitToEstimateModal({
             </button>
           </div>
         </div>
+
+        {/* Freshly created kit: line entry panel */}
+        {createdKitId && kitId === createdKitId && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-amber-800">
+                <span className="font-semibold">{selectedKit?.name}</span> —{' '}
+                {createdLineCount === 0
+                  ? 'new kit, no lines yet. Add the assembly lines, then Preview.'
+                  : `${createdLineCount} line${createdLineCount === 1 ? '' : 's'} added. Add more or hit Preview.`}
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowAddLine(true)}
+                disabled={busy}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add kit line
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Preview list */}
         {preview && (
@@ -218,6 +336,25 @@ export function KitToEstimateModal({
           Costs come in at the kit's resolved base rates; markup applies live from your current settings.
         </p>
       </div>
+
+      {/* On-the-fly kit creation (reused modals stack above this one) */}
+      <NewKitModal
+        open={showNewKit}
+        onClose={() => setShowNewKit(false)}
+        onCreated={handleKitCreated}
+        existingCategories={(kits ?? []).map((k) => k.category)}
+        existingBranchScopes={(kits ?? [])
+          .map((k) => k.branch_scope)
+          .filter((s): s is string => Boolean(s))}
+      />
+      <AddKitLineModal
+        open={showAddLine && lineRefs !== null}
+        onClose={() => setShowAddLine(false)}
+        onAdd={(draft) => void handleLineDraft(draft)}
+        laborTypes={lineRefs?.laborTypes ?? []}
+        equipmentRates={lineRefs?.equipmentRates ?? []}
+        catalogItems={lineRefs?.catalogItems ?? []}
+      />
     </Modal>
   )
 }
