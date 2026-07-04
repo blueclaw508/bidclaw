@@ -234,7 +234,7 @@ export default function ProjectDetailPage() {
           {activeTab === 'details'    && <DetailsTab project={project} onPatch={patch} onArchive={() => setArchiveOpen(true)} />}
           {activeTab === 'work_areas' && (
             <Suspense fallback={<TabLoading />}>
-              <WorkAreasTab projectId={project.id} onChange={refreshCounts} />
+              <WorkAreasTab projectId={project.id} projectName={project.name} onChange={refreshCounts} />
             </Suspense>
           )}
           {activeTab === 'files'      && (

@@ -23,7 +23,25 @@ instant-save can't go stale), kit bulk-add (KitToEstimateModal via
 previewKitLines; markup snapshot ignored, live math), per-category
 line drag-reorder. Live-verified on 50 Lovers Lane; Ian was dogfooding
 LIVE during verification (his 3 lines preserved, test data surgically
-removed).** R4-R5 queued below.
+removed).**
+R3.1 SHIPPED: '+ Custom' items save to the Item Catalog (QC parity,
+Ian's live feedback) + migration 0014 subcontractor catalog category.
+R4 SHIPPED (interactive session): generateProposalFromEstimates —
+Create Proposal button on the Work Areas tab freezes approved WAs'
+live estimates into the existing proposals tables at generation time
+(D1 relocated to its correct trigger). Migration 0015 adds
+proposal_lines.price_override; money.ts lineTotal/lineMarkup are
+override-aware (override -> markup displays as override-base so
+base+markup=total holds everywhere); 3 lean selects widened.
+Live-verified: override $250 line froze with base $20 + markup 50% +
+override carried verbatim; denorm subtotal = 250 (override-aware
+sync proven); drafting WAs excluded; unnamed/zero-qty lines skipped
+with toast count. R5 queued below.
+DEFERRED from R4: slimming the proposal editor to review-only (its
+edit powers are harmless as the adjust surface); ProjectDetail
+sidebar 'Estimated value' still proposal-fed. NUANCE: editing markup
+on an overridden proposal line doesn't change its total (override
+wins) — acceptable v1, revisit if dogfood friction.
 NOTE: kits table is EMPTY — the 25-kit jamie-kit-library was never
 seeded in-app. Kit modal ships with graceful empty state. Seeding the
 library is a dogfood-sprint task (feeds the 50-catalog-item gate).
@@ -36,9 +54,7 @@ remainder items (RPC duplicate/reorder, memoized editor validation)
 are LOWER priority than R2-R5 — don't polish the surface being replaced.
 
 ## TASK QUEUE — REVISED (priority order)
-1. R4: Create Proposal = generate from approved WAs (freeze at
-   generation into existing proposals tables); slim proposal editor
-2. R5: client fidelity (customer form split-address UI, prefill
+1. R5: client fidelity (customer form split-address UI, prefill
    project job address from customer, Maps link)
 3. (was queue 1-3: Phase 1.5 RPC remainder / P1-B polish / P1-C
    eval scaffolding — deprioritized behind R2-R5)

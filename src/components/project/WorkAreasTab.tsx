@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   DndContext,
   KeyboardSensor,
@@ -19,6 +20,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  FileText,
   GripVertical,
   Plus,
   Trash2,
@@ -31,6 +33,7 @@ import { NewWorkAreaModal } from '@/components/project/NewWorkAreaModal'
 import { BlurSaveInput, BlurSaveTextarea } from '@/components/InlineEdit'
 import { WorkAreaEstimate } from '@/components/project/estimate/WorkAreaEstimate'
 import { loadCompanySettings } from '@/lib/companySettings'
+import { generateProposalFromEstimates } from '@/lib/proposals'
 import {
   estimateLineTotal,
   formatUSD,
@@ -40,11 +43,13 @@ import type { WorkArea, WorkAreaLine } from '@/lib/types'
 
 interface WorkAreasTabProps {
   projectId: string
+  /** For the generated proposal's default name (R4). */
+  projectName?: string
   /** Called after any successful CRUD so the parent can refresh totals. */
   onChange?: () => void
 }
 
-export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps) {
+export default function WorkAreasTab({ projectId, projectName, onChange }: WorkAreasTabProps) {
   const [rows, setRows] = useState<WorkArea[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -300,9 +305,12 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
 
       {/* Live project estimate total (R3) — always current, no
           Calculate button needed: instant-save means the numbers can
-          never be stale (QC needed Calculate because its state could). */}
+          never be stale (QC needed Calculate because its state could).
+          R4 adds the Create Proposal action — the freeze point. */}
       {!loadError && rows.length > 0 && settings && (
         <ProjectEstimateTotals
+          projectId={projectId}
+          projectName={projectName}
           rows={rows}
           linesByWA={linesByWA}
           settings={settings}
@@ -349,14 +357,23 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
  * ============================================================ */
 
 function ProjectEstimateTotals({
+  projectId,
+  projectName,
   rows,
   linesByWA,
   settings,
 }: {
+  projectId: string
+  projectName?: string
   rows: WorkArea[]
   linesByWA: Record<string, WorkAreaLine[]>
   settings: LiveMarkupSettings
 }) {
+  const navigate = useNavigate()
+  const [genOpen, setGenOpen] = useState(false)
+  const [genName, setGenName] = useState('')
+  const [generating, setGenerating] = useState(false)
+
   const perWA = rows.map((wa) => ({
     wa,
     total: (linesByWA[wa.id] ?? []).reduce(
@@ -367,6 +384,43 @@ function ProjectEstimateTotals({
   }))
   const grand = perWA.reduce((s, x) => s + x.total, 0)
   const approvedCount = rows.filter((w) => w.estimate_status === 'approved').length
+
+  // Preview of what generation will include / skip (client-side mirror
+  // of generateProposalFromEstimates' rules).
+  const approvedWAs = rows.filter((w) => w.estimate_status === 'approved')
+  const approvedLines = approvedWAs.flatMap((w) => linesByWA[w.id] ?? [])
+  const skippablePreview = approvedLines.filter(
+    (l) => !l.label.trim() || Number(l.quantity) <= 0
+  ).length
+  const freezableCount = approvedLines.length - skippablePreview
+  const approvedTotal = approvedWAs.reduce(
+    (s, w) =>
+      s +
+      (linesByWA[w.id] ?? []).reduce(
+        (t, l) => t + estimateLineTotal(l, settings),
+        0
+      ),
+    0
+  )
+
+  const handleGenerate = async () => {
+    setGenerating(true)
+    try {
+      const { proposalId, lineCount, skipped } = await generateProposalFromEstimates({
+        projectId,
+        name: genName.trim() || `${projectName ?? 'Project'} — Proposal`,
+      })
+      toast.success(
+        `Proposal created — ${lineCount} line${lineCount === 1 ? '' : 's'} frozen${
+          skipped > 0 ? `, ${skipped} unnamed/zero-qty line${skipped === 1 ? '' : 's'} skipped` : ''
+        }.`
+      )
+      navigate(`/app/projects/${projectId}/proposals/${proposalId}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Generation failed.')
+      setGenerating(false)
+    }
+  }
 
   if (perWA.every((x) => x.count === 0)) return null
 
@@ -397,12 +451,86 @@ function ProjectEstimateTotals({
           </li>
         ))}
       </ul>
-      <div className="flex items-center justify-between border-t-2 border-blue-200 bg-blue-50 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-blue-200 bg-blue-50 px-4 py-3">
         <span className="text-sm font-bold text-blue-900">PROJECT TOTAL</span>
-        <span className="text-xl font-bold tabular-nums text-blue-700">
-          {formatUSD(grand)}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xl font-bold tabular-nums text-blue-700">
+            {formatUSD(grand)}
+          </span>
+          {/* R4 — THE freeze point. Approved estimates → frozen proposal. */}
+          <button
+            type="button"
+            onClick={() => {
+              setGenName(`${projectName ?? 'Project'} — Proposal`)
+              setGenOpen(true)
+            }}
+            disabled={approvedCount === 0}
+            title={
+              approvedCount === 0
+                ? 'Approve at least one work area estimate first'
+                : `Generate a proposal from the ${approvedCount} approved work area${approvedCount === 1 ? '' : 's'}`
+            }
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <FileText className="h-4 w-4" />
+            Create Proposal
+          </button>
+        </div>
       </div>
+
+      {/* Generation confirm — name + what's included / skipped */}
+      <ConfirmDialog
+        open={genOpen}
+        onClose={() => !generating && setGenOpen(false)}
+        onConfirm={handleGenerate}
+        title="Create proposal from approved estimates?"
+        description={
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Proposal name
+              </span>
+              <input
+                type="text"
+                value={genName}
+                onChange={(e) => setGenName(e.target.value)}
+                disabled={generating}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+              />
+            </label>
+            <div className="rounded-lg bg-blue-50 p-3 text-xs text-blue-900">
+              <p>
+                Freezes{' '}
+                <strong>
+                  {freezableCount} line{freezableCount === 1 ? '' : 's'}
+                </strong>{' '}
+                from{' '}
+                <strong>
+                  {approvedCount} approved work area{approvedCount === 1 ? '' : 's'}
+                </strong>{' '}
+                at today's rates and markup — <strong>{formatUSD(approvedTotal)}</strong>.
+                Settings changes after this won't shift the proposal.
+              </p>
+              {skippablePreview > 0 && (
+                <p className="mt-1.5 font-semibold text-amber-700">
+                  {skippablePreview} unnamed or zero-quantity line
+                  {skippablePreview === 1 ? '' : 's'} will be skipped — finish
+                  them first if they belong in the proposal.
+                </p>
+              )}
+              {approvedCount < rows.length && (
+                <p className="mt-1.5 text-blue-700">
+                  {rows.length - approvedCount} drafting work area
+                  {rows.length - approvedCount === 1 ? ' is' : 's are'} excluded —
+                  approve them to include them.
+                </p>
+              )}
+            </div>
+          </div>
+        }
+        confirmLabel={generating ? 'Creating…' : 'Create Proposal'}
+        tone="primary"
+      />
     </section>
   )
 }

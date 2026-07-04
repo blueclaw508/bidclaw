@@ -613,6 +613,8 @@ export interface ProposalLine {
   frozen_equipment_rate: number | null
   /** Markup applied to this line (% — applied to lineTotal). 0 for labor/equipment. */
   frozen_markup_percent: number
+  /** R4: non-null = customer-facing total is exactly this value (QC override carried through generation). NULL = computed. */
+  price_override: number | null
   /** Audit snapshot of the kit_line factor (for kit-sourced lines). NULL for custom. */
   frozen_kit_factor: number | null
   /** Audit snapshot of the upstream entity's label at insert time. */

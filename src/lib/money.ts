@@ -25,11 +25,26 @@ import type { ProposalLineCategory } from '@/lib/types'
 /**
  * Minimal shape the math needs. Structural, so it accepts ProposalLine,
  * KitPreviewLine, and the lean aggregate rows the data layer selects.
+ *
+ * price_override (R4): generated proposals reproduce the estimate's
+ * QC-style overrides. Optional so pre-R4 callers and KitPreviewLine
+ * (which has no override concept) remain valid; undefined and null
+ * both mean "computed pricing".
  */
 export interface MoneyLine {
   quantity: number | string
   frozen_unit_cost: number | string
   frozen_markup_percent: number | string
+  price_override?: number | string | null
+}
+
+/** True when this line's total is a hard override, not computed. */
+function hasOverride(line: MoneyLine): boolean {
+  return (
+    line.price_override !== undefined &&
+    line.price_override !== null &&
+    Number.isFinite(Number(line.price_override))
+  )
 }
 
 /** Pre-markup line amount: quantity × frozen_unit_cost. */
@@ -40,18 +55,25 @@ export function lineBase(line: MoneyLine): number {
   return q * c
 }
 
-/** Markup dollars on a line: base × frozen_markup_percent / 100. */
+/**
+ * Markup dollars on a line. Computed lines: base × markup% / 100.
+ * Overridden lines: (override − base) — the EFFECTIVE margin — so the
+ * base + markup = total invariant holds in every totals breakdown.
+ */
 export function lineMarkup(line: MoneyLine): number {
+  if (hasOverride(line)) return Number(line.price_override) - lineBase(line)
   const m = Number(line.frozen_markup_percent)
   if (!Number.isFinite(m)) return 0
   return lineBase(line) * (m / 100)
 }
 
 /**
- * Customer-facing line total: base + markup. Returns 0 when ANY input
- * is non-finite (a half-typed line prices as $0, never NaN).
+ * Customer-facing line total: override when set, else base + markup.
+ * Returns 0 when ANY input is non-finite (a half-typed line prices as
+ * $0, never NaN).
  */
 export function lineTotal(line: MoneyLine): number {
+  if (hasOverride(line)) return Number(line.price_override)
   const q = Number(line.quantity)
   const c = Number(line.frozen_unit_cost)
   const m = Number(line.frozen_markup_percent)

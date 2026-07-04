@@ -27,7 +27,7 @@
 import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
 import { syncLeadStageForProposalStatus } from '@/lib/leads'
-import { categoryBearsMarkup, lineBase, lineMarkup, lineTotal } from '@/lib/money'
+import { categoryBearsMarkup, lineBase, lineMarkup, lineTotal, liveMarkupPercent } from '@/lib/money'
 import type {
   KitPreviewLine,
   Proposal,
@@ -38,6 +38,8 @@ import type {
   ProposalWithWorkAreas,
   ProposalWorkArea,
   ProposalWorkAreaResolved,
+  WorkAreaLine,
+  WorkArea,
 } from '@/lib/types'
 
 // Re-export so callers can `import { Proposal } from '@/lib/proposals'`.
@@ -190,7 +192,7 @@ export async function listProposalsByProject(
       `*,
        proposal_work_areas (
          id, enabled,
-         proposal_lines ( quantity, frozen_unit_cost, frozen_markup_percent )
+         proposal_lines ( quantity, frozen_unit_cost, frozen_markup_percent, price_override )
        )`
     )
     .eq('project_id', projectId)
@@ -427,6 +429,148 @@ export async function deleteProposal(id: string): Promise<void> {
  * `source_catalog_item_id` is planned but not landed). Today the
  * catalog hint lives in `frozen_reference_label`, which we DO preserve.
  */
+/**
+ * R4 — THE freeze point. Generate a proposal from every APPROVED work
+ * area's live estimate (estimate-first rework: work areas contain the
+ * estimate → per-WA approve → this function turns them into the frozen
+ * client document).
+ *
+ * Freezing semantics (D1, relocated to its correct trigger):
+ *   frozen_unit_cost      = estimate line's live unit_cost
+ *   frozen_markup_percent = liveMarkupPercent(category, settings) at
+ *                           THIS moment — computed via the same helper
+ *                           the estimate rendered with, so the frozen
+ *                           numbers are byte-identical to what Ian saw
+ *   price_override        = carried through verbatim (QC override)
+ *
+ * Lines skipped (returned in `skipped` for the toast): empty label or
+ * quantity <= 0 — legal working states on an estimate, but frozen
+ * proposal_lines require label + qty > 0 (DB CHECKs). Drafting work
+ * areas are excluded entirely — approval is the gate.
+ *
+ * Atomicity: JS-side with CASCADE cleanup on error, same pattern as
+ * duplicateProposal below.
+ */
+export async function generateProposalFromEstimates(input: {
+  projectId: string
+  name: string
+}): Promise<{ proposalId: string; lineCount: number; skipped: number }> {
+  // 1 — approved work areas + their live estimate lines
+  const { data: wasRaw, error: waErr } = await supabase
+    .from('work_areas')
+    .select('*, work_area_lines(*)')
+    .eq('project_id', input.projectId)
+    .eq('estimate_status', 'approved')
+    .order('sequence_order', { ascending: true })
+  if (waErr) throw new Error(`Couldn't load approved work areas: ${waErr.message}`)
+  type RawWA = WorkArea & { work_area_lines: WorkAreaLine[] }
+  const approvedWAs = (wasRaw ?? []) as RawWA[]
+  if (approvedWAs.length === 0) {
+    throw new Error('No approved work areas — approve at least one estimate first.')
+  }
+
+  // 2 — current settings markups (frozen into the lines below)
+  const { data: settings, error: sErr } = await supabase
+    .from('company_settings')
+    .select('markup_materials_percent, markup_subs_percent')
+    .single()
+  if (sErr || !settings) {
+    throw new Error(
+      `Couldn't load settings for markup freeze: ${sErr?.message ?? 'missing'}`
+    )
+  }
+
+  // 3 — proposal shell
+  const { data: proposal, error: pErr } = await supabase
+    .from('proposals')
+    .insert({ project_id: input.projectId, name: input.name.trim(), status: 'draft' })
+    .select('id')
+    .single()
+  if (pErr || !proposal) {
+    throw new Error(`Couldn't create proposal: ${pErr?.message ?? 'no row returned'}`)
+  }
+  const proposalId = proposal.id as string
+
+  try {
+    // 4 — proposal_work_areas, positions 0..n (unique index 0011 safe)
+    const { data: pwas, error: pwaErr } = await supabase
+      .from('proposal_work_areas')
+      .insert(
+        approvedWAs.map((wa, idx) => ({
+          proposal_id: proposalId,
+          work_area_id: wa.id,
+          position: idx,
+          name_override: null,
+          description_override: null,
+          enabled: true,
+        }))
+      )
+      .select('id, position')
+    if (pwaErr || !pwas) {
+      throw new Error(`Couldn't attach work areas: ${pwaErr?.message ?? 'no rows'}`)
+    }
+    const pwaIdByPosition = new Map(
+      (pwas as Array<{ id: string; position: number }>).map((r) => [r.position, r.id])
+    )
+
+    // 5 — freeze the lines
+    let skipped = 0
+    const lineRows: Array<Record<string, unknown>> = []
+    approvedWAs.forEach((wa, idx) => {
+      const pwaId = pwaIdByPosition.get(idx)!
+      const sorted = [...(wa.work_area_lines ?? [])].sort(
+        (a, b) => a.sort_order - b.sort_order
+      )
+      for (const l of sorted) {
+        if (!l.label.trim() || Number(l.quantity) <= 0) {
+          skipped++
+          continue
+        }
+        lineRows.push({
+          proposal_id: proposalId,
+          proposal_work_area_id: pwaId,
+          source_kit_id: l.source_kit_id,
+          source_kit_line_id: null,
+          category: l.category,
+          label: l.label.trim(),
+          unit: l.unit,
+          quantity: Number(l.quantity),
+          frozen_unit_cost: Number(l.unit_cost),
+          frozen_labor_rate: null,
+          frozen_equipment_rate: null,
+          frozen_markup_percent: liveMarkupPercent(l.category, settings),
+          price_override:
+            l.price_override === null ? null : Number(l.price_override),
+          frozen_kit_factor: null,
+          frozen_reference_label: null,
+          sort_order: l.sort_order,
+        })
+      }
+    })
+    if (lineRows.length === 0) {
+      throw new Error(
+        'Nothing to freeze — every line on the approved work areas is unnamed or has quantity 0.'
+      )
+    }
+    const { error: lErr } = await supabase.from('proposal_lines').insert(lineRows)
+    if (lErr) throw new Error(`Couldn't freeze lines: ${lErr.message}`)
+
+    // 6 — denormalized subtotals (override-aware since 0015)
+    await Promise.all(
+      (pwas as Array<{ id: string }>).map((r) => syncProposalWorkAreaSubtotals(r.id))
+    )
+
+    return { proposalId, lineCount: lineRows.length, skipped }
+  } catch (err) {
+    try {
+      await deleteProposal(proposalId) // CASCADE removes pwas + lines
+    } catch (cleanupErr) {
+      console.error('[generateProposalFromEstimates] cleanup failed:', cleanupErr)
+    }
+    throw err instanceof Error ? err : new Error('Generation failed.')
+  }
+}
+
 export async function duplicateProposal(
   sourceId: string
 ): Promise<{ newProposalId: string }> {
@@ -781,7 +925,7 @@ export async function syncProposalWorkAreaSubtotals(
 ): Promise<ProposalWorkArea> {
   const { data: lines, error: lErr } = await supabase
     .from('proposal_lines')
-    .select('category, quantity, frozen_unit_cost, frozen_markup_percent')
+    .select('category, quantity, frozen_unit_cost, frozen_markup_percent, price_override')
     .eq('proposal_work_area_id', proposalWorkAreaId)
   if (lErr) {
     throw new Error(`Couldn't load lines for subtotal sync: ${lErr.message}`)
@@ -1341,7 +1485,7 @@ export async function getProposalTotals(proposalId: string): Promise<{
     .from('proposal_work_areas')
     .select(
       `id, enabled,
-       proposal_lines ( category, quantity, frozen_unit_cost, frozen_markup_percent )`
+       proposal_lines ( category, quantity, frozen_unit_cost, frozen_markup_percent, price_override )`
     )
     .eq('proposal_id', proposalId)
     .order('position', { ascending: true })
