@@ -76,3 +76,69 @@ export function formatUSD(n: number): string {
   if (!Number.isFinite(n)) return '$0.00'
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 }
+
+/* ============================================================
+ * LIVE estimate-line math (estimate-first rework, R2).
+ *
+ * work_area_lines store the BASE unit cost; the billed price is
+ * computed at render from CURRENT settings markup (QC model). A
+ * non-null price_override wins over everything (QC's
+ * isAmountOverridden). Freezing into frozen_* fields happens at
+ * proposal generation (R4) — via these same helpers, so the frozen
+ * numbers are byte-identical to what the estimate displayed.
+ * ============================================================ */
+
+/** Minimal live-markup settings shape (subset of CompanySettings). */
+export interface LiveMarkupSettings {
+  markup_materials_percent: number | string | null
+  markup_subs_percent: number | string | null
+}
+
+/**
+ * Current settings markup % for a category. Material uses the
+ * materials markup; subcontractor + other use the subs markup
+ * (mirrors markupForCategory in the proposal data layer); labor +
+ * equipment are always 0 (KYN — rates already include margin).
+ */
+export function liveMarkupPercent(
+  cat: ProposalLineCategory,
+  settings: LiveMarkupSettings
+): number {
+  if (!categoryBearsMarkup(cat)) return 0
+  const raw =
+    cat === 'material'
+      ? settings.markup_materials_percent
+      : settings.markup_subs_percent
+  const n = Number(raw ?? 0)
+  return Number.isFinite(n) ? n : 0
+}
+
+/** Minimal shape of a live estimate line (structural — accepts WorkAreaLine). */
+export interface EstimateMoneyLine {
+  category: ProposalLineCategory
+  quantity: number | string
+  unit_cost: number | string
+  price_override: number | null
+}
+
+/** Pre-markup amount for a live line: quantity × unit_cost. */
+export function estimateLineBase(line: EstimateMoneyLine): number {
+  const q = Number(line.quantity)
+  const c = Number(line.unit_cost)
+  if (!Number.isFinite(q) || !Number.isFinite(c)) return 0
+  return q * c
+}
+
+/**
+ * Billed total for a live estimate line:
+ *   price_override when set, else base × (1 + current markup / 100).
+ */
+export function estimateLineTotal(
+  line: EstimateMoneyLine,
+  settings: LiveMarkupSettings
+): number {
+  if (line.price_override !== null && Number.isFinite(Number(line.price_override))) {
+    return Number(line.price_override)
+  }
+  return estimateLineBase(line) * (1 + liveMarkupPercent(line.category, settings) / 100)
+}

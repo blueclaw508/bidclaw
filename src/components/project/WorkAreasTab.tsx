@@ -29,11 +29,18 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewWorkAreaModal } from '@/components/project/NewWorkAreaModal'
 import { BlurSaveInput, BlurSaveTextarea } from '@/components/InlineEdit'
+import { WorkAreaEstimate } from '@/components/project/estimate/WorkAreaEstimate'
+import { loadCompanySettings } from '@/lib/companySettings'
+import {
+  estimateLineTotal,
+  formatUSD,
+  type LiveMarkupSettings,
+} from '@/lib/money'
 import {
   WORK_AREA_STATUS_CONFIG,
   WORK_AREA_STATUS_ORDER,
 } from '@/lib/statusConfig'
-import type { WorkArea, WorkAreaStatus } from '@/lib/types'
+import type { WorkArea, WorkAreaLine, WorkAreaStatus } from '@/lib/types'
 
 interface WorkAreasTabProps {
   projectId: string
@@ -49,12 +56,18 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkArea | null>(null)
 
+  // Estimate-first (R2): each WA's LIVE estimate lines + the current
+  // settings markups the live math renders with.
+  const [linesByWA, setLinesByWA] = useState<Record<string, WorkAreaLine[]>>({})
+  const [settings, setSettings] = useState<LiveMarkupSettings | null>(null)
+
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
+    // Embedded select — work areas + their estimate lines in one trip.
     const { data, error } = await supabase
       .from('work_areas')
-      .select('*')
+      .select('*, work_area_lines(*)')
       .eq('project_id', projectId)
       .order('sequence_order', { ascending: true })
     setLoading(false)
@@ -62,12 +75,50 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
       setLoadError(error.message)
       return
     }
-    setRows((data ?? []) as WorkArea[])
+    type RawWA = WorkArea & { work_area_lines: WorkAreaLine[] }
+    const raw = (data ?? []) as RawWA[]
+    const map: Record<string, WorkAreaLine[]> = {}
+    for (const wa of raw) {
+      map[wa.id] = (wa.work_area_lines ?? []).sort(
+        (a, b) => a.sort_order - b.sort_order
+      )
+    }
+    setLinesByWA(map)
+    setRows(
+      raw.map(({ work_area_lines: _lines, ...core }) => {
+        void _lines
+        return core as WorkArea
+      })
+    )
   }, [projectId])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  // Current settings markups — loaded once; the estimate math renders
+  // live against these (QC model: markup is never frozen on the line).
+  useEffect(() => {
+    let cancelled = false
+    loadCompanySettings()
+      .then((s) => {
+        if (!cancelled) {
+          setSettings({
+            markup_materials_percent: s.markup_materials_percent,
+            markup_subs_percent: s.markup_subs_percent,
+          })
+        }
+      })
+      .catch(() => {
+        // Settings missing → render with 0% markup rather than block
+        if (!cancelled) {
+          setSettings({ markup_materials_percent: 0, markup_subs_percent: 0 })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const patch = useCallback(
     async (id: string, changes: Partial<WorkArea>): Promise<boolean> => {
@@ -230,12 +281,20 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
                 <SortableRow
                   key={wa.id}
                   workArea={wa}
+                  lines={linesByWA[wa.id] ?? []}
+                  settings={settings}
                   expanded={expandedId === wa.id}
                   onToggle={() =>
                     setExpandedId((cur) => (cur === wa.id ? null : wa.id))
                   }
                   onPatch={(changes) => patch(wa.id, changes)}
                   onDelete={() => setDeleteTarget(wa)}
+                  onLinesChange={(updater) =>
+                    setLinesByWA((prev) => ({
+                      ...prev,
+                      [wa.id]: updater(prev[wa.id] ?? []),
+                    }))
+                  }
                 />
               ))}
             </ul>
@@ -284,16 +343,22 @@ export default function WorkAreasTab({ projectId, onChange }: WorkAreasTabProps)
 
 function SortableRow({
   workArea,
+  lines,
+  settings,
   expanded,
   onToggle,
   onPatch,
   onDelete,
+  onLinesChange,
 }: {
   workArea: WorkArea
+  lines: WorkAreaLine[]
+  settings: LiveMarkupSettings | null
   expanded: boolean
   onToggle: () => void
   onPatch: (changes: Partial<WorkArea>) => Promise<boolean>
   onDelete: () => void
+  onLinesChange: (updater: (prev: WorkAreaLine[]) => WorkAreaLine[]) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: workArea.id })
@@ -341,6 +406,18 @@ function SortableRow({
             )}
           </span>
         </button>
+        {/* Estimate summary — QC's "N items · $total" header hint */}
+        {lines.length > 0 && settings && (
+          <span className="hidden shrink-0 whitespace-nowrap text-xs font-medium text-gray-500 sm:inline">
+            {lines.length} item{lines.length === 1 ? '' : 's'}
+            {' · '}
+            <span className="font-semibold text-gray-900">
+              {formatUSD(
+                lines.reduce((s, l) => s + estimateLineTotal(l, settings), 0)
+              )}
+            </span>
+          </span>
+        )}
         <span className="shrink-0 font-mono text-[11px] text-gray-400">
           #{workArea.sequence_order + 1}
         </span>
@@ -371,6 +448,26 @@ function SortableRow({
               rows={3}
             />
           </Field>
+
+          {/* THE ESTIMATE — line items live here (estimate-first, R2). */}
+          <div>
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Estimate
+            </span>
+            {settings ? (
+              <WorkAreaEstimate
+                workArea={workArea}
+                lines={lines}
+                settings={settings}
+                onLinesChange={onLinesChange}
+              />
+            ) : (
+              <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-400">
+                Loading rates…
+              </div>
+            )}
+          </div>
+
           <Field label="Status">
             <select
               value={workArea.status}

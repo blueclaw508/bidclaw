@@ -11,25 +11,27 @@ docs/analysis/QC-FIDELITY-AUDIT-2026-06-11.md
 Decisions locked: per-WA estimate approval (proposal keeps own lifecycle
 after); INSTANT-SAVE editing (no Save/Reset bar on estimate lines);
 client share/approve loop deferred.
-**R1 (schema) SHIPPED in the interactive session — migration 0013:
-work_area_lines table + work_areas.estimate_status + customers/projects
-address split. Types updated.** R2-R5 queued below.
+**R1 (schema) SHIPPED — migration 0013. R2 (estimate entry UI) SHIPPED
+in the interactive session: WorkAreaEstimate + WorkAreaLineRow +
+AddLineItemModal on the Work Areas tab, instant-save, live-verified
+end-to-end on Ian's real 50 Lovers Lane project (add -> qty -> reload
+-> persisted; test line cleaned up after).** R3-R5 queued below.
+R2 DEFERRED bits for R3: kit bulk-add into estimates (port
+AddFromKitModal preview commit to work_area_lines) + line drag-reorder
+(sort_order exists, rows render sorted).
 IMPACT ON THIS LOOP: dogfooding + eval-set targets now happen on the
 Work Areas tab once R2 lands, not the proposal editor. Phase 1.5
 remainder items (RPC duplicate/reorder, memoized editor validation)
 are LOWER priority than R2-R5 — don't polish the surface being replaced.
 
 ## TASK QUEUE — REVISED (priority order)
-1. R2: estimate entry UI on Work Areas tab (QC-style: one Add Line Item
-   full-catalog modal, only-populated categories, live markup pill,
-   price-override column with amber state, instant save)
-2. R3: per-WA calculate/totals + estimate lifecycle (replaces generic
+1. R3: per-WA calculate/totals + estimate lifecycle (replaces generic
    WA status picker — Ian's friction #2)
-3. R4: Create Proposal = generate from approved WAs (freeze at
+2. R4: Create Proposal = generate from approved WAs (freeze at
    generation into existing proposals tables); slim proposal editor
-4. R5: client fidelity (customer form split-address UI, prefill
+3. R5: client fidelity (customer form split-address UI, prefill
    project job address from customer, Maps link)
-5. (was queue 1-3: Phase 1.5 RPC remainder / P1-B polish / P1-C
+4. (was queue 1-3: Phase 1.5 RPC remainder / P1-B polish / P1-C
    eval scaffolding — deprioritized behind R2-R5)
 
 ## GATE PROGRESS (current phase)
