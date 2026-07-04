@@ -40,7 +40,13 @@ export interface Project {
   customer_id: string | null
   name: string
   status: ProjectStatus
+  /** Legacy freeform job address — dormant once the split fields ship (R5). */
   site_address: string | null
+  /** QC-fidelity split job address (migration 0013). */
+  site_address_line1: string | null
+  site_address_city: string | null
+  site_address_state: string | null
+  site_address_zip: string | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -52,12 +58,29 @@ export interface Customer {
   name: string
   email: string | null
   phone: string | null
+  /** Legacy freeform addresses — dormant once the split fields ship (R5). */
   billing_address: string | null
   site_address: string | null
+  /** QC-fidelity split addresses (migration 0013). */
+  billing_address_line1: string | null
+  billing_address_city: string | null
+  billing_address_state: string | null
+  billing_address_zip: string | null
+  site_address_line1: string | null
+  site_address_city: string | null
+  site_address_state: string | null
+  site_address_zip: string | null
   notes: string | null
   created_at: string
   updated_at: string
 }
+
+/**
+ * Per-work-area estimate lifecycle (estimate-first rework, R1).
+ * 'approved' gates the work area into proposal generation (R4).
+ * Distinct from the legacy generic WorkAreaStatus, which is dormant.
+ */
+export type EstimateStatus = 'drafting' | 'approved'
 
 export interface WorkArea {
   id: string
@@ -65,7 +88,35 @@ export interface WorkArea {
   name: string
   description: string | null
   sequence_order: number
+  /** Legacy generic status — UI picker removed in R3; column dormant. */
   status: WorkAreaStatus
+  /** Estimate lifecycle: per-WA approval gates proposal generation. */
+  estimate_status: EstimateStatus
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * A LIVE estimate line on a work area (estimate-first rework, R1).
+ * QC model: `unit_cost` is the BASE cost; the billed price is computed
+ * at render from CURRENT settings markup (material/sub/other) or is the
+ * rate itself (labor/equipment, markup pre-baked per KYN).
+ * `price_override` non-null = contractor hard-set this line's total
+ * (QC's isAmountOverridden — amber state in UI).
+ * Freezing into proposal_lines happens at proposal GENERATION (R4).
+ */
+export interface WorkAreaLine {
+  id: string
+  work_area_id: string
+  category: ProposalLineCategory
+  label: string
+  unit: string
+  quantity: number
+  unit_cost: number
+  price_override: number | null
+  catalog_item_id: string | null
+  source_kit_id: string | null
+  sort_order: number
   created_at: string
   updated_at: string
 }
