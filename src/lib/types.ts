@@ -20,6 +20,7 @@ export type CatalogCategory =
   | 'labor'
   | 'material'
   | 'equipment'
+  | 'subcontractor'
   | 'disposal'
   | 'design'
   | 'other'

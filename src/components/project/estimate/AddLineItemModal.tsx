@@ -2,13 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { HardHat, Package, Plus, Search, Users, Wrench, FileText, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { Modal } from '@/components/Modal'
+import DecimalInput from '@/components/decimal-input/DecimalInput'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   loadCompanyLaborTypes,
   loadCompanyEquipmentRates,
 } from '@/lib/companySettings'
 import { formatUSD } from '@/lib/money'
 import type {
+  CatalogCategory,
   CatalogItem,
   CompanyEquipmentRate,
   CompanyLaborType,
@@ -87,6 +90,7 @@ export function AddLineItemModal({
   workAreaName,
   onAdd,
 }: AddLineItemModalProps) {
+  const { user } = useAuth()
   const [catalog, setCatalog] = useState<CatalogItem[] | null>(null)
   const [laborTypes, setLaborTypes] = useState<CompanyLaborType[]>([])
   const [equipmentRates, setEquipmentRates] = useState<CompanyEquipmentRate[]>([])
@@ -95,6 +99,14 @@ export function AddLineItemModal({
   /** Keys flashing the "added ✓" state (burst-add feedback). */
   const [justAdded, setJustAdded] = useState<Set<string>>(new Set())
   const [busyKey, setBusyKey] = useState<string | null>(null)
+
+  // Inline custom-item form (QC parity: on-the-fly items are SAVED to
+  // the Item Catalog, then added to the estimate). One form open at a
+  // time, per category group.
+  const [customFormCat, setCustomFormCat] = useState<ProposalLineCategory | null>(null)
+  const [customName, setCustomName] = useState('')
+  const [customUnit, setCustomUnit] = useState('')
+  const [customCost, setCustomCost] = useState<number | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -214,21 +226,60 @@ export function AddLineItemModal({
     }
   }
 
-  const handleCustom = async (category: ProposalLineCategory) => {
-    if (busyKey) return
-    setBusyKey(`custom-${category}`)
+  /** Open the inline custom form for a category (closes any other). */
+  const openCustomForm = (category: ProposalLineCategory) => {
+    setCustomFormCat(category)
+    setCustomName('')
+    setCustomUnit(category === 'labor' || category === 'equipment' ? 'Hr' : 'EA')
+    setCustomCost(null)
+  }
+
+  /** Line category → catalog category is 1:1 since migration 0014. */
+  const toCatalogCategory = (cat: ProposalLineCategory): CatalogCategory => cat
+
+  /**
+   * QC parity: the custom item is SAVED to the Item Catalog first, then
+   * added to this estimate referencing the new catalog row. Next time
+   * it's in the pick list for every estimate.
+   */
+  const handleCustomSubmit = async () => {
+    if (!customFormCat || !user) return
+    const name = customName.trim()
+    if (!name) {
+      toast.error('Give the item a name.')
+      return
+    }
+    const cost = customCost ?? 0
+    setBusyKey(`custom-${customFormCat}`)
     try {
+      const { data: item, error } = await supabase
+        .from('catalog_items')
+        .insert({
+          user_id: user.id,
+          name,
+          unit: customUnit.trim() || 'EA',
+          category: toCatalogCategory(customFormCat),
+          unit_cost: cost,
+          needs_pricing: cost === 0,
+          active: true,
+        })
+        .select()
+        .single()
+      if (error || !item) throw new Error(error?.message ?? 'Catalog save failed.')
+      // Appears in the pick list immediately
+      setCatalog((prev) => (prev ? [...prev, item as CatalogItem] : [item as CatalogItem]))
       await onAdd({
-        category,
-        label: '',
-        unit: category === 'labor' || category === 'equipment' ? 'Hr' : 'EA',
+        category: customFormCat,
+        label: name,
+        unit: (item as CatalogItem).unit,
         quantity: 1,
-        unitCost: 0,
-        catalogItemId: null,
+        unitCost: cost,
+        catalogItemId: (item as CatalogItem).id,
       })
-      toast.success('Custom line added — name it on the row.')
+      toast.success(`"${name}" saved to your Item Catalog and added.`)
+      setCustomFormCat(null)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not add line.')
+      toast.error(err instanceof Error ? err.message : 'Could not add item.')
     } finally {
       setBusyKey(null)
     }
@@ -312,15 +363,75 @@ export function AddLineItemModal({
                       )
                     })}
                     <li>
-                      <button
-                        type="button"
-                        onClick={() => void handleCustom(group.category)}
-                        disabled={busyKey !== null}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-brand-navy transition-colors hover:bg-blue-50/50 disabled:opacity-60"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        Custom {group.label.toLowerCase()} item
-                      </button>
+                      {customFormCat === group.category ? (
+                        /* Inline custom form — saves to Item Catalog + adds */
+                        <div className="space-y-2 bg-blue-50/40 px-3 py-2.5">
+                          <div className="flex flex-wrap gap-2">
+                            <input
+                              type="text"
+                              autoFocus
+                              value={customName}
+                              onChange={(e) => setCustomName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void handleCustomSubmit()
+                              }}
+                              placeholder={`New ${group.label.toLowerCase()} item name…`}
+                              className="min-w-[160px] flex-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+                            />
+                            <input
+                              type="text"
+                              value={customUnit}
+                              onChange={(e) => setCustomUnit(e.target.value)}
+                              placeholder="Unit"
+                              className="w-16 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+                            />
+                            <div className="relative w-24">
+                              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                                $
+                              </span>
+                              <DecimalInput
+                                value={customCost}
+                                onCommit={setCustomCost}
+                                placeholder="0.00"
+                                ariaLabel="Cost per unit"
+                                className="w-full rounded-lg border border-gray-300 bg-white py-1.5 pl-5 pr-2 text-right text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] text-gray-500">
+                              Saves to your Item Catalog, then adds to this estimate.
+                            </span>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setCustomFormCat(null)}
+                                className="rounded-md px-2.5 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-100"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleCustomSubmit()}
+                                disabled={busyKey !== null || !customName.trim()}
+                                className="rounded-md bg-brand-navy px-2.5 py-1 text-xs font-semibold text-white hover:bg-brand-navy-dark disabled:opacity-50"
+                              >
+                                {busyKey === `custom-${group.category}` ? 'Adding…' : 'Add & Save'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openCustomForm(group.category)}
+                          disabled={busyKey !== null}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-brand-navy transition-colors hover:bg-blue-50/50 disabled:opacity-60"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Custom {group.label.toLowerCase()} item
+                        </button>
+                      )}
                     </li>
                   </ul>
                 </div>
