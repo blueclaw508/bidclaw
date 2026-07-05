@@ -47,9 +47,20 @@ interface WorkAreasTabProps {
   projectName?: string
   /** Called after any successful CRUD so the parent can refresh totals. */
   onChange?: () => void
+  /**
+   * Reports the LIVE project estimate total up to the page so the totals rail
+   * can mirror it instantly — no DB round-trip, so per-line edits stay in sync
+   * without racing the instant-save writes.
+   */
+  onEstimateTotalChange?: (total: number) => void
 }
 
-export default function WorkAreasTab({ projectId, projectName, onChange }: WorkAreasTabProps) {
+export default function WorkAreasTab({
+  projectId,
+  projectName,
+  onChange,
+  onEstimateTotalChange,
+}: WorkAreasTabProps) {
   const [rows, setRows] = useState<WorkArea[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -120,6 +131,22 @@ export default function WorkAreasTab({ projectId, projectName, onChange }: WorkA
       cancelled = true
     }
   }, [])
+
+  // Mirror the live project estimate total up to the page rail. Only once
+  // loaded + settings are in, so we never flash $0 over the DB baseline.
+  useEffect(() => {
+    if (loading || !settings || !onEstimateTotalChange) return
+    const total = rows.reduce(
+      (sum, wa) =>
+        sum +
+        (linesByWA[wa.id] ?? []).reduce(
+          (s, l) => s + estimateLineTotal(l, settings),
+          0
+        ),
+      0
+    )
+    onEstimateTotalChange(total)
+  }, [rows, linesByWA, settings, loading, onEstimateTotalChange])
 
   const patch = useCallback(
     async (id: string, changes: Partial<WorkArea>): Promise<boolean> => {
@@ -314,6 +341,7 @@ export default function WorkAreasTab({ projectId, projectName, onChange }: WorkA
           rows={rows}
           linesByWA={linesByWA}
           settings={settings}
+          onApprove={(id) => patch(id, { estimate_status: 'approved' })}
         />
       )}
 
@@ -362,17 +390,21 @@ function ProjectEstimateTotals({
   rows,
   linesByWA,
   settings,
+  onApprove,
 }: {
   projectId: string
   projectName?: string
   rows: WorkArea[]
   linesByWA: Record<string, WorkAreaLine[]>
   settings: LiveMarkupSettings
+  /** Approve a single work-area estimate. Returns true on success. */
+  onApprove: (id: string) => Promise<boolean>
 }) {
   const navigate = useNavigate()
   const [genOpen, setGenOpen] = useState(false)
   const [genName, setGenName] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [approvingAll, setApprovingAll] = useState(false)
 
   const perWA = rows.map((wa) => ({
     wa,
@@ -384,6 +416,28 @@ function ProjectEstimateTotals({
   }))
   const grand = perWA.reduce((s, x) => s + x.total, 0)
   const approvedCount = rows.filter((w) => w.estimate_status === 'approved').length
+
+  // Work areas that actually have estimate lines — the ones worth approving.
+  const waWithLines = perWA.filter((x) => x.count > 0).map((x) => x.wa)
+
+  // Fast path when nothing is approved yet: approve every work area that has
+  // lines, then open the generate dialog. Keeps the freeze model (nothing is
+  // frozen until they confirm) while removing the dead-end greyed button.
+  const handleApproveAllAndGenerate = async () => {
+    setApprovingAll(true)
+    try {
+      for (const wa of waWithLines) {
+        if (wa.estimate_status !== 'approved') {
+          const ok = await onApprove(wa.id)
+          if (!ok) return // patch() already surfaced the error toast
+        }
+      }
+      setGenName(`${projectName ?? 'Project'} — Proposal`)
+      setGenOpen(true)
+    } finally {
+      setApprovingAll(false)
+    }
+  }
 
   // Preview of what generation will include / skip (client-side mirror
   // of generateProposalFromEstimates' rules).
@@ -457,24 +511,38 @@ function ProjectEstimateTotals({
           <span className="text-xl font-bold tabular-nums text-blue-700">
             {formatUSD(grand)}
           </span>
-          {/* R4 — THE freeze point. Approved estimates → frozen proposal. */}
-          <button
-            type="button"
-            onClick={() => {
-              setGenName(`${projectName ?? 'Project'} — Proposal`)
-              setGenOpen(true)
-            }}
-            disabled={approvedCount === 0}
-            title={
-              approvedCount === 0
-                ? 'Approve at least one work area estimate first'
-                : `Generate a proposal from the ${approvedCount} approved work area${approvedCount === 1 ? '' : 's'}`
-            }
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <FileText className="h-4 w-4" />
-            Create Proposal
-          </button>
+          {/* R4 — THE freeze point. Approved estimates → frozen proposal.
+              When nothing is approved yet, offer a one-click "approve all &
+              create" path instead of a dead greyed button. */}
+          {approvedCount === 0 ? (
+            <button
+              type="button"
+              onClick={handleApproveAllAndGenerate}
+              disabled={approvingAll || waWithLines.length === 0}
+              title={
+                waWithLines.length === 0
+                  ? 'Add estimate lines to a work area first'
+                  : `Approve all ${waWithLines.length} work area${waWithLines.length === 1 ? '' : 's'} with lines and create a proposal`
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FileText className="h-4 w-4" />
+              {approvingAll ? 'Approving…' : 'Approve all & create proposal'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setGenName(`${projectName ?? 'Project'} — Proposal`)
+                setGenOpen(true)
+              }}
+              title={`Generate a proposal from the ${approvedCount} approved work area${approvedCount === 1 ? '' : 's'}`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark"
+            >
+              <FileText className="h-4 w-4" />
+              Create Proposal
+            </button>
+          )}
         </div>
       </div>
 

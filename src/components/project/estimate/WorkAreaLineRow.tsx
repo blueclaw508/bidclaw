@@ -5,6 +5,7 @@ import DecimalInput from '@/components/decimal-input/DecimalInput'
 import { BlurSaveInput } from '@/components/InlineEdit'
 import {
   categoryBearsMarkup,
+  effectiveMarkupPercent,
   estimateLineBase,
   estimateLineTotal,
   formatUSD,
@@ -42,7 +43,9 @@ export function WorkAreaLineRow({
   onDelete,
 }: WorkAreaLineRowProps) {
   const bearsMarkup = categoryBearsMarkup(line.category)
-  const markupPct = liveMarkupPercent(line.category, settings)
+  const globalMarkup = liveMarkupPercent(line.category, settings)
+  const markupPct = effectiveMarkupPercent(line, settings)
+  const markupOverridden = line.markup_override !== null
   const price = estimateLineTotal(line, settings)
   const base = estimateLineBase(line)
   const overridden = line.price_override !== null
@@ -103,14 +106,49 @@ export function WorkAreaLineRow({
           />
         </div>
 
-        {/* Markup — LIVE settings %, display-only pill */}
-        <div className="w-16 shrink-0 text-right sm:w-20">
+        {/* Markup — editable per line; blank/× returns to your live markup */}
+        <div className="w-16 shrink-0 sm:w-20">
           {bearsMarkup ? (
-            <span className="inline-flex items-center rounded-lg bg-gray-100 px-2 py-1.5 text-sm font-medium text-gray-600">
-              {markupPct.toFixed(2)}%
-            </span>
+            <div className="relative">
+              <DecimalInput
+                value={markupPct}
+                onCommit={(n) => {
+                  if (n === null) {
+                    onPatch({ markup_override: null })
+                  } else if (Math.abs(n - globalMarkup) > 1e-9 || markupOverridden) {
+                    onPatch({ markup_override: n })
+                  }
+                }}
+                placeholder="0"
+                ariaLabel="Markup percent (edit to override this line)"
+                title={
+                  markupOverridden
+                    ? 'Markup overridden for this line — click × to return to your live markup'
+                    : 'Edit to set a custom markup for this line'
+                }
+                className={`${numInputClasses} pr-4 ${
+                  markupOverridden
+                    ? 'border-amber-300 bg-amber-50 text-amber-700'
+                    : 'text-gray-700'
+                }`}
+              />
+              <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                %
+              </span>
+              {markupOverridden && (
+                <button
+                  type="button"
+                  onClick={() => onPatch({ markup_override: null })}
+                  aria-label="Clear markup override"
+                  title="Clear override — back to your live markup"
+                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-sm hover:bg-amber-600"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
           ) : (
-            <span className="text-xs text-gray-300">—</span>
+            <span className="block text-right text-xs text-gray-300">—</span>
           )}
         </div>
 
@@ -171,7 +209,8 @@ export function WorkAreaLineRow({
       {bearsMarkup && Number(line.quantity) > 0 && Number(line.unit_cost) > 0 && (
         <div className="ml-1 mt-1 text-xs text-gray-400">
           {Number(line.quantity)} × {formatUSD(Number(line.unit_cost))} cost +{' '}
-          {markupPct.toFixed(2)}% = {formatUSD(base * (1 + markupPct / 100))}
+          {markupPct.toFixed(2)}%{markupOverridden && ' (custom)'} ={' '}
+          {formatUSD(base * (1 + markupPct / 100))}
           {overridden && (
             <span className="ml-1.5 font-medium text-amber-600">
               (overridden to {formatUSD(Number(line.price_override))})

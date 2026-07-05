@@ -141,6 +141,8 @@ export interface EstimateMoneyLine {
   quantity: number | string
   unit_cost: number | string
   price_override: number | null
+  /** Per-line markup % override; null/undefined → use the company live markup. */
+  markup_override?: number | null
 }
 
 /** Pre-markup amount for a live line: quantity × unit_cost. */
@@ -152,8 +154,26 @@ export function estimateLineBase(line: EstimateMoneyLine): number {
 }
 
 /**
+ * Effective markup % applied to a line: the per-line override when set,
+ * otherwise the company live markup for the category. Non-markup categories
+ * (labor, equipment) are always 0 — a stray override on them is ignored.
+ */
+export function effectiveMarkupPercent(
+  line: EstimateMoneyLine,
+  settings: LiveMarkupSettings
+): number {
+  if (!categoryBearsMarkup(line.category)) return 0
+  const ov = line.markup_override
+  if (ov !== null && ov !== undefined && Number.isFinite(Number(ov))) {
+    return Number(ov)
+  }
+  return liveMarkupPercent(line.category, settings)
+}
+
+/**
  * Billed total for a live estimate line:
- *   price_override when set, else base × (1 + current markup / 100).
+ *   price_override when set, else base × (1 + effective markup / 100),
+ *   where effective markup honors a per-line override before the live setting.
  */
 export function estimateLineTotal(
   line: EstimateMoneyLine,
@@ -162,5 +182,5 @@ export function estimateLineTotal(
   if (line.price_override !== null && Number.isFinite(Number(line.price_override))) {
     return Number(line.price_override)
   }
-  return estimateLineBase(line) * (1 + liveMarkupPercent(line.category, settings) / 100)
+  return estimateLineBase(line) * (1 + effectiveMarkupPercent(line, settings) / 100)
 }

@@ -115,6 +115,8 @@ export interface WorkAreaLine {
   quantity: number
   unit_cost: number
   price_override: number | null
+  /** Per-line markup % (e.g. 40 = 40%). null → use the company live markup. */
+  markup_override: number | null
   catalog_item_id: string | null
   source_kit_id: string | null
   sort_order: number

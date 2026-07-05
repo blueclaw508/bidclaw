@@ -26,6 +26,8 @@ import {
   mapsUrl,
   type SplitAddress,
 } from '@/lib/address'
+import { estimateLineTotal, formatUSD } from '@/lib/money'
+import { loadCompanySettings } from '@/lib/companySettings'
 
 // Lazy-loaded so dnd-kit only ships when the Work Areas tab is opened.
 const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
@@ -69,26 +71,52 @@ export default function ProjectDetailPage() {
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [workAreaCount, setWorkAreaCount] = useState<number | null>(null)
   const [fileCount, setFileCount] = useState<number | null>(null)
+  const [estimatedValue, setEstimatedValue] = useState<number | null>(null)
 
   /**
-   * Cheap count queries for the totals rail. Run once on mount + when
-   * the relevant tab signals a mutation. Uses HEAD count so we don't pull
-   * row data we won't display here.
+   * Totals rail refresh. Counts use HEAD queries; estimated value is the live
+   * project estimate — sum of every work-area line at current cost + markup
+   * (per-line override wins). Recomputed whenever a tab signals a mutation, so
+   * it always matches the Project Estimate rollup on the Work Areas tab.
    */
   const refreshCounts = useCallback(async () => {
     if (!projectId) return
-    const [{ count: waCount }, { count: fCount }] = await Promise.all([
-      supabase
-        .from('work_areas')
-        .select('id', { count: 'exact', head: true })
-        .eq('project_id', projectId),
-      supabase
-        .from('project_files')
-        .select('id', { count: 'exact', head: true })
-        .eq('project_id', projectId),
-    ])
+    const [{ count: waCount }, { count: fCount }, waLines, settings] =
+      await Promise.all([
+        supabase
+          .from('work_areas')
+          .select('id', { count: 'exact', head: true })
+          .eq('project_id', projectId),
+        supabase
+          .from('project_files')
+          .select('id', { count: 'exact', head: true })
+          .eq('project_id', projectId),
+        supabase
+          .from('work_areas')
+          .select(
+            'id, work_area_lines(category, quantity, unit_cost, price_override, markup_override)'
+          )
+          .eq('project_id', projectId),
+        loadCompanySettings().catch(() => null),
+      ])
     setWorkAreaCount(waCount ?? 0)
     setFileCount(fCount ?? 0)
+
+    const markup = {
+      markup_materials_percent: settings?.markup_materials_percent ?? 0,
+      markup_subs_percent: settings?.markup_subs_percent ?? 0,
+    }
+    type WARow = { work_area_lines: Parameters<typeof estimateLineTotal>[0][] | null }
+    const value = ((waLines.data as WARow[] | null) ?? []).reduce(
+      (sum, wa) =>
+        sum +
+        (wa.work_area_lines ?? []).reduce(
+          (s, l) => s + estimateLineTotal(l, markup),
+          0
+        ),
+      0
+    )
+    setEstimatedValue(value)
   }, [projectId])
 
   useEffect(() => {
@@ -241,7 +269,12 @@ export default function ProjectDetailPage() {
           {activeTab === 'details'    && <DetailsTab project={project} onPatch={patch} onArchive={() => setArchiveOpen(true)} />}
           {activeTab === 'work_areas' && (
             <Suspense fallback={<TabLoading />}>
-              <WorkAreasTab projectId={project.id} projectName={project.name} onChange={refreshCounts} />
+              <WorkAreasTab
+                projectId={project.id}
+                projectName={project.name}
+                onChange={refreshCounts}
+                onEstimateTotalChange={setEstimatedValue}
+              />
             </Suspense>
           )}
           {activeTab === 'files'      && (
@@ -259,6 +292,7 @@ export default function ProjectDetailPage() {
           project={project}
           workAreaCount={workAreaCount}
           fileCount={fileCount}
+          estimatedValue={estimatedValue}
         />
       </div>
 
@@ -590,13 +624,16 @@ function TotalsRail({
   project,
   workAreaCount,
   fileCount,
+  estimatedValue,
 }: {
   project: ProjectDetail
   workAreaCount: number | null
   fileCount: number | null
+  estimatedValue: number | null
 }) {
-  // Work-area + file counts are now live (Phases 4 + 6). Estimated value
-  // still waits for proposal line items.
+  // All three totals are live. Estimated value is the summed work-area
+  // estimate (cost + effective markup, per-line overrides honored) — the
+  // same number as the Work Areas tab rollup.
   const fmt = (n: number | null) => (n === null ? '—' : String(n))
   return (
     <aside className="space-y-4">
@@ -612,10 +649,15 @@ function TotalsRail({
           <dl className="space-y-3 text-sm">
             <TotalRow icon={ClipboardList} label="Work areas"     value={fmt(workAreaCount)} />
             <TotalRow icon={FileText}      label="Files uploaded" value={fmt(fileCount)} />
-            <TotalRow icon={Database}      label="Estimated value" value="$0" />
+            <TotalRow
+              icon={Database}
+              label="Estimated value"
+              value={estimatedValue === null ? '—' : formatUSD(estimatedValue)}
+            />
           </dl>
           <p className="mt-4 text-[11px] italic leading-relaxed text-gray-400">
-            Estimated value comes online when proposal line items land.
+            Live total across all work-area estimate lines. Freezes when you
+            create a proposal.
           </p>
         </div>
       </div>

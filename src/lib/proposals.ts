@@ -27,7 +27,7 @@
 import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
 import { syncLeadStageForProposalStatus } from '@/lib/leads'
-import { categoryBearsMarkup, lineBase, lineMarkup, lineTotal, liveMarkupPercent } from '@/lib/money'
+import { categoryBearsMarkup, effectiveMarkupPercent, lineBase, lineMarkup, lineTotal } from '@/lib/money'
 import type {
   KitPreviewLine,
   Proposal,
@@ -538,7 +538,9 @@ export async function generateProposalFromEstimates(input: {
           frozen_unit_cost: Number(l.unit_cost),
           frozen_labor_rate: null,
           frozen_equipment_rate: null,
-          frozen_markup_percent: liveMarkupPercent(l.category, settings),
+          // Freeze the line's EFFECTIVE markup (per-line override wins over the
+          // company live markup) so the proposal matches the approved estimate.
+          frozen_markup_percent: effectiveMarkupPercent(l, settings),
           price_override:
             l.price_override === null ? null : Number(l.price_override),
           frozen_kit_factor: null,

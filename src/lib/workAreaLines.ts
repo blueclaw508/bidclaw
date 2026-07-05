@@ -59,15 +59,22 @@ export async function addWorkAreaLine(input: {
 
 /**
  * Patch a line (instant save — called per field commit). Allowed
- * fields: label, unit, quantity, unit_cost, price_override, sort_order.
- * price_override: number sets the override, null clears it.
+ * fields: label, unit, quantity, unit_cost, price_override, markup_override,
+ * sort_order. price_override / markup_override: number sets it, null clears
+ * it (back to the company live markup).
  */
 export async function updateWorkAreaLine(
   id: string,
   patch: Partial<
     Pick<
       WorkAreaLine,
-      'label' | 'unit' | 'quantity' | 'unit_cost' | 'price_override' | 'sort_order'
+      | 'label'
+      | 'unit'
+      | 'quantity'
+      | 'unit_cost'
+      | 'price_override'
+      | 'markup_override'
+      | 'sort_order'
     >
   >
 ): Promise<WorkAreaLine> {
