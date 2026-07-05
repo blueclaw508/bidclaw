@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   DndContext,
@@ -35,11 +35,22 @@ import { WorkAreaEstimate } from '@/components/project/estimate/WorkAreaEstimate
 import { loadCompanySettings } from '@/lib/companySettings'
 import { generateProposalFromEstimates } from '@/lib/proposals'
 import {
+  loadEntitlements,
+  isEstimateLimitError,
+  type Entitlements,
+} from '@/lib/entitlements'
+import {
   estimateLineTotal,
   formatUSD,
   type LiveMarkupSettings,
 } from '@/lib/money'
 import type { WorkArea, WorkAreaLine } from '@/lib/types'
+
+const UpgradeModal = lazy(() =>
+  import('@/components/billing/UpgradeModal').then((m) => ({
+    default: m.UpgradeModal,
+  }))
+)
 
 interface WorkAreasTabProps {
   projectId: string
@@ -409,6 +420,11 @@ function ProjectEstimateTotals({
   const [genName, setGenName] = useState('')
   const [generating, setGenerating] = useState(false)
   const [approvingAll, setApprovingAll] = useState(false)
+  const [entitlements, setEntitlements] = useState<Entitlements | null>(null)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  useEffect(() => {
+    loadEntitlements().then(setEntitlements).catch(() => {})
+  }, [])
 
   const perWA = rows.map((wa) => ({
     wa,
@@ -475,6 +491,13 @@ function ProjectEstimateTotals({
       )
       navigate(`/app/projects/${projectId}/proposals/${proposalId}`)
     } catch (err) {
+      // Free-tier gate (server trigger) → show the upgrade path, not an error.
+      if (isEstimateLimitError(err)) {
+        setGenerating(false)
+        setGenOpen(false)
+        setUpgradeOpen(true)
+        return
+      }
       toast.error(err instanceof Error ? err.message : 'Generation failed.')
       setGenerating(false)
     }
@@ -488,9 +511,25 @@ function ProjectEstimateTotals({
         <h3 className="text-xs font-bold uppercase tracking-wide text-blue-800">
           Project Estimate
         </h3>
-        <span className="text-xs font-medium text-blue-700">
-          {approvedCount} of {rows.length} work area{rows.length === 1 ? '' : 's'} approved
-        </span>
+        <div className="flex items-center gap-2">
+          {entitlements?.plan === 'free' && entitlements.estimateLimit !== null && (
+            <button
+              type="button"
+              onClick={() => setUpgradeOpen(true)}
+              title="Free plan — 5 estimates per month. Click to upgrade."
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 transition-colors hover:ring-2 ${
+                entitlements.estimatesThisMonth >= entitlements.estimateLimit
+                  ? 'bg-amber-50 text-amber-700 ring-amber-300'
+                  : 'bg-white text-blue-700 ring-blue-200'
+              }`}
+            >
+              {entitlements.estimatesThisMonth}/{entitlements.estimateLimit} estimates · Upgrade
+            </button>
+          )}
+          <span className="text-xs font-medium text-blue-700">
+            {approvedCount} of {rows.length} work area{rows.length === 1 ? '' : 's'} approved
+          </span>
+        </div>
       </header>
       <ul className="divide-y divide-gray-100">
         {perWA.map(({ wa, total, count }) => (
@@ -603,6 +642,23 @@ function ProjectEstimateTotals({
         confirmLabel={generating ? 'Creating…' : 'Create Proposal'}
         tone="primary"
       />
+
+      {upgradeOpen && (
+        <Suspense fallback={null}>
+          <UpgradeModal
+            open={upgradeOpen}
+            onClose={() => setUpgradeOpen(false)}
+            currentPlan={entitlements?.plan ?? 'free'}
+            reason={
+              entitlements?.plan === 'free' &&
+              entitlements.estimateLimit !== null &&
+              entitlements.estimatesThisMonth >= entitlements.estimateLimit
+                ? `You've used all ${entitlements.estimateLimit} estimates this month. Upgrade for unlimited.`
+                : undefined
+            }
+          />
+        </Suspense>
+      )}
     </section>
   )
 }

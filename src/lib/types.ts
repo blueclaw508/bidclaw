@@ -325,6 +325,13 @@ export interface CompanySettings {
    */
   jamie_enabled: boolean
 
+  /**
+   * Billing plan (paywall, migration 0018). free = 5 estimates/mo, no AI;
+   * pro = unlimited, no AI; pro_ai = unlimited + Jamie. The free-tier
+   * estimate cap is enforced by a server trigger on proposals.
+   */
+  plan: 'free' | 'pro' | 'pro_ai'
+
   /** NULL = wizard incomplete. ISO timestamp once "Complete Setup" clicked. */
   setup_completed_at: string | null
 
