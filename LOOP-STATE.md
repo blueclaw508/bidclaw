@@ -1,5 +1,21 @@
 # LOOP-STATE — BidClaw
 
+## JAMIE PHASE 1 SHIPPED (2026-07-05, interactive session, 401293e)
+The AI estimating agent is LIVE. "Ask Jamie" on a work area -> edge fn
+`jamie-estimate` (Deno, claude-opus-4-8, structured JSON) prices the WA
+from a scope using the contractor's own catalog + labor/equipment rates
++ markups -> review modal -> Add N lines (addWorkAreaLinesBulk). PAID
+UPGRADE: company_settings.jamie_enabled (0017, default false), enforced
+client + server (fn 403s if off). jamie_runs audit table (own-row RLS).
+ANTHROPIC_API_KEY already set on the project; jamie_enabled=true for Ian.
+Live-verified 200 w/ a real 4-line KYN estimate (27hr labor full crew day,
+skid loader, disposal w/ live markup, GC line, Nantucket gap Q). Next
+(P2): web-search Layer 1; whole-project mode (all WAs + two-gate); price
+new_catalog_items in-context. DO NOT rebuild Jamie in the loop.
+WARNING for harness authors: target modal fields by unique placeholder,
+NOT getByRole('textbox').first() — it hit the WA name field + renamed a
+real WA (restored via SQL).
+
 ## R6 + FLOW COHERENCE (2026-07-04, interactive session, eb11e82)
 Ian dogfooded and hit a TWO-WORLDS bug: the estimate-first flow (R1-R5)
 and the OLD Phase-2 manual proposal paths both existed. Old paths made
