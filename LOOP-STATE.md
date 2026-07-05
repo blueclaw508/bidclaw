@@ -1,4 +1,19 @@
 # LOOP-STATE — BidClaw
+
+## R6 + FLOW COHERENCE (2026-07-04, interactive session, eb11e82)
+Ian dogfooded and hit a TWO-WORLDS bug: the estimate-first flow (R1-R5)
+and the OLD Phase-2 manual proposal paths both existed. Old paths made
+empty $0 proposals ("+ New proposal"; "Add from project" attached empty
+WA shells). FIXED — removed both, deleted the two orphan modal files,
+deleted the stale $0 proposal. Now ONE path: estimate -> approve ->
+Create Proposal. ProposalEditor is review/adjust of the frozen snapshot
+(no more work-area-add). Migration 0016 reconciles work_area_lines.
+markup_override (loop's 3b3410f applied the column live but never wrote
+the file). Loop's 3b3410f already fixed the greyed Create Proposal
+(now "Approve all & create") + $0 sidebar.
+REMAINING QC GAP (Ian flagged): PDF output formats. QC has Detailed /
+Summary(=Proposal) / Crew; BidClaw print view does Detailed only. This
+is the next build (call it R7). Print view = src/pages/ProposalPrintView.tsx.
 Phase: 1 — Dogfooding Sprint Support
 Sprint start: 2026-06-11        Gate-1 date check: 2026-06-25 (max 07-02)
 Session count: 5
