@@ -57,7 +57,7 @@ import {
 } from '@/components/proposals/ProposalStatusControls'
 import { TotalsBreakdown } from '@/components/proposals/TotalsBreakdown'
 import { getLinkedLeadForLostPrompt, updateLead } from '@/lib/leads'
-import { categoryBearsMarkup } from '@/lib/money'
+import { categoryBearsMarkup, lineTotal } from '@/lib/money'
 import type {
   Lead,
   Project,
@@ -256,18 +256,17 @@ export default function ProposalEditor() {
   const anyDirty = notesDirty || linesDirtyCount > 0
   const canSave = anyDirty && linesWithErrors.size === 0 && !saving
 
-  // Items-need-pricing count: lines with frozen_unit_cost = 0 (or NaN
-  // after a cleared input). Computed live from localLines so the banner
-  // updates as the contractor enters/clears prices. Counts deleted lines
-  // are excluded; disabled work areas ARE included (per spec: "across
-  // ALL work areas of the proposal, enabled + disabled").
+  // Items-need-pricing count: lines whose customer-facing TOTAL is $0.
+  // Uses lineTotal (respects price_override) — a line entered as a flat
+  // price (unit_cost 0 + override, e.g. "General Conditions $250") is
+  // fully priced and must NOT be flagged. Only a genuinely $0 line
+  // (no cost, no override) needs pricing. Deleted lines excluded;
+  // disabled work areas ARE included.
   const itemsNeedingPricingCount = useMemo(() => {
     let count = 0
     for (const id in localLines) {
       if (deletedLineIds.has(id)) continue
-      const l = localLines[id]
-      const cost = Number(l.frozen_unit_cost)
-      if (!Number.isFinite(cost) || cost === 0) count++
+      if (lineTotal(localLines[id]) === 0) count++
     }
     return count
   }, [localLines, deletedLineIds])
