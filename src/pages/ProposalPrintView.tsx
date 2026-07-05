@@ -52,6 +52,21 @@ interface ProjectWithCustomer extends Project {
   customer: Customer | null
 }
 
+/**
+ * QC-fidelity output formats (R7):
+ *   detailed — every line with cost / markup / price (the estimator's copy)
+ *   summary  — the client proposal: scope narrative + work-area totals,
+ *              no line-by-line cost breakdown
+ *   crew     — internal build sheet: quantities + labor hours, NO pricing
+ */
+type PrintFormat = 'detailed' | 'summary' | 'crew'
+
+const FORMAT_META: Record<PrintFormat, { label: string; blurb: string }> = {
+  detailed: { label: 'Detailed', blurb: 'Every line, cost + markup + price' },
+  summary: { label: 'Summary', blurb: 'Client proposal — scope + totals' },
+  crew: { label: 'Crew', blurb: 'Build sheet — quantities + hours, no pricing' },
+}
+
 export default function ProposalPrintView() {
   const { projectId, proposalId } = useParams<{
     projectId: string
@@ -67,6 +82,7 @@ export default function ProposalPrintView() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [format, setFormat] = useState<PrintFormat>('detailed')
 
   /* ---------- parallel load ---------- */
 
@@ -213,9 +229,32 @@ export default function ProposalPrintView() {
               Back to editor
             </button>
             <div className="flex flex-wrap items-center gap-3">
-              <span className="hidden text-xs text-gray-500 sm:inline">
-                Use "Save as PDF" in the print dialog destination dropdown to
-                export.
+              {/* Format toggle (screen-only) — pick what this print renders */}
+              <div
+                role="tablist"
+                aria-label="Output format"
+                className="inline-flex rounded-lg border border-gray-300 bg-gray-50 p-0.5"
+              >
+                {(Object.keys(FORMAT_META) as PrintFormat[]).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    role="tab"
+                    aria-selected={format === f}
+                    onClick={() => setFormat(f)}
+                    title={FORMAT_META[f].blurb}
+                    className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
+                      format === f
+                        ? 'bg-brand-navy text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {FORMAT_META[f].label}
+                  </button>
+                ))}
+              </div>
+              <span className="hidden text-xs text-gray-500 lg:inline">
+                {FORMAT_META[format].blurb} · Save as PDF via the print dialog.
               </span>
               <button
                 type="button"
@@ -274,74 +313,30 @@ export default function ProposalPrintView() {
                 customer={projectWithCustomer.customer}
               />
 
-              {/* === Proposal notes === */}
-              {proposal.notes?.trim() ? (
-                <section className="pv-section mt-6">
-                  <h3 className="pv-section-label text-[10px] font-bold uppercase tracking-wider text-gray-500">
-                    Notes
-                  </h3>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
-                    {proposal.notes}
-                  </p>
-                </section>
-              ) : null}
-
-              {/* === Per-work-area sections === */}
-              <div className="mt-8 space-y-8">
-                {enabledWorkAreas.map((wa) => (
-                  <WorkAreaPrintSection
-                    key={wa.id}
-                    workArea={wa}
-                    accent={accent}
-                  />
-                ))}
-              </div>
-
-              {/* === Grand totals === */}
-              <div className="pv-totals mt-10">
-                <GrandTotalsCard
-                  workAreas={enabledWorkAreas}
+              {/* === Format-specific body (R7) === */}
+              {format === 'detailed' && (
+                <DetailedBody
+                  proposal={proposal}
+                  settings={settings}
+                  enabledWorkAreas={enabledWorkAreas}
                   accent={accent}
                 />
-              </div>
-
-              {/* === Terms & Conditions === */}
-              {settings.pdf_show_terms_and_conditions &&
-              settings.default_terms_and_conditions?.trim() ? (
-                <section className="pv-section pv-page-break-before mt-10">
-                  <h3
-                    className="pv-section-heading text-sm font-bold uppercase tracking-wider"
-                    style={{ color: accent }}
-                  >
-                    Terms &amp; Conditions
-                  </h3>
-                  <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">
-                    {settings.default_terms_and_conditions}
-                  </p>
-                </section>
-              ) : null}
-
-              {/* === Payment Terms === */}
-              {settings.pdf_show_payment_terms ? (
-                <section className="pv-section mt-8">
-                  <h3
-                    className="pv-section-heading text-sm font-bold uppercase tracking-wider"
-                    style={{ color: accent }}
-                  >
-                    Payment Terms
-                  </h3>
-                  <p className="mt-2 text-xs leading-relaxed text-gray-700">
-                    50% deposit upon acceptance. Balance due upon project
-                    completion.
-                  </p>
-                </section>
-              ) : null}
-
-              {/* === Signature block === */}
-              <section className="pv-signatures mt-12 grid grid-cols-1 gap-8 sm:grid-cols-2">
-                <SignatureLine label="Customer Signature" />
-                <SignatureLine label="Contractor Signature" />
-              </section>
+              )}
+              {format === 'summary' && (
+                <SummaryBody
+                  settings={settings}
+                  project={projectWithCustomer}
+                  enabledWorkAreas={enabledWorkAreas}
+                  accent={accent}
+                />
+              )}
+              {format === 'crew' && (
+                <CrewBody
+                  proposal={proposal}
+                  enabledWorkAreas={enabledWorkAreas}
+                  accent={accent}
+                />
+              )}
 
               {/* === Footer text === */}
               {settings.pdf_footer_text?.trim() ? (
@@ -530,6 +525,327 @@ function CustomerProjectBlock({
         </p>
       </div>
     </section>
+  )
+}
+
+/* ============================================================
+ * Format bodies (R7) — Detailed / Summary / Crew
+ * ============================================================ */
+
+/** Shared client closing: T&C + payment terms + signature block. */
+function ClientClosing({
+  settings,
+  accent,
+}: {
+  settings: CompanySettings
+  accent: string
+}) {
+  return (
+    <>
+      {settings.pdf_show_terms_and_conditions &&
+      settings.default_terms_and_conditions?.trim() ? (
+        <section className="pv-section pv-page-break-before mt-10">
+          <h3
+            className="pv-section-heading text-sm font-bold uppercase tracking-wider"
+            style={{ color: accent }}
+          >
+            Terms &amp; Conditions
+          </h3>
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">
+            {settings.default_terms_and_conditions}
+          </p>
+        </section>
+      ) : null}
+
+      {settings.pdf_show_payment_terms ? (
+        <section className="pv-section mt-8">
+          <h3
+            className="pv-section-heading text-sm font-bold uppercase tracking-wider"
+            style={{ color: accent }}
+          >
+            Payment Terms
+          </h3>
+          <p className="mt-2 text-xs leading-relaxed text-gray-700">
+            50% deposit upon acceptance. Balance due upon project completion.
+          </p>
+        </section>
+      ) : null}
+
+      <section className="pv-signatures mt-12 grid grid-cols-1 gap-8 sm:grid-cols-2">
+        <SignatureLine label="Customer Signature" />
+        <SignatureLine label="Contractor Signature" />
+      </section>
+    </>
+  )
+}
+
+/** DETAILED — the estimator's copy: every line, cost/markup/price. */
+function DetailedBody({
+  proposal,
+  settings,
+  enabledWorkAreas,
+  accent,
+}: {
+  proposal: ProposalWithWorkAreas
+  settings: CompanySettings
+  enabledWorkAreas: ProposalWorkAreaResolved[]
+  accent: string
+}) {
+  return (
+    <>
+      {proposal.notes?.trim() ? (
+        <section className="pv-section mt-6">
+          <h3 className="pv-section-label text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            Notes
+          </h3>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
+            {proposal.notes}
+          </p>
+        </section>
+      ) : null}
+
+      <div className="mt-8 space-y-8">
+        {enabledWorkAreas.map((wa) => (
+          <WorkAreaPrintSection key={wa.id} workArea={wa} accent={accent} />
+        ))}
+      </div>
+
+      <div className="pv-totals mt-10">
+        <GrandTotalsCard workAreas={enabledWorkAreas} accent={accent} />
+      </div>
+
+      <ClientClosing settings={settings} accent={accent} />
+    </>
+  )
+}
+
+/**
+ * SUMMARY — the client proposal (QC's "Summary"): a "we are pleased to
+ * submit" intro, each work area as scope narrative + a single total with
+ * an Approved/Initial line, then a project summary table. No line-by-line
+ * cost breakdown.
+ */
+function SummaryBody({
+  settings,
+  project,
+  enabledWorkAreas,
+  accent,
+}: {
+  settings: CompanySettings
+  project: Project
+  enabledWorkAreas: ProposalWorkAreaResolved[]
+  accent: string
+}) {
+  const jobAddress =
+    resolveAddress(
+      {
+        line1: project.site_address_line1,
+        city: project.site_address_city,
+        state: project.site_address_state,
+        zip: project.site_address_zip,
+      },
+      project.site_address
+    ) || 'the specified location'
+  const waTotal = (wa: ProposalWorkAreaResolved) =>
+    wa.lines.reduce((s, l) => s + lineTotal(l), 0)
+  const grand = enabledWorkAreas.reduce((s, wa) => s + waTotal(wa), 0)
+
+  return (
+    <>
+      <p className="mt-6 text-sm leading-relaxed text-gray-800">
+        We are pleased to submit the following proposal for work to be
+        performed at{' '}
+        <strong>{jobAddress.replace(/\n/g, ', ')}</strong>:
+      </p>
+
+      <div className="mt-6 space-y-5">
+        {enabledWorkAreas.map((wa) => {
+          const descLines = (wa.resolved_description ?? '')
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean)
+          return (
+            <section key={wa.id} className="pv-work-area">
+              <h3
+                className="text-center text-base font-bold"
+                style={{ color: accent }}
+              >
+                {wa.resolved_name}
+              </h3>
+              {descLines.length > 0 && (
+                <ul className="mx-auto mt-2 max-w-[92%] list-disc space-y-1 pl-6 text-sm text-gray-700">
+                  {descLines.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="whitespace-nowrap text-sm font-bold text-gray-900">
+                  Total {wa.resolved_name}
+                </span>
+                <span className="flex-1 translate-y-[-3px] border-b-2 border-dotted border-gray-400" />
+                <span className="whitespace-nowrap text-sm font-bold tabular-nums text-gray-900">
+                  {formatUSD(waTotal(wa))}
+                </span>
+                <span className="ml-4 whitespace-nowrap text-xs text-gray-500">
+                  Approved / Initial: ______
+                </span>
+              </div>
+            </section>
+          )
+        })}
+      </div>
+
+      {/* Project summary table */}
+      <div
+        className="mt-8 border-t-2 pt-4"
+        style={{ borderColor: accent }}
+      >
+        <table className="w-full text-sm">
+          <tbody>
+            {enabledWorkAreas.map((wa) => (
+              <tr key={wa.id} className="border-b border-gray-100">
+                <td className="py-1.5 text-gray-800">{wa.resolved_name}</td>
+                <td className="py-1.5 text-right font-semibold tabular-nums text-gray-900">
+                  {formatUSD(waTotal(wa))}
+                </td>
+              </tr>
+            ))}
+            <tr>
+              <td
+                className="pt-3 text-base font-bold uppercase tracking-wide"
+                style={{ color: accent }}
+              >
+                Total Project Price
+              </td>
+              <td
+                className="pt-3 text-right text-lg font-bold tabular-nums"
+                style={{ color: accent }}
+              >
+                {formatUSD(grand)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <ClientClosing settings={settings} accent={accent} />
+    </>
+  )
+}
+
+/**
+ * CREW — internal build sheet (QC's "Crew Summary"): scope + per-category
+ * quantities/hours. NO pricing, NO signature. Labor + equipment show
+ * "Hours", everything else "Qty".
+ */
+function CrewBody({
+  proposal,
+  enabledWorkAreas,
+  accent,
+}: {
+  proposal: ProposalWithWorkAreas
+  enabledWorkAreas: ProposalWorkAreaResolved[]
+  accent: string
+}) {
+  return (
+    <>
+      <div
+        className="mt-6 inline-block rounded-md px-3 py-1 text-[10px] font-bold uppercase tracking-wider"
+        style={{ backgroundColor: hexA(accent, 0.1), color: accent }}
+      >
+        Crew build sheet — quantities &amp; hours, no pricing
+      </div>
+
+      {proposal.notes?.trim() ? (
+        <section className="pv-section mt-4">
+          <h3 className="pv-section-label text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            Notes
+          </h3>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
+            {proposal.notes}
+          </p>
+        </section>
+      ) : null}
+
+      <div className="mt-6 space-y-8">
+        {enabledWorkAreas.map((wa) => {
+          const byCat = PROPOSAL_LINE_CATEGORY_ORDER.map((cat) => ({
+            cat,
+            lines: wa.lines
+              .filter((l) => l.category === cat)
+              .sort((a, b) => a.sort_order - b.sort_order),
+          })).filter((g) => g.lines.length > 0)
+          const descLines = (wa.resolved_description ?? '')
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean)
+
+          return (
+            <section key={wa.id} className="pv-work-area">
+              <h3
+                className="rounded-md border-l-4 px-3 py-2 text-base font-bold"
+                style={{ borderColor: accent, backgroundColor: hexA(accent, 0.06), color: accent }}
+              >
+                {wa.resolved_name}
+              </h3>
+              {descLines.length > 0 && (
+                <ul className="mt-2 list-disc space-y-1 pl-6 text-sm text-gray-700">
+                  {descLines.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="mt-3 space-y-3">
+                {byCat.map(({ cat, lines }) => {
+                  const isHours = cat === 'labor' || cat === 'equipment'
+                  const totalQty = lines.reduce((s, l) => s + Number(l.quantity), 0)
+                  return (
+                    <div key={cat} className="pv-category-table overflow-hidden rounded-md border border-gray-200">
+                      <div className="bg-gray-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-600">
+                        {PROPOSAL_LINE_CATEGORY_LABELS[cat]}
+                      </div>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-100 text-[10px] uppercase tracking-wider text-gray-500">
+                            <th className="px-3 py-1 text-left font-semibold">Item</th>
+                            <th className="px-3 py-1 text-right font-semibold">
+                              {isHours ? 'Hours' : 'Qty'}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {lines.map((l) => (
+                            <tr key={l.id}>
+                              <td className="px-3 py-1.5 text-gray-900">{l.label}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-gray-900">
+                                {formatQty(Number(l.quantity))}
+                                {l.unit?.trim() ? (
+                                  <span className="ml-1 text-gray-400">{l.unit}</span>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="bg-gray-50">
+                            <td className="px-3 py-1.5 text-right text-[11px] font-bold uppercase tracking-wider text-gray-600">
+                              {PROPOSAL_LINE_CATEGORY_LABELS[cat]} total {isHours ? 'hours' : 'qty'}
+                            </td>
+                            <td className="px-3 py-1.5 text-right font-bold tabular-nums text-gray-900">
+                              {formatQty(totalQty)}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          )
+        })}
+      </div>
+    </>
   )
 }
 
