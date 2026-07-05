@@ -318,6 +318,13 @@ export interface CompanySettings {
   // Proposal defaults
   default_terms_and_conditions: string | null
 
+  /**
+   * Jamie (AI estimating agent) entitlement — Jamie is a PAID UPGRADE.
+   * false (default) = the manual estimate system only; true = Jamie
+   * unlocked. Enforced server-side too (jamie-estimate edge function).
+   */
+  jamie_enabled: boolean
+
   /** NULL = wizard incomplete. ISO timestamp once "Complete Setup" clicked. */
   setup_completed_at: string | null
 

@@ -18,9 +18,11 @@ import {
   FileText,
   HardHat,
   Layers,
+  Lock,
   Package,
   Percent,
   Plus,
+  Sparkles,
   Users,
   Wrench,
 } from 'lucide-react'
@@ -32,6 +34,7 @@ import {
   reorderWorkAreaLines,
   updateWorkAreaLine,
 } from '@/lib/workAreaLines'
+import { jamieCategoryToDb, type JamieLineItem } from '@/lib/jamie'
 import {
   categoryBearsMarkup,
   estimateLineTotal,
@@ -60,6 +63,11 @@ const AddLineItemModal = lazy(() =>
 const KitToEstimateModal = lazy(() =>
   import('@/components/project/estimate/KitToEstimateModal').then((m) => ({
     default: m.KitToEstimateModal,
+  }))
+)
+const AskJamieModal = lazy(() =>
+  import('@/components/project/estimate/AskJamieModal').then((m) => ({
+    default: m.AskJamieModal,
   }))
 )
 
@@ -98,6 +106,8 @@ interface WorkAreaEstimateProps {
   workArea: WorkArea
   lines: WorkAreaLine[]
   settings: LiveMarkupSettings
+  /** Jamie (AI estimating agent) entitlement — paid upgrade gate. */
+  jamieEnabled: boolean
   /** Replace this WA's lines in the parent's state (optimistic + confirmed). */
   onLinesChange: (updater: (prev: WorkAreaLine[]) => WorkAreaLine[]) => void
   /** Toggle estimate_status drafting ↔ approved (R3 lifecycle). */
@@ -108,11 +118,13 @@ export function WorkAreaEstimate({
   workArea,
   lines,
   settings,
+  jamieEnabled,
   onLinesChange,
   onToggleApproved,
 }: WorkAreaEstimateProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [kitOpen, setKitOpen] = useState(false)
+  const [jamieOpen, setJamieOpen] = useState(false)
   const approved = workArea.estimate_status === 'approved'
 
   // Per-estimate dnd sensors — line drag is scoped within a category.
@@ -198,6 +210,26 @@ export function WorkAreaEstimate({
         unitCost: Number(l.frozen_unit_cost),
         sortOrder: startSort + idx,
         sourceKitId: l.source_kit_id,
+      }))
+    )
+    onLinesChange((prev) => [...prev, ...created])
+  }
+
+  /** Jamie → estimate bulk add (Phase 1). Same insert path as kits;
+   *  categories map from Jamie's title-case to the DB enum. */
+  const handleJamieApply = async (items: JamieLineItem[]) => {
+    const startSort = lines.length
+      ? Math.max(...lines.map((l) => l.sort_order)) + 1
+      : 0
+    const created = await addWorkAreaLinesBulk(
+      items.map((it, idx) => ({
+        workAreaId: workArea.id,
+        category: jamieCategoryToDb(it.category),
+        label: it.name,
+        unit: it.unit,
+        quantity: Number(it.qty) || 0,
+        unitCost: Number(it.unit_cost) || 0,
+        sortOrder: startSort + idx,
       }))
     )
     onLinesChange((prev) => [...prev, ...created])
@@ -327,6 +359,33 @@ export function WorkAreaEstimate({
           <Layers className="h-4 w-4" />
           From Kit
         </button>
+        {/* Ask Jamie — the AI estimating agent (paid upgrade). Gold =
+            premium. When not entitled, a locked upsell (no API call). */}
+        {jamieEnabled ? (
+          <button
+            type="button"
+            onClick={() => setJamieOpen(true)}
+            title="Describe the work — Jamie builds the priced estimate"
+            className="flex items-center justify-center gap-2 rounded-lg bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
+          >
+            <Sparkles className="h-4 w-4" />
+            Ask Jamie
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() =>
+              toast('Jamie is a paid upgrade — the AI estimating agent that builds this for you.', {
+                icon: '✨',
+              })
+            }
+            title="Jamie is a paid upgrade"
+            className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-amber-300 px-4 py-2.5 text-sm font-medium text-amber-600 transition-all hover:bg-amber-50"
+          >
+            <Lock className="h-3.5 w-3.5" />
+            Ask Jamie
+          </button>
+        )}
       </div>
 
       {/* Work area total + estimate approval (R3 lifecycle) */}
@@ -385,6 +444,18 @@ export function WorkAreaEstimate({
             onClose={() => setKitOpen(false)}
             workAreaName={workArea.name}
             onAdd={handleKitAdd}
+          />
+        </Suspense>
+      )}
+      {jamieOpen && (
+        <Suspense fallback={null}>
+          <AskJamieModal
+            open={jamieOpen}
+            onClose={() => setJamieOpen(false)}
+            workAreaId={workArea.id}
+            workAreaName={workArea.name}
+            settings={settings}
+            onApply={handleJamieApply}
           />
         </Suspense>
       )}

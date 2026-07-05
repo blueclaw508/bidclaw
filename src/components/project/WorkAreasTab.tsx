@@ -72,6 +72,8 @@ export default function WorkAreasTab({
   // settings markups the live math renders with.
   const [linesByWA, setLinesByWA] = useState<Record<string, WorkAreaLine[]>>({})
   const [settings, setSettings] = useState<LiveMarkupSettings | null>(null)
+  // Jamie (AI estimating agent) entitlement — paid-upgrade gate.
+  const [jamieEnabled, setJamieEnabled] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -119,6 +121,7 @@ export default function WorkAreasTab({
             markup_materials_percent: s.markup_materials_percent,
             markup_subs_percent: s.markup_subs_percent,
           })
+          setJamieEnabled(!!s.jamie_enabled)
         }
       })
       .catch(() => {
@@ -311,6 +314,7 @@ export default function WorkAreasTab({
                   workArea={wa}
                   lines={linesByWA[wa.id] ?? []}
                   settings={settings}
+                  jamieEnabled={jamieEnabled}
                   expanded={expandedId === wa.id}
                   onToggle={() =>
                     setExpandedId((cur) => (cur === wa.id ? null : wa.id))
@@ -611,6 +615,7 @@ function SortableRow({
   workArea,
   lines,
   settings,
+  jamieEnabled,
   expanded,
   onToggle,
   onPatch,
@@ -620,6 +625,7 @@ function SortableRow({
   workArea: WorkArea
   lines: WorkAreaLine[]
   settings: LiveMarkupSettings | null
+  jamieEnabled: boolean
   expanded: boolean
   onToggle: () => void
   onPatch: (changes: Partial<WorkArea>) => Promise<boolean>
@@ -733,6 +739,7 @@ function SortableRow({
                 workArea={workArea}
                 lines={lines}
                 settings={settings}
+                jamieEnabled={jamieEnabled}
                 onLinesChange={onLinesChange}
                 onToggleApproved={() =>
                   void onPatch({
