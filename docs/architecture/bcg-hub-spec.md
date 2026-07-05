@@ -59,13 +59,21 @@ these three. Apps keep their own data projects; they defer *identity* and
   not its own.
 - Each app's **data** project must then **trust hub-issued JWTs** so its RLS
   `auth.uid()` resolves to the universal hub user id. On current Supabase the
-  candidate mechanisms (confirm the exact supported path in council/impl):
+  candidate mechanisms — **RESOLVED by council (§8): use Supabase Third-Party
+  Auth pointed at the hub's JWKS.** Options 1 and 3 below are the SAME
+  mechanism (third-party auth IS the productized JWKS path); option 2 is
+  struck as non-viable.
   1. **Asymmetric JWT signing keys / JWKS** — point each app project at the
-     hub's JWKS so it validates hub tokens. (Preferred if supported cleanly.)
-  2. **Shared JWT secret** across hub + app projects — simplest conceptually,
-     but rotating a shared secret is sensitive and couples all projects.
-  3. **Supabase "third-party auth"** — designed for external issuers (Clerk,
-     etc.); whether another Supabase project is a valid issuer needs checking.
+     hub's JWKS so it validates hub tokens. ✅ This is the path.
+  2. ~~Shared JWT secret~~ — **STRUCK.** Third-party auth is asymmetric-only;
+     a shared secret would also let any app project *mint* hub-valid tokens
+     (full impersonation). Do not use.
+  3. **Supabase "third-party auth"** — register the hub as a third-party
+     provider in each app project via the hub's OIDC issuer
+     `https://<hub-ref>.supabase.co/auth/v1` (JWKS at `/auth/v1/.well-known/
+     jwks.json`). Works because Supabase issues asymmetric RS256 by default
+     since 2025-10-01; hub tokens carry `role: authenticated` + `aud:
+     authenticated`, exactly what app RLS needs. ✅ Same as (1).
 - **Rejected alternative:** consolidating all app data into the hub project.
   Cleaner auth, but a massive data migration and it couples every app. Keep app
   data separate; federate *auth* only.
@@ -144,3 +152,70 @@ edge functions (service role) write subscriptions from Stripe webhooks.
   server-side estimate-limit trigger + `src/lib/entitlements.ts`. When the hub
   lands, `plan` becomes hub-fed; nothing here gets ripped out.
 - Canonical pricing table exists (all six apps, confirmed).
+
+---
+
+## 8. Council review (2026-07-05) — verdict + required revisions
+
+Four independent expert reviewers. **Consensus: the design is sound; build it,
+but start thin and fix the specifics below.** The lone dissent (build nothing
+central yet) is reconciled because the BidClaw pilot is trivial — you get
+revenue AND the hub at once.
+
+| Reviewer | Verdict |
+|---|---|
+| Supabase auth architect | **sound-with-changes** — federation is real & supported (Third-Party Auth + asymmetric JWKS); strike shared-secret |
+| SaaS billing / Stripe | **sound-with-changes** — model right; add lifecycle, comp path, idempotent webhooks, reconciliation |
+| Migration engineer | **order sound, remap under-specified** — preserve UUIDs; CashClaw LAST |
+| Pragmatic skeptic | **thin-slice first** — Stripe on BidClaw's own plan now; hub when a 2nd app monetizes |
+
+### Synthesized recommendation — HYBRID (build hub now, BidClaw as thin first tenant)
+
+1. **Phase 0 — stand up the hub** (auth + `clients` + `products`/`product_prices`
+   + `subscriptions` + Stripe + 3 edge fns). Establishing the shared user pool +
+   Stripe-as-truth is the one-way door; cheapest before any app has real users.
+2. **Phase 1 — BidClaw pilot = the revenue thin-slice.** Point BidClaw auth at
+   the hub; Stripe checkout → hub webhook → entitlements; BidClaw reads `plan`
+   from the hub (swap `entitlements.ts` source). **Defer BidClaw's RLS-federation
+   remap** — ship the gate over a plain hub-token entitlement call first (auth
+   architect + skeptic agree). BidClaw is 1 locked user → trivial either way.
+3. **Phase 2 — federate the data-heavy apps only as each monetizes:** KYN → PO
+   Desk → **CashClaw last** (live financials + `ON DELETE CASCADE`). Use
+   third-party-auth JWKS; **preserve each user's UUID as their hub id** to avoid
+   row remaps; planned maintenance window for the hard ones.
+4. **Phase 3 —** decide Social Autopilot / Jarvis (drop from billing until they
+   have a paywall).
+
+### Required revisions to §3–5 before building
+
+**Auth (§3.1):** use Third-Party Auth / JWKS; strike shared-secret; keep
+`role`/`aud` claims intact if a Custom Access Token Hook is ever added; budget
+~20-30 min JWKS-rotation overlap (standby→current), scripted.
+
+**Billing (§3.3, §4):**
+- Promote `products.tiers` JSON → a **`product_prices`** table (`product_key`,
+  `tier`, `interval`, `stripe_price_id`, `active`) — the join target for
+  webhooks + reconciler.
+- Add lifecycle fields to `subscriptions` (`stripe_price_id`,
+  `cancel_at_period_end`, `trial_end`, `current_period_start`,
+  `billing_interval`). Entitle `past_due` too (end access on Stripe
+  *deletion*, not first failed charge).
+- **Comp/owner path that is NOT a Stripe sub** (an `overrides`/`source` grant) —
+  Ian must never be locked out. UNION it into the entitlements view.
+- **One Stripe Customer per client** (unique constraint on
+  `stripe_customers.client_id`); look up/create it in `create-checkout` before
+  redirect; never join on email.
+- In-product upgrade/downgrade (free→pro→pro_ai) = **one subscription, swap the
+  Price** (proration on upgrade, schedule on downgrade) — not cancel+new.
+- **Idempotent webhooks:** a `stripe_events` dedupe table keyed on `event.id`;
+  process by trusting the object's current state (events arrive out of order);
+  a **daily reconciliation cron** vs Stripe to repair missed webhooks.
+- Happy path: on checkout return, **synchronously fetch + upsert** the
+  subscription (don't make the paid user wait on the async webhook).
+- Cancel/manage = **Stripe Billing Portal** (a hub edge fn mints the session).
+
+**Migration (§5, §6.2):** ownership is `*.user_id → profiles.id = auth.users.id`
++ SECURITY DEFINER fns read `user_id` — remap in lockstep, in one transaction,
+inside a maintenance window; snapshot + row-count/sum reconcile before reopening
+writes; **preserve UUIDs** (`admin.createUser` with explicit `id`) to make the
+first-app-per-user remap a no-op. Reorder Phase 2 to KYN → PO Desk → CashClaw.
