@@ -23,7 +23,6 @@ import {
   FileText,
   Info,
   Layers,
-  Plus,
   Printer,
   RotateCcw,
   Save,
@@ -34,8 +33,6 @@ import { toast } from 'sonner'
 import { BlurSaveInput } from '@/components/InlineEdit'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
-import { AddWorkAreaFromProjectModal } from '@/components/proposals/AddWorkAreaFromProjectModal'
-import { AddAdHocWorkAreaModal } from '@/components/proposals/AddAdHocWorkAreaModal'
 import ProposalWorkAreaSection from '@/components/proposals/ProposalWorkAreaSection'
 import { supabase } from '@/lib/supabase'
 import {
@@ -67,7 +64,6 @@ import type {
   ProposalLine,
   ProposalWithWorkAreas,
   ProposalWorkAreaResolved,
-  WorkArea,
 } from '@/lib/types'
 
 /**
@@ -101,7 +97,6 @@ export default function ProposalEditor() {
   // Server snapshot — floor for diff/reset on notes
   const [proposal, setProposal] = useState<ProposalWithWorkAreas | null>(null)
   const [project, setProject] = useState<Project | null>(null)
-  const [projectWorkAreas, setProjectWorkAreas] = useState<WorkArea[]>([])
   const [totals, setTotals] = useState<TotalsView | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -140,8 +135,6 @@ export default function ProposalEditor() {
   const [saving, setSaving] = useState(false)
 
   // Modal + dialog state
-  const [addFromProjectOpen, setAddFromProjectOpen] = useState(false)
-  const [addAdHocOpen, setAddAdHocOpen] = useState(false)
 
   // Calculate button feedback
   const [calculating, setCalculating] = useState(false)
@@ -168,35 +161,18 @@ export default function ProposalEditor() {
       primeLineState(p, setLocalLines, setOriginalLines)
       setDeletedLineIds(new Set())
 
-      // Fetch the parent project (for the header subtitle) and the
-      // project's work areas (for the "Add from project" modal). In
-      // parallel — small payloads.
-      //
-      // NOTE: settings markup % is intentionally NOT fetched here. The
-      // editor never surfaces current-settings markup; every line's
-      // markup is the line's own frozen value (snapshotted at insert)
-      // and the contract is that settings changes never retroactively
-      // shift past proposals.
-      const [
-        { data: proj, error: pErr },
-        { data: was, error: wErr },
-      ] = await Promise.all([
-        supabase
-          .from('projects')
-          .select('*')
-          .eq('id', p.project_id)
-          .maybeSingle(),
-        supabase
-          .from('work_areas')
-          .select('*')
-          .eq('project_id', p.project_id)
-          .order('sequence_order', { ascending: true }),
-      ])
+      // Fetch the parent project for the header subtitle. Proposals are
+      // now GENERATED from approved estimates (estimate-first rework),
+      // so the editor no longer attaches project work areas here — it
+      // reviews the frozen snapshot it was generated with.
+      const { data: proj, error: pErr } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', p.project_id)
+        .maybeSingle()
       if (pErr) throw new Error(`Couldn't load project: ${pErr.message}`)
       if (!proj) throw new Error('Project not found.')
       setProject(proj as Project)
-      if (wErr) throw new Error(`Couldn't load project work areas: ${wErr.message}`)
-      setProjectWorkAreas((was ?? []) as WorkArea[])
 
       // Initial totals fetch
       setTotals(await getProposalTotals(proposalId))
@@ -563,14 +539,6 @@ export default function ProposalEditor() {
     [proposal, refreshAfterWorkAreaChange]
   )
 
-  const alreadyAttachedWorkAreaIds = useMemo(() => {
-    const set = new Set<string>()
-    proposal?.work_areas.forEach((wa) => {
-      if (wa.work_area_id) set.add(wa.work_area_id)
-    })
-    return set
-  }, [proposal])
-
   const totalLineCount = useMemo(() => {
     if (!proposal) return 0
     return proposal.work_areas.reduce((sum, wa) => sum + wa.lines.length, 0)
@@ -880,32 +848,6 @@ export default function ProposalEditor() {
           </DndContext>
         )}
 
-        {/* Permanent bottom affordance — always accessible whether the
-            card list is empty or not. Per scope decision: these CTAs
-            move from the empty state to a permanent strip so the
-            contractor never has to scroll or change views to add.
-            Hidden when readOnly — don't add new content to a sent
-            proposal (Phase 3c). */}
-        {!readOnly && (
-          <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4">
-            <button
-              type="button"
-              onClick={() => setAddFromProjectOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              <Plus className="h-4 w-4" />
-              Add from project
-            </button>
-            <button
-              type="button"
-              onClick={() => setAddAdHocOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              <Plus className="h-4 w-4" />
-              Add ad-hoc
-            </button>
-          </div>
-        )}
       </section>
 
       {/* Slate Totals card */}
@@ -967,21 +909,6 @@ export default function ProposalEditor() {
       )}
 
       {/* Modals + dialogs */}
-      <AddWorkAreaFromProjectModal
-        open={addFromProjectOpen}
-        onClose={() => setAddFromProjectOpen(false)}
-        proposalId={proposal.id}
-        projectWorkAreas={projectWorkAreas}
-        alreadyAttachedWorkAreaIds={alreadyAttachedWorkAreaIds}
-        onAdded={() => void refreshAfterWorkAreaChange()}
-      />
-      <AddAdHocWorkAreaModal
-        open={addAdHocOpen}
-        onClose={() => setAddAdHocOpen(false)}
-        proposalId={proposal.id}
-        onAdded={() => void refreshAfterWorkAreaChange()}
-      />
-
       {/* Phase 3c status transition confirm — dynamic copy per target
           status. transitioning state ensures double-click safety. */}
       <ConfirmDialog

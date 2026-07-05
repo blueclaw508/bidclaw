@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, Copy, FileText, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, FileText, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
 import {
-  createProposal,
   deleteProposal,
   duplicateProposal,
   listProposalsByProject,
@@ -37,7 +36,6 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
   const navigate = useNavigate()
   const [rows, setRows] = useState<ProposalListRow[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
 
   // Delete-proposal modal state. proposalToDelete holds the row being
   // confirmed; null when the modal is closed. Hoisted to the tab level
@@ -99,35 +97,6 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
     [duplicatingId, navigate, project.id]
   )
 
-  /**
-   * One-click proposal creation. Picks the auto-name based on how
-   * many proposals already exist on this project, calls createProposal,
-   * navigates to the editor on success.
-   *
-   * Disabled while the request is in flight to prevent double-create
-   * via rapid clicks.
-   */
-  const handleCreateProposal = useCallback(async () => {
-    if (creating) return
-    const existingCount = rows?.length ?? 0
-    const name =
-      existingCount === 0
-        ? `${project.name} — Draft`
-        : `${project.name} — Proposal ${existingCount + 1}`
-    setCreating(true)
-    try {
-      const proposal = await createProposal({ projectId: project.id, name })
-      toast.success('Proposal created.')
-      navigate(`/app/projects/${project.id}/proposals/${proposal.id}`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create proposal.')
-      setCreating(false)
-    }
-    // Note: don't reset `creating` on success — we navigate away. If
-    // navigation is somehow blocked the modal stays disabled, which
-    // is fine — refresh fixes it.
-  }, [creating, rows, project.id, project.name, navigate])
-
   const hasNone = rows !== null && rows.length === 0
 
   return (
@@ -144,26 +113,12 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
                 Proposals
               </h2>
               <p className="mt-0.5 text-xs text-gray-500">
-                The client-facing deliverable. Each proposal spans one or
-                more work areas (project-linked or ad-hoc) and freezes its
-                pricing at creation.
+                The client-facing deliverable. Proposals are generated from
+                your approved work-area estimates — build the estimate under
+                Work Areas, approve it, then hit Create Proposal.
               </p>
             </div>
           </div>
-          {/* Non-empty state surfaces the "+ New proposal" CTA at the top
-              of the list card header. Empty state's CTA renders inside
-              the empty card below. */}
-          {!hasNone && rows && rows.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void handleCreateProposal()}
-              disabled={creating}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-gold px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark disabled:opacity-50"
-            >
-              <Plus className="h-4 w-4" />
-              {creating ? 'Creating…' : 'New proposal'}
-            </button>
-          )}
         </div>
       </section>
 
@@ -191,18 +146,12 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
             No proposals yet
           </h3>
           <p className="mt-1 max-w-sm text-sm text-gray-500">
-            Create one to start estimating work for this project. You'll
-            add work areas inside the editor.
+            Proposals are created from approved estimates. Open the{' '}
+            <span className="font-semibold text-gray-700">Work Areas</span> tab,
+            build each work area's estimate, approve it, then use{' '}
+            <span className="font-semibold text-gray-700">Create Proposal</span>{' '}
+            to freeze it into a client-ready proposal.
           </p>
-          <button
-            type="button"
-            onClick={() => void handleCreateProposal()}
-            disabled={creating}
-            className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-gold-dark disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" />
-            {creating ? 'Creating…' : 'New proposal'}
-          </button>
         </div>
       )}
 
