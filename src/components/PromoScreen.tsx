@@ -601,7 +601,7 @@ export function PromoScreen() {
             <PricingCard
               variant="ai_pro"
               tier="AI Pro"
-              price="$199"
+              price="$499"
               perMonth="/ month"
               description="Let Jamie handle the estimating."
               features={[
