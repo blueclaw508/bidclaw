@@ -531,12 +531,23 @@ function TermsCard({
         <textarea
           placeholder="Enter your default terms and conditions here... (e.g., Payment due within 30 days. Work guaranteed for 1 year. Changes to scope require written approval. All proposals valid for 30 days.)"
           value={value.default_terms_and_conditions ?? ''}
-          onChange={(e) =>
+          onChange={(e) => {
+            const next = e.target.value
+            const wasEmpty = !(value.default_terms_and_conditions ?? '').trim()
+            const nowHasText = next.trim() !== ''
             onChange({
-              default_terms_and_conditions:
-                e.target.value.trim() === '' ? null : e.target.value,
+              default_terms_and_conditions: next.trim() === '' ? null : next,
+              // This card promises terms "will automatically appear on
+              // every new proposal" — but the PDF-visibility toggle lives
+              // in a different card, so a contractor can enter terms and
+              // never see it. The first time terms are entered, flip the
+              // toggle on so the promise holds. (It stays a real control —
+              // turn it off later for a bare quote.)
+              ...(wasEmpty && nowHasText
+                ? { pdf_show_terms_and_conditions: true }
+                : {}),
             })
-          }
+          }}
           rows={5}
           className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y min-h-[100px]"
         />

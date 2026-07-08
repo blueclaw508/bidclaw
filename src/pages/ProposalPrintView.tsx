@@ -276,23 +276,42 @@ export default function ProposalPrintView() {
 
         {/* Discoverability (screen only): Terms & Conditions is a global
             setting under Settings → Enter My Numbers, not a per-proposal
-            field — so when it isn't set, surface exactly where to add it. */}
+            field. Surface exactly what's wrong: either no terms are
+            entered, or they're entered but the PDF toggle is hiding them. */}
         {hasContent &&
-          (!settings.pdf_show_terms_and_conditions ||
-            !settings.default_terms_and_conditions?.trim()) && (
+          !(
+            settings.pdf_show_terms_and_conditions &&
+            settings.default_terms_and_conditions?.trim()
+          ) && (
             <div className="mx-auto mt-4 flex max-w-[850px] items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 print:hidden">
               <ScrollText className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>
-                No Terms &amp; Conditions on this proposal.{' '}
-                <Link
-                  to="/app/settings/enter-my-numbers"
-                  className="font-semibold underline hover:text-amber-900"
-                >
-                  Add your default Terms &amp; Conditions
-                </Link>{' '}
-                (Settings → Enter My Numbers, "Default Terms &amp; Conditions") —
-                they'll appear at the bottom of every proposal PDF.
-              </span>
+              {settings.default_terms_and_conditions?.trim() ? (
+                <span>
+                  Your Terms &amp; Conditions are entered but{' '}
+                  <strong>hidden</strong> from proposal PDFs.{' '}
+                  <Link
+                    to="/app/settings/enter-my-numbers"
+                    className="font-semibold underline hover:text-amber-900"
+                  >
+                    Turn them on
+                  </Link>{' '}
+                  (Settings → Enter My Numbers → "PDF Section Visibility") to
+                  show them at the bottom of every proposal.
+                </span>
+              ) : (
+                <span>
+                  No Terms &amp; Conditions on this proposal.{' '}
+                  <Link
+                    to="/app/settings/enter-my-numbers"
+                    className="font-semibold underline hover:text-amber-900"
+                  >
+                    Add your default Terms &amp; Conditions
+                  </Link>{' '}
+                  (Settings → Enter My Numbers, "Default Terms &amp;
+                  Conditions") — they'll appear at the bottom of every
+                  proposal PDF.
+                </span>
+              )}
             </div>
           )}
 
