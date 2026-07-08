@@ -47,13 +47,15 @@ const STAGE_RANK: Record<LeadStage, number> = {
 }
 
 /**
- * Proposal status → lead stage. 'declined' is intentionally absent:
- * declining prompts the contractor to confirm Lost, never forces it.
- * 'draft' absent: reverting a proposal doesn't demote the lead.
+ * Proposal status → lead stage. 'lost' is intentionally absent: marking a
+ * proposal Lost prompts the contractor to confirm the lead is Lost, never
+ * forces it. 'draft' / 'ready_to_send' absent: pre-send prep doesn't move
+ * the lead.
  */
 const STAGE_FOR_PROPOSAL_STATUS: Partial<Record<ProposalStatus, LeadStage>> = {
-  presented: 'proposed',
-  accepted: 'signed',
+  sent: 'proposed',
+  approved: 'signed',
+  in_progress: 'in_progress',
   completed: 'completed',
 }
 

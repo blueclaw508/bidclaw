@@ -511,10 +511,12 @@ export interface KitLineResolved extends KitLine {
 
 export type ProposalStatus =
   | 'draft'
-  | 'presented'
-  | 'accepted'
-  | 'declined'
+  | 'ready_to_send'
+  | 'sent'
+  | 'approved'
+  | 'in_progress'
   | 'completed'
+  | 'lost'
 
 export type ProposalLineCategory =
   | 'material'

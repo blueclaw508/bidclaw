@@ -415,11 +415,11 @@ export default function ProposalEditor() {
       // (editability flips immediately, banner updates, etc.)
       const fresh = await getProposal(proposalId)
       if (fresh) setProposal(fresh)
-      toast.success(`Marked as ${pendingTransition.target}.`)
+      toast.success(`Marked as ${pendingTransition.label}.`)
       setPendingTransition(null)
-      // P1-B: declined → offer to move the linked lead to Lost
+      // P1-B: Lost → offer to move the linked lead to Lost
       // (confirm, don't force). Best-effort lookup; silence failures.
-      if (pendingTransition.target === 'declined' && projectId) {
+      if (pendingTransition.target === 'lost' && projectId) {
         try {
           const lead = await getLinkedLeadForLostPrompt(projectId)
           if (lead) setLostPromptLead(lead)
@@ -925,7 +925,7 @@ export default function ProposalEditor() {
             : null
         }
         confirmLabel={pendingTransition?.label ?? 'Confirm'}
-        tone={pendingTransition?.target === 'declined' ? 'danger' : 'primary'}
+        tone={pendingTransition?.target === 'lost' ? 'danger' : 'primary'}
       />
 
       {/* P1-B: post-decline prompt — move the linked lead to Lost?

@@ -28,6 +28,7 @@ import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
 import { syncLeadStageForProposalStatus } from '@/lib/leads'
 import { categoryBearsMarkup, effectiveMarkupPercent, lineBase, lineMarkup, lineTotal } from '@/lib/money'
+import { PROPOSAL_STATUS_CONFIG, PROPOSAL_STATUS_ORDER } from '@/lib/statusConfig'
 import type {
   KitPreviewLine,
   Proposal,
@@ -59,9 +60,14 @@ export type {
 // Editability helper
 // ──────────────────────────────────────────────────────────────────────
 
-/** Source of truth for "can this proposal still be edited?" */
+/**
+ * Source of truth for "can this proposal still be edited?" Editable in
+ * the pre-send prep stages (draft + ready_to_send); once it's out the
+ * door (sent / approved / in_progress / completed / lost) inline edits
+ * are locked — set it back to Draft or Ready to Send to rework.
+ */
 export function isProposalEditable(status: ProposalStatus): boolean {
-  return status === 'draft'
+  return status === 'draft' || status === 'ready_to_send'
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -139,33 +145,18 @@ export interface StatusTransition {
   tone: 'primary' | 'secondary'
 }
 
+/**
+ * FREE manual status selection (Ian): any status can be set to any other,
+ * not a guided send-only lifecycle. Returns every status except the current
+ * one, in lifecycle order. Reverting to an editable prep stage (draft /
+ * ready to send) is toned 'secondary'; the rest are neutral picks.
+ */
 export function availableTransitions(status: ProposalStatus): StatusTransition[] {
-  switch (status) {
-    case 'draft':
-      return [
-        { target: 'presented', label: 'Send to client', tone: 'primary' },
-      ]
-    case 'presented':
-      return [
-        { target: 'accepted', label: 'Mark as accepted', tone: 'primary' },
-        { target: 'declined', label: 'Mark as declined', tone: 'primary' },
-        { target: 'draft', label: 'Revert to draft', tone: 'secondary' },
-      ]
-    case 'accepted':
-      return [
-        { target: 'completed', label: 'Mark as completed', tone: 'primary' },
-        { target: 'draft', label: 'Revert to draft', tone: 'secondary' },
-      ]
-    case 'declined':
-      return [
-        { target: 'draft', label: 'Revert to draft', tone: 'secondary' },
-      ]
-    case 'completed':
-      return [
-        { target: 'accepted', label: 'Reopen (back to accepted)', tone: 'secondary' },
-        { target: 'draft', label: 'Revert to draft', tone: 'secondary' },
-      ]
-  }
+  return PROPOSAL_STATUS_ORDER.filter((s) => s !== status).map((s) => ({
+    target: s,
+    label: PROPOSAL_STATUS_CONFIG[s].label,
+    tone: s === 'draft' || s === 'ready_to_send' ? 'secondary' : 'primary',
+  }))
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -363,12 +354,13 @@ export async function updateProposal(
       .filter((k) => k !== 'status')
     if (nonStatusKeys.length > 0) {
       throw new Error(
-        `Proposal is ${current.status}, not draft — only status may be changed (got: ${nonStatusKeys.join(', ')}).`
+        `Proposal is ${current.status}, not editable — only status may be changed (got: ${nonStatusKeys.join(', ')}). Set it back to Draft or Ready to Send to edit.`
       )
     }
   }
   const writePatch: Record<string, unknown> = { ...patch }
-  if (patch.status === 'presented' && !current.presented_at) {
+  // presented_at = "first sent" timestamp (the column kept its 0010 name).
+  if (patch.status === 'sent' && !current.presented_at) {
     writePatch.presented_at = new Date().toISOString()
   }
   let query = supabase.from('proposals').update(writePatch).eq('id', id)

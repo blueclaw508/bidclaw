@@ -61,18 +61,22 @@ export const ESTIMATE_STATUS_CONFIG: Record<EstimateStatus, BadgeStyle> = {
 
 export const PROPOSAL_STATUS_ORDER: ProposalStatus[] = [
   'draft',
-  'presented',
-  'accepted',
-  'declined',
+  'ready_to_send',
+  'sent',
+  'approved',
+  'in_progress',
   'completed',
+  'lost',
 ]
 
 export const PROPOSAL_STATUS_CONFIG: Record<ProposalStatus, BadgeStyle> = {
-  draft:     { label: 'Draft',     className: 'bg-slate-100   text-slate-700   ring-slate-200' },
-  presented: { label: 'Presented', className: 'bg-amber-100   text-amber-800   ring-amber-200' },
-  accepted:  { label: 'Accepted',  className: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
-  declined:  { label: 'Declined',  className: 'bg-rose-100    text-rose-800    ring-rose-200' },
-  completed: { label: 'Completed', className: 'bg-emerald-200 text-emerald-900 ring-emerald-300' },
+  draft:         { label: 'Draft',         className: 'bg-slate-100   text-slate-700   ring-slate-200' },
+  ready_to_send: { label: 'Ready to Send', className: 'bg-sky-100     text-sky-800     ring-sky-200' },
+  sent:          { label: 'Sent',          className: 'bg-amber-100   text-amber-800   ring-amber-200' },
+  approved:      { label: 'Approved',      className: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
+  in_progress:   { label: 'In Progress',   className: 'bg-indigo-100  text-indigo-800  ring-indigo-200' },
+  completed:     { label: 'Completed',     className: 'bg-emerald-200 text-emerald-900 ring-emerald-300' },
+  lost:          { label: 'Lost',          className: 'bg-rose-100    text-rose-800    ring-rose-200' },
 }
 
 // Pipeline order is Ian's exact sequence (LOOP.md P1-B). Labels are
