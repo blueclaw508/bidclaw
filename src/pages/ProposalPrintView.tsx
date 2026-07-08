@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Printer } from 'lucide-react'
+import { ArrowLeft, Printer, ScrollText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
 import { resolveAddress } from '@/lib/address'
@@ -273,6 +273,28 @@ export default function ProposalPrintView() {
             </div>
           </div>
         </div>
+
+        {/* Discoverability (screen only): Terms & Conditions is a global
+            setting under Settings → Enter My Numbers, not a per-proposal
+            field — so when it isn't set, surface exactly where to add it. */}
+        {hasContent &&
+          (!settings.pdf_show_terms_and_conditions ||
+            !settings.default_terms_and_conditions?.trim()) && (
+            <div className="mx-auto mt-4 flex max-w-[850px] items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 print:hidden">
+              <ScrollText className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                No Terms &amp; Conditions on this proposal.{' '}
+                <Link
+                  to="/app/settings/enter-my-numbers"
+                  className="font-semibold underline hover:text-amber-900"
+                >
+                  Add your default Terms &amp; Conditions
+                </Link>{' '}
+                (Settings → Enter My Numbers, "Default Terms &amp; Conditions") —
+                they'll appear at the bottom of every proposal PDF.
+              </span>
+            </div>
+          )}
 
         {/* ───── Document area — visible on screen AND in print ───── */}
         <div className="pv-document mx-auto my-6 max-w-[850px] bg-white p-8 shadow-sm print:my-0 print:max-w-none print:p-0 print:shadow-none sm:p-12">
