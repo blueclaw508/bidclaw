@@ -18,6 +18,25 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const MODEL = 'claude-opus-4-8'
 
+// J1c — metering rider: legacy Phase-1 calls now ALSO record into
+// jamie_invocations (recording only, founder-mode, no enforcement here;
+// jamie_run_id stays NULL = legacy single-shot row, see migration 0023).
+// $/1M verified 2026-07-10: Opus 4.8 $5 in / $25 out; cache writes bill
+// 1.25× input, cache reads 0.1×.
+const PRICE_IN = 5
+const PRICE_OUT = 25
+// deno-lint-ignore no-explicit-any
+function legacyCostUsd(u: any): number | null {
+  if (!u) return null
+  const usd =
+    ((u.input_tokens ?? 0) * PRICE_IN +
+      (u.cache_creation_input_tokens ?? 0) * 1.25 * PRICE_IN +
+      (u.cache_read_input_tokens ?? 0) * 0.1 * PRICE_IN +
+      (u.output_tokens ?? 0) * PRICE_OUT) /
+    1_000_000
+  return Math.round(usd * 10_000) / 10_000
+}
+
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -217,6 +236,7 @@ Deno.serve(async (req: Request) => {
   //    output (the text block is guaranteed valid JSON matching OUTPUT_SCHEMA).
   //    Non-streaming: a single work area's estimate is small and max_tokens
   //    (12k) is under the streaming threshold, so no HTTP-timeout risk.
+  const startedAt = new Date().toISOString() // J1c metering
   try {
     // deno-lint-ignore no-explicit-any
     const params: any = {
@@ -251,6 +271,24 @@ Deno.serve(async (req: Request) => {
       output_tokens: message.usage?.output_tokens ?? null,
     })
 
+    // J1c metering (recording only): outcome 'committed' = estimate
+    // delivered (single-shot has no approval gates). counts_against_quota
+    // stays FALSE — founder-mode records, never enforces.
+    await supabase.from('jamie_invocations').insert({
+      user_id: user.id,
+      started_at: startedAt,
+      ended_at: new Date().toISOString(),
+      model_used: MODEL,
+      input_tokens:
+        (message.usage?.input_tokens ?? 0) +
+        (message.usage?.cache_creation_input_tokens ?? 0),
+      output_tokens: message.usage?.output_tokens ?? 0,
+      cached_input_tokens: message.usage?.cache_read_input_tokens ?? 0,
+      estimated_cost_usd: legacyCostUsd(message.usage),
+      image_count: body.image?.data ? 1 : 0,
+      outcome: 'committed',
+    })
+
     return json(parsed)
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Jamie hit a snag.'
@@ -262,6 +300,15 @@ Deno.serve(async (req: Request) => {
       model: MODEL,
       status: 'error',
       error: msg,
+    })
+    // J1c metering: failed calls record too (cost data includes waste).
+    await supabase.from('jamie_invocations').insert({
+      user_id: user.id,
+      started_at: startedAt,
+      ended_at: new Date().toISOString(),
+      model_used: MODEL,
+      image_count: body.image?.data ? 1 : 0,
+      outcome: 'error',
     })
     return json({ error: `Jamie hit a snag — ${msg}. Try again or adjust your scope.` }, 502)
   }
