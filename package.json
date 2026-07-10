@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "verify:print": "node scripts/verify-print-view.mjs",
-    "test:jamie-gate": "tsx scripts/test-jamie-gate.ts"
+    "test:jamie-gate": "tsx scripts/test-jamie-gate.ts",
+    "verify:jamie": "node scripts/verify-jamie.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
