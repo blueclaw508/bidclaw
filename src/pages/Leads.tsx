@@ -241,7 +241,7 @@ export default function LeadsPage() {
                 value={regionFilter}
                 onChange={setRegionFilter}
                 options={[
-                  { value: 'all', label: 'All regions' },
+                  { value: 'all', label: 'All locations' },
                   ...LEAD_REGION_ORDER.map((r) => ({
                     value: r,
                     label: LEAD_REGION_CONFIG[r].label,
@@ -499,6 +499,8 @@ function LeadCard({
         isDragging && 'z-10 opacity-90 shadow-lg ring-2 ring-brand-navy/40'
       )}
     >
+      {/* Sheet-order fields (dashboard fidelity): Project Name - Address -
+          Description - Date - Location - Source - Value */}
       <div className="flex items-start gap-1.5">
         <GripVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-text-muted/50" />
         <div className="min-w-0 flex-1">
@@ -508,9 +510,18 @@ function LeadCard({
           >
             {leadTitle(lead)}
           </Link>
+          {(lead.job_address || lead.town) && (
+            <div className="truncate text-xs text-brand-text-muted">
+              {[lead.job_address, lead.town].filter(Boolean).join(', ')}
+            </div>
+          )}
           {lead.description && (
             <div className="truncate text-xs text-brand-text-muted">{lead.description}</div>
           )}
+          <div className="truncate text-[11px] text-brand-text-muted/80">
+            {formatShortDate(lead.created_at)}
+            {lead.source ? ` · ${lead.source}` : ''}
+          </div>
         </div>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -529,12 +540,7 @@ function LeadCard({
         )}
       </div>
       <div className="mt-1 space-y-0.5 text-xs text-brand-text-muted">
-        {(lead.name || lead.town) && (
-          <div className="truncate">
-            {[lead.name, lead.town].filter(Boolean).join(' · ')}
-          </div>
-        )}
-        {lead.source && <div>via {lead.source}</div>}
+        {lead.name && <div className="truncate">{lead.name}</div>}
         {lead.project && (
           <div className="flex items-center gap-1">
             <ClipboardList className="h-3 w-3" />
@@ -589,16 +595,19 @@ function LeadList({
     )
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-brand-border bg-white shadow-sm">
-      {/* Header row — desktop only */}
-      <div className="hidden grid-cols-[1fr_100px_95px_120px_minmax(0,120px)_95px_95px_140px] gap-4 border-b border-brand-border bg-brand-surface px-5 py-3 text-xs font-semibold uppercase tracking-wide text-brand-text-muted lg:grid">
-        <div>Project / Lead</div>
-        <div>Region</div>
+    <div className="overflow-x-auto rounded-xl border border-brand-border bg-white shadow-sm">
+      {/* Header row — desktop only. Column order mirrors the dashboard
+          sheet: Project Name - Address - Description - Date - Location -
+          Source - Value (then app columns: Stage / Move to). */}
+      <div className="hidden min-w-[1180px] grid-cols-[minmax(160px,1.2fr)_minmax(140px,1fr)_minmax(120px,1fr)_88px_105px_minmax(0,110px)_95px_120px_140px] gap-4 border-b border-brand-border bg-brand-surface px-5 py-3 text-xs font-semibold uppercase tracking-wide text-brand-text-muted lg:grid">
+        <div>Project Name</div>
+        <div>Address</div>
+        <div>Description</div>
+        <div>Date</div>
+        <div>Location</div>
+        <div>Source</div>
         <div>Value</div>
         <div>Stage</div>
-        <div>Source</div>
-        <div>Follow-up</div>
-        <div>Created</div>
         <div>Move to</div>
       </div>
 
@@ -611,8 +620,8 @@ function LeadList({
           const value = Number(lead.est_value) || 0
           return (
             <li key={lead.id}>
-              {/* Desktop layout */}
-              <div className="hidden grid-cols-[1fr_100px_95px_120px_minmax(0,120px)_95px_95px_140px] items-center gap-4 px-5 py-4 lg:grid">
+              {/* Desktop layout — sheet column order */}
+              <div className="hidden min-w-[1180px] grid-cols-[minmax(160px,1.2fr)_minmax(140px,1fr)_minmax(120px,1fr)_88px_105px_minmax(0,110px)_95px_120px_140px] items-center gap-4 px-5 py-4 lg:grid">
                 <div className="min-w-0">
                   <Link
                     to={`/app/leads/${lead.id}`}
@@ -621,10 +630,22 @@ function LeadList({
                     {leadTitle(lead)}
                   </Link>
                   <div className="truncate text-xs text-brand-text-muted">
-                    {[lead.name, lead.town, lead.description].filter(Boolean).join(' · ') || '—'}
+                    {[
+                      lead.name,
+                      overdue && lead.follow_up_date
+                        ? `follow-up ${formatShortDate(lead.follow_up_date)}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || '—'}
                     {lead.proposal_count > 0 && ` · ${lead.proposal_count} proposal${lead.proposal_count === 1 ? '' : 's'}`}
                   </div>
                 </div>
+                <div className="truncate text-sm text-brand-text-muted">
+                  {[lead.job_address, lead.town].filter(Boolean).join(', ') || '—'}
+                </div>
+                <div className="truncate text-sm text-brand-text-muted">{lead.description ?? '—'}</div>
+                <div className="text-sm text-brand-text-muted">{formatShortDate(lead.created_at)}</div>
                 <div>
                   {region ? (
                     <span
@@ -639,17 +660,13 @@ function LeadList({
                     <span className="text-sm text-brand-text-muted">—</span>
                   )}
                 </div>
+                <div className="truncate text-sm text-brand-text-muted">{lead.source ?? '—'}</div>
                 <div className="text-sm font-semibold text-brand-text">
                   {value > 0 ? formatMoney(value) : '—'}
                 </div>
                 <div>
                   <StatusBadge kind="lead" value={lead.stage} />
                 </div>
-                <div className="truncate text-sm text-brand-text-muted">{lead.source ?? '—'}</div>
-                <div className={cn('text-sm', overdue ? 'font-semibold text-rose-700' : 'text-brand-text-muted')}>
-                  {lead.follow_up_date ? formatShortDate(lead.follow_up_date) : '—'}
-                </div>
-                <div className="text-sm text-brand-text-muted">{formatShortDate(lead.created_at)}</div>
                 <div>
                   <StageSelect lead={lead} onMove={onMove} />
                 </div>
