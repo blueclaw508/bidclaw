@@ -7,8 +7,12 @@ import { StatusBadge } from '@/components/StatusBadge'
 import {
   deleteProposal,
   duplicateProposal,
+  isProposalConflict,
   listProposalsByProject,
+  updateProposal,
 } from '@/lib/proposals'
+import { PROPOSAL_STATUS_CONFIG, PROPOSAL_STATUS_ORDER } from '@/lib/statusConfig'
+import type { ProposalStatus } from '@/lib/types'
 import { formatUSD } from '@/lib/money'
 import type { Project, ProposalListRow } from '@/lib/types'
 
@@ -48,6 +52,7 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
   // button (not all rows) while the data-layer call runs. Phase 3d.
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
 
+
   const load = useCallback(async () => {
     setLoadError(null)
     try {
@@ -73,6 +78,30 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
       toast.error(err instanceof Error ? err.message : 'Could not delete proposal.')
     }
   }, [proposalToDelete, load])
+
+  /**
+   * Status change straight from the list row (Ian: "I don't see where I
+   * can change the status") — no need to open the editor just to mark a
+   * proposal Sent. Freely settable (7 statuses); lead-stage + pipeline
+   * value sync ride along inside updateProposal.
+   */
+  const handleStatusChange = useCallback(
+    async (row: ProposalListRow, status: ProposalStatus) => {
+      if (status === row.status) return
+      try {
+        await updateProposal(row.id, { status }, { expectedLockVersion: row.lock_version })
+        toast.success(`Marked as ${PROPOSAL_STATUS_CONFIG[status].label}.`)
+      } catch (err) {
+        if (isProposalConflict(err)) {
+          toast.error('This proposal changed in another tab — refreshing.')
+        } else {
+          toast.error(err instanceof Error ? err.message : 'Status update failed.')
+        }
+      }
+      await load()
+    },
+    [load]
+  )
 
   /**
    * Duplicate a proposal then navigate directly into the new editor.
@@ -162,6 +191,7 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
           rows={rows}
           onRequestDelete={setProposalToDelete}
           onRequestDuplicate={handleDuplicate}
+          onStatusChange={handleStatusChange}
           duplicatingId={duplicatingId}
         />
       )}
@@ -207,6 +237,7 @@ function ProposalList({
   rows,
   onRequestDelete,
   onRequestDuplicate,
+  onStatusChange,
   duplicatingId,
 }: {
   projectId: string
@@ -214,6 +245,7 @@ function ProposalList({
   rows: ProposalListRow[]
   onRequestDelete: (row: ProposalListRow) => void
   onRequestDuplicate: (row: ProposalListRow) => void
+  onStatusChange: (row: ProposalListRow, status: ProposalStatus) => void
   duplicatingId: string | null
 }) {
   // Click handler for the trash button on each row. Lives inside a
@@ -273,7 +305,20 @@ function ProposalList({
                   </div>
                 </div>
                 <div>
-                  <StatusBadge kind="proposal" value={p.status} />
+                  <select
+                    value={p.status}
+                    onChange={(e) => onStatusChange(p, e.target.value as ProposalStatus)}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    aria-label={`Status of ${p.name}`}
+                    className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  >
+                    {PROPOSAL_STATUS_ORDER.map((st) => (
+                      <option key={st} value={st}>
+                        {PROPOSAL_STATUS_CONFIG[st].label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="text-right text-sm font-semibold text-gray-900">
                   {formatUSD(p.grand_total)}
@@ -319,6 +364,22 @@ function ProposalList({
                     </div>
                   </div>
                   <StatusBadge kind="proposal" value={p.status} className="shrink-0" />
+                </div>
+                <div onClick={(e) => { e.preventDefault(); e.stopPropagation() }}>
+                  <select
+                    value={p.status}
+                    onChange={(e) => onStatusChange(p, e.target.value as ProposalStatus)}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    aria-label={`Status of ${p.name}`}
+                    className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  >
+                    {PROPOSAL_STATUS_ORDER.map((st) => (
+                      <option key={st} value={st}>
+                        {PROPOSAL_STATUS_CONFIG[st].label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="text-xs text-gray-500">
                   <div className="truncate">{projectName}</div>

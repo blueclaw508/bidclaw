@@ -725,8 +725,23 @@ export type LeadStage =
 export interface Lead {
   id: string
   user_id: string
-  /** Contact name — a lead carries its own contact until conversion. */
-  name: string
+  /**
+   * Contact name — OPTIONAL since 0024 (the dashboard has rows like
+   * "? - Nantucket" where nobody knows the contact yet). Use leadTitle()
+   * for display; never render name raw as the row title.
+   */
+  name: string | null
+  /** The job itself — the dashboard's first column and the card title. */
+  project_name: string | null
+  /** What the work is ("Plunge Pool", "New Construction", …). */
+  description: string | null
+  /** Territory: CAPE COD / NANTUCKET / METRO BOSTON (free text). */
+  region: string | null
+  /**
+   * Pipeline dollars: guess at Lead/Pending, estimate value at
+   * Estimating, proposal grand total from Proposed on (app-synced).
+   */
+  est_value: number | null
   phone: string | null
   email: string | null
   job_address: string | null

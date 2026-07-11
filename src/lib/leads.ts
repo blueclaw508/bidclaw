@@ -138,7 +138,12 @@ export async function getLead(id: string): Promise<Lead | null> {
 
 export async function createLead(input: {
   userId: string
-  name: string
+  /** Contact — optional since 0024; a lead needs a project name OR a contact. */
+  name?: string | null
+  project_name?: string | null
+  description?: string | null
+  region?: string | null
+  est_value?: number | null
   phone?: string | null
   email?: string | null
   job_address?: string | null
@@ -146,11 +151,20 @@ export async function createLead(input: {
   source?: string | null
   follow_up_date?: string | null
 }): Promise<Lead> {
+  const name = input.name?.trim() || null
+  const projectName = input.project_name?.trim() || null
+  if (!name && !projectName) {
+    throw new Error('Give the lead a project name or a contact name.')
+  }
   const { data, error } = await supabase
     .from('leads')
     .insert({
       user_id: input.userId,
-      name: input.name.trim(),
+      name,
+      project_name: projectName,
+      description: input.description?.trim() || null,
+      region: input.region?.trim() || null,
+      est_value: input.est_value ?? null,
       phone: input.phone?.trim() || null,
       email: input.email?.trim() || null,
       job_address: input.job_address?.trim() || null,
@@ -166,12 +180,56 @@ export async function createLead(input: {
   return data as Lead
 }
 
+/**
+ * Display title for a lead — the dashboard is PROJECT-first: project
+ * name wins, contact is the fallback (the contact may be unknown).
+ */
+export function leadTitle(lead: Pick<Lead, 'name' | 'project_name'>): string {
+  return lead.project_name?.trim() || lead.name?.trim() || 'Untitled lead'
+}
+
+/**
+ * Bidirectional-sync keystone (0024): every estimate lives on the
+ * Leads & Bids board. Called after DIRECT project creation (the convert
+ * flow links its own lead instead) — creates the linked lead at
+ * Estimating if the project has none. Idempotent.
+ */
+export async function ensureLeadForProject(input: {
+  userId: string
+  projectId: string
+  projectName: string
+  contactName?: string | null
+  town?: string | null
+}): Promise<void> {
+  const { data: existing } = await supabase
+    .from('leads')
+    .select('id')
+    .eq('project_id', input.projectId)
+    .maybeSingle()
+  if (existing) return
+  const { error } = await supabase.from('leads').insert({
+    user_id: input.userId,
+    name: input.contactName?.trim() || null,
+    project_name: input.projectName.trim(),
+    stage: 'estimating',
+    project_id: input.projectId,
+    town: input.town?.trim() || null,
+  })
+  if (error) {
+    throw new Error(`Couldn't add the estimate to Leads & Bids: ${error.message}`)
+  }
+}
+
 export async function updateLead(
   id: string,
   patch: Partial<
     Pick<
       Lead,
       | 'name'
+      | 'project_name'
+      | 'description'
+      | 'region'
+      | 'est_value'
       | 'phone'
       | 'email'
       | 'job_address'
@@ -265,7 +323,9 @@ export async function convertLeadToProject(input: {
       .from('customers')
       .insert({
         user_id: userId,
-        name: lead.name,
+        // Contact is optional since 0024 — fall back to the project name
+        // so a contact-unknown lead can still convert.
+        name: lead.name?.trim() || lead.project_name?.trim() || 'Unknown contact',
         email: lead.email,
         phone: lead.phone,
         site_address: joinAddress(lead.job_address, lead.town),
@@ -318,18 +378,21 @@ function joinAddress(address: string | null, town: string | null): string | null
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Advance the lead linked to `projectId` (if any) per the mapped stage.
- * Forward-only: never demotes, never moves a lead out of 'lost'.
+ * Sync the lead linked to `projectId` (if any): stage advance is
+ * FORWARD-only (never demotes, never moves a lead out of 'lost'), but
+ * est_value refreshes whenever provided — the dashboard's dollar column
+ * tracks the latest proposal total even when the stage doesn't move.
  * Returns the new stage when a move happened, else null.
  *
  * Callers treat this as best-effort — a sync failure must never fail
  * the proposal/project write that triggered it.
  */
-async function advanceLinkedLead(
+async function syncLinkedLead(
   projectId: string,
-  target: LeadStage | undefined
+  target: LeadStage | undefined,
+  estValue?: number
 ): Promise<LeadStage | null> {
-  if (!target) return null
+  if (!target && estValue === undefined) return null
   const { data, error } = await supabase
     .from('leads')
     .select('id, stage')
@@ -337,22 +400,48 @@ async function advanceLinkedLead(
     .maybeSingle()
   if (error || !data) return null
   const current = data.stage as LeadStage
-  if (current === 'lost') return null
-  if (STAGE_RANK[target] <= STAGE_RANK[current]) return null
+  const patch: Record<string, unknown> = {}
+  let moved: LeadStage | null = null
+  if (
+    target &&
+    current !== 'lost' &&
+    STAGE_RANK[target] > STAGE_RANK[current]
+  ) {
+    patch.stage = target
+    moved = target
+  }
+  if (estValue !== undefined) patch.est_value = estValue
+  if (Object.keys(patch).length === 0) return null
   const { error: updateErr } = await supabase
     .from('leads')
-    .update({ stage: target })
+    .update(patch)
     .eq('id', data.id)
   if (updateErr) return null
-  return target
+  return moved
 }
 
-/** Hook for proposals.ts — call after a successful status write. */
+/**
+ * Hook for proposals.ts — call after a successful status write.
+ * `grandTotal` (when supplied) refreshes the lead's pipeline value.
+ */
 export async function syncLeadStageForProposalStatus(
   projectId: string,
-  status: ProposalStatus
+  status: ProposalStatus,
+  grandTotal?: number
 ): Promise<LeadStage | null> {
-  return advanceLinkedLead(projectId, STAGE_FOR_PROPOSAL_STATUS[status])
+  return syncLinkedLead(projectId, STAGE_FOR_PROPOSAL_STATUS[status], grandTotal)
+}
+
+/**
+ * Hook for generateProposalFromEstimates: a proposal EXISTING moves the
+ * lead to Proposed (Ian: "when it becomes a Proposal it moves on its
+ * own") and its grand total becomes the pipeline Amount.
+ */
+export async function syncLeadOnProposalGenerated(
+  projectId: string,
+  grandTotal: number
+): Promise<LeadStage | null> {
+  return syncLinkedLead(projectId, 'proposed', grandTotal)
 }
 
 /** Hook for ProjectDetail — call after a successful status patch. */
@@ -360,7 +449,7 @@ export async function syncLeadStageForProjectStatus(
   projectId: string,
   status: ProjectStatus
 ): Promise<LeadStage | null> {
-  return advanceLinkedLead(projectId, STAGE_FOR_PROJECT_STATUS[status])
+  return syncLinkedLead(projectId, STAGE_FOR_PROJECT_STATUS[status])
 }
 
 /**

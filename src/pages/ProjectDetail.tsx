@@ -240,7 +240,7 @@ export default function ProjectDetailPage() {
           className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to projects
+          Back to estimates
         </Link>
       </div>
     )
@@ -256,7 +256,7 @@ export default function ProjectDetailPage() {
         className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-blue-600"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to projects
+        Back to estimates
       </Link>
 
       {/* Gradient project header — QC blue gradient with editable name +

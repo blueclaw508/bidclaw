@@ -18,10 +18,16 @@ import {
   addLeadNote,
   deleteLead,
   getLead,
+  leadTitle,
   listLeadNotes,
   updateLead,
 } from '@/lib/leads'
-import { LEAD_STAGE_CONFIG, LEAD_STAGE_ORDER } from '@/lib/statusConfig'
+import {
+  LEAD_REGION_CONFIG,
+  LEAD_REGION_ORDER,
+  LEAD_STAGE_CONFIG,
+  LEAD_STAGE_ORDER,
+} from '@/lib/statusConfig'
 import type { Lead, LeadNote, LeadStage, Project } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
 
@@ -170,7 +176,7 @@ export default function LeadDetailPage() {
         <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-extrabold tracking-tight text-brand-text">
-              {lead.name}
+              {leadTitle(lead)}
             </h1>
             <StatusBadge kind="lead" value={lead.stage} />
           </div>
@@ -198,8 +204,68 @@ export default function LeadDetailPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_minmax(0,420px)]">
-        {/* Left — contact + pipeline */}
+        {/* Left — job + contact + pipeline */}
         <div className="space-y-6">
+          <section className="rounded-xl border border-brand-border bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
+              Job
+            </h2>
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Project name">
+                <BlurSaveInput
+                  value={lead.project_name ?? ''}
+                  onSave={(v) => patch({ project_name: v.trim() || null })}
+                  placeholder="e.g. Concannon — Mashpee backyard"
+                />
+              </Field>
+              <Field label="Description">
+                <BlurSaveInput
+                  value={lead.description ?? ''}
+                  onSave={(v) => patch({ description: v.trim() || null })}
+                  placeholder="Plunge pool, new construction…"
+                />
+              </Field>
+              <Field label="Region">
+                <select
+                  value={lead.region ?? ''}
+                  onChange={(e) => void patch({ region: e.target.value || null })}
+                  className={inlineInputClasses}
+                >
+                  <option value="">—</option>
+                  {LEAD_REGION_ORDER.map((r) => (
+                    <option key={r} value={r}>
+                      {LEAD_REGION_CONFIG[r].label}
+                    </option>
+                  ))}
+                  {lead.region && !LEAD_REGION_ORDER.includes(lead.region as never) && (
+                    <option value={lead.region}>{lead.region}</option>
+                  )}
+                </select>
+              </Field>
+              <Field label="Value ($)">
+                <BlurSaveInput
+                  type="number"
+                  value={lead.est_value != null ? String(lead.est_value) : ''}
+                  onSave={(v) => {
+                    const n = v.trim() === '' ? null : Number(v)
+                    if (n !== null && (!Number.isFinite(n) || n < 0)) {
+                      toast.error('Value must be a positive number.')
+                      return
+                    }
+                    return patch({ est_value: n })
+                  }}
+                  placeholder="15000"
+                />
+              </Field>
+            </div>
+            {lead.project_id && (
+              <p className="mt-3 text-[11px] text-brand-text-muted">
+                Value updates automatically from the proposal grand total once
+                one exists — manual edits hold until the next proposal event.
+              </p>
+            )}
+          </section>
+
           <section className="rounded-xl border border-brand-border bg-white p-5 shadow-sm">
             <h2 className="text-sm font-bold uppercase tracking-wide text-brand-text-muted">
               Contact
@@ -207,14 +273,15 @@ export default function LeadDetailPage() {
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Name">
                 <BlurSaveInput
-                  value={lead.name}
+                  value={lead.name ?? ''}
                   onSave={(v) => {
-                    if (!v.trim()) {
-                      toast.error('Name is required.')
+                    if (!v.trim() && !lead.project_name?.trim()) {
+                      toast.error('A lead needs a project name or a contact name.')
                       return
                     }
-                    return patch({ name: v.trim() })
+                    return patch({ name: v.trim() || null })
                   }}
+                  placeholder="Contact (optional)"
                 />
               </Field>
               <Field label="Phone">
@@ -366,7 +433,7 @@ export default function LeadDetailPage() {
           setConfirmLost(false)
         }}
         title="Mark this lead as Lost?"
-        description={`"${lead.name}" moves to Lost. You can move it back to any stage later — nothing is deleted.`}
+        description={`"${leadTitle(lead)}" moves to Lost. You can move it back to any stage later — nothing is deleted.`}
         confirmLabel="Mark as Lost"
         tone="danger"
       />

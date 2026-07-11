@@ -26,7 +26,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
-import { syncLeadStageForProposalStatus } from '@/lib/leads'
+import { syncLeadOnProposalGenerated, syncLeadStageForProposalStatus } from '@/lib/leads'
 import { categoryBearsMarkup, effectiveMarkupPercent, lineBase, lineMarkup, lineTotal } from '@/lib/money'
 import { PROPOSAL_STATUS_CONFIG, PROPOSAL_STATUS_ORDER } from '@/lib/statusConfig'
 import type {
@@ -383,7 +383,14 @@ export async function updateProposal(
   const updated = data as Proposal
   if (patch.status) {
     try {
-      await syncLeadStageForProposalStatus(updated.project_id, patch.status)
+      // Refresh the pipeline value alongside the stage (0024) — the
+      // dashboard's Amount column tracks the proposal grand total.
+      const totals = await getProposalTotals(id)
+      await syncLeadStageForProposalStatus(
+        updated.project_id,
+        patch.status,
+        totals.grandTotal
+      )
     } catch {
       // Best-effort — the proposal write already succeeded.
     }
@@ -553,6 +560,16 @@ export async function generateProposalFromEstimates(input: {
     await Promise.all(
       (pwas as Array<{ id: string }>).map((r) => syncProposalWorkAreaSubtotals(r.id))
     )
+
+    // 7 — Leads & Bids sync (0024): a proposal existing = the pipeline
+    // card moves to Proposed and its Amount becomes the grand total.
+    // Best-effort — the generation already succeeded.
+    try {
+      const totals = await getProposalTotals(proposalId)
+      await syncLeadOnProposalGenerated(input.projectId, totals.grandTotal)
+    } catch {
+      /* best-effort */
+    }
 
     return { proposalId, lineCount: lineRows.length, skipped }
   } catch (err) {

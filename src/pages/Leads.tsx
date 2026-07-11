@@ -4,18 +4,35 @@ import {
   CalendarClock,
   ClipboardList,
   Columns3,
+  GripVertical,
   Inbox,
   List,
   Plus,
   Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  DndContext,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
 import { EmptyState } from '@/components/EmptyState'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewLeadModal } from '@/components/leads/NewLeadModal'
-import { listLeads, updateLead } from '@/lib/leads'
-import { LEAD_STAGE_CONFIG, LEAD_STAGE_ORDER } from '@/lib/statusConfig'
+import { ConvertLeadModal } from '@/components/leads/ConvertLeadModal'
+import { leadTitle, listLeads, updateLead } from '@/lib/leads'
+import {
+  LEAD_REGION_CONFIG,
+  LEAD_REGION_FALLBACK,
+  LEAD_REGION_ORDER,
+  LEAD_STAGE_CONFIG,
+  LEAD_STAGE_ORDER,
+} from '@/lib/statusConfig'
 import { cn } from '@/lib/utils'
 import type { LeadListRow, LeadStage } from '@/lib/types'
 
@@ -29,6 +46,7 @@ export default function LeadsPage() {
   const [view, setView] = useState<View>('board')
   const [search, setSearch] = useState('')
   const [townFilter, setTownFilter] = useState('all')
+  const [regionFilter, setRegionFilter] = useState('all')
   const [stageFilter, setStageFilter] = useState<StageFilter>('all')
   const [dateField, setDateField] = useState<DateField>('none')
   const [dateFrom, setDateFrom] = useState('')
@@ -36,6 +54,10 @@ export default function LeadsPage() {
   const [newOpen, setNewOpen] = useState(false)
   // Set when a board/list stage move targets 'lost' — confirm first.
   const [pendingLost, setPendingLost] = useState<LeadListRow | null>(null)
+  // Set when an unconverted lead is dragged onto Estimating — converting
+  // creates the estimate (it appears under Estimates), then the card
+  // lands in the column.
+  const [pendingConvert, setPendingConvert] = useState<LeadListRow | null>(null)
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -69,8 +91,20 @@ export default function LeadsPage() {
     const q = search.trim().toLowerCase()
     return rows.filter((r) => {
       if (townFilter !== 'all' && (r.town?.trim() ?? '') !== townFilter) return false
+      if (regionFilter !== 'all' && (r.region ?? '') !== regionFilter) return false
       if (q) {
-        const haystack = [r.name, r.town, r.job_address, r.source, r.email, r.phone, r.project?.name]
+        const haystack = [
+          r.project_name,
+          r.name,
+          r.description,
+          r.region,
+          r.town,
+          r.job_address,
+          r.source,
+          r.email,
+          r.phone,
+          r.project?.name,
+        ]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
@@ -90,7 +124,7 @@ export default function LeadsPage() {
       }
       return true
     })
-  }, [rows, search, townFilter, dateField, dateFrom, dateTo])
+  }, [rows, search, townFilter, regionFilter, dateField, dateFrom, dateTo])
 
   const listRows = useMemo(() => {
     if (!filtered) return null
@@ -117,16 +151,41 @@ export default function LeadsPage() {
     []
   )
 
-  /** Stage select handler — Lost requires a confirm (never force it). */
+  /**
+   * Stage move handler (drag OR select). Lost requires a confirm (never
+   * force it); dragging an UNCONVERTED lead onto Estimating opens the
+   * convert flow — the estimate is created and appears under Estimates,
+   * exactly like creating one there directly.
+   */
   const requestMove = useCallback(
     (lead: LeadListRow, target: LeadStage) => {
       if (target === 'lost') {
         setPendingLost(lead)
         return
       }
+      if (target === 'estimating' && !lead.project_id) {
+        setPendingConvert(lead)
+        return
+      }
       void moveStage(lead, target)
     },
     [moveStage]
+  )
+
+  // Distance-gated pointer sensor so clicking links on a card still
+  // navigates — a drag only starts after 8px of travel.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  )
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const lead = event.active.data.current?.lead as LeadListRow | undefined
+      const target = event.over?.id as LeadStage | undefined
+      if (!lead || !target || target === lead.stage) return
+      requestMove(lead, target)
+    },
+    [requestMove]
   )
 
   const totalCount = rows?.length ?? 0
@@ -141,7 +200,8 @@ export default function LeadsPage() {
             Leads &amp; Bids
           </h1>
           <p className="mt-1 text-sm text-brand-text-muted">
-            Every job starts here — from first call to signed and done.
+            Every job starts here — drag cards through the pipeline from first
+            call to signed and done.
           </p>
         </div>
         <button
@@ -177,6 +237,17 @@ export default function LeadsPage() {
                   ]}
                 />
               )}
+              <FilterSelect
+                value={regionFilter}
+                onChange={setRegionFilter}
+                options={[
+                  { value: 'all', label: 'All regions' },
+                  ...LEAD_REGION_ORDER.map((r) => ({
+                    value: r,
+                    label: LEAD_REGION_CONFIG[r].label,
+                  })),
+                ]}
+              />
               <FilterSelect
                 value={townFilter}
                 onChange={setTownFilter}
@@ -219,7 +290,7 @@ export default function LeadsPage() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-text-muted" />
               <input
                 type="search"
-                placeholder="Search name, town, source…"
+                placeholder="Search project, name, town…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full rounded-md border border-brand-border bg-white py-2 pl-9 pr-3 text-sm outline-none placeholder:text-brand-text-muted focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
@@ -256,7 +327,9 @@ export default function LeadsPage() {
       )}
 
       {!loadError && filtered && !hasNoLeads && view === 'board' && (
-        <LeadBoard rows={filtered} onMove={requestMove} />
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <LeadBoard rows={filtered} onMove={requestMove} />
+        </DndContext>
       )}
 
       {!loadError && listRows && !hasNoLeads && view === 'list' && (
@@ -271,6 +344,19 @@ export default function LeadsPage() {
         }}
       />
 
+      {pendingConvert && (
+        <ConvertLeadModal
+          open
+          onClose={() => setPendingConvert(null)}
+          lead={pendingConvert}
+          onConverted={() => {
+            setPendingConvert(null)
+            toast.success('Estimate created — find it under Estimates.')
+            void load()
+          }}
+        />
+      )}
+
       <ConfirmDialog
         open={pendingLost !== null}
         onClose={() => setPendingLost(null)}
@@ -281,7 +367,7 @@ export default function LeadsPage() {
         title="Mark this lead as Lost?"
         description={
           pendingLost
-            ? `"${pendingLost.name}" moves to Lost. You can move it back to any stage later — nothing is deleted.`
+            ? `"${leadTitle(pendingLost)}" moves to Lost. You can move it back to any stage later — nothing is deleted.`
             : ''
         }
         confirmLabel="Mark as Lost"
@@ -293,6 +379,7 @@ export default function LeadsPage() {
 
 /* ============================================================
  * Board view — one column per stage, Ian's exact stage names.
+ * Cards drag between columns (dnd-kit); columns are droppables.
  * ============================================================ */
 
 function LeadBoard({
@@ -305,32 +392,76 @@ function LeadBoard({
   return (
     <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
       <div className="flex min-w-max gap-3">
-        {LEAD_STAGE_ORDER.map((stage) => {
-          const cards = rows.filter((r) => r.stage === stage)
-          return (
-            <div
-              key={stage}
-              className="flex w-64 shrink-0 flex-col rounded-xl border border-brand-border bg-brand-surface"
-            >
-              <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-                <StatusBadge kind="lead" value={stage} />
-                <span className="text-xs font-semibold text-brand-text-muted">
-                  {cards.length}
-                </span>
+        {LEAD_STAGE_ORDER.map((stage) => (
+          <BoardColumn key={stage} stage={stage} rows={rows} onMove={onMove} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function BoardColumn({
+  stage,
+  rows,
+  onMove,
+}: {
+  stage: LeadStage
+  rows: LeadListRow[]
+  onMove: (lead: LeadListRow, target: LeadStage) => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage })
+  const cards = rows.filter((r) => r.stage === stage)
+  const total = cards.reduce((s, c) => s + (Number(c.est_value) || 0), 0)
+
+  // The dashboard splits Proposed + Signed by territory — here that's a
+  // per-region rollup in the column header (cards carry region badges).
+  const regionTotals =
+    stage === 'proposed' || stage === 'signed'
+      ? LEAD_REGION_ORDER.map((r) => ({
+          region: r,
+          sum: cards
+            .filter((c) => c.region === r)
+            .reduce((s, c) => s + (Number(c.est_value) || 0), 0),
+        })).filter((x) => x.sum > 0)
+      : []
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-stage={stage}
+      className={cn(
+        'flex w-64 shrink-0 flex-col rounded-xl border bg-brand-surface transition-colors',
+        isOver ? 'border-brand-navy ring-2 ring-brand-navy/30' : 'border-brand-border'
+      )}
+    >
+      <div className="px-3 py-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <StatusBadge kind="lead" value={stage} />
+          <span className="text-xs font-semibold text-brand-text-muted">{cards.length}</span>
+        </div>
+        {total > 0 && (
+          <div className="mt-1.5 text-sm font-bold text-brand-text">{formatMoney(total)}</div>
+        )}
+        {regionTotals.length > 0 && (
+          <div className="mt-1 space-y-0.5">
+            {regionTotals.map((x) => (
+              <div key={x.region} className="flex items-center justify-between text-[11px] text-brand-text-muted">
+                <span>{LEAD_REGION_CONFIG[x.region].label}</span>
+                <span className="font-semibold">{formatMoney(x.sum)}</span>
               </div>
-              <div className="flex flex-1 flex-col gap-2 px-2 pb-2">
-                {cards.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-brand-border px-3 py-4 text-center text-xs text-brand-text-muted">
-                    Empty
-                  </div>
-                )}
-                {cards.map((lead) => (
-                  <LeadCard key={lead.id} lead={lead} onMove={onMove} />
-                ))}
-              </div>
-            </div>
-          )
-        })}
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-1 flex-col gap-2 px-2 pb-2">
+        {cards.length === 0 && (
+          <div className="rounded-lg border border-dashed border-brand-border px-3 py-4 text-center text-xs text-brand-text-muted">
+            {isOver ? 'Drop here' : 'Empty'}
+          </div>
+        )}
+        {cards.map((lead) => (
+          <LeadCard key={lead.id} lead={lead} onMove={onMove} />
+        ))}
       </div>
     </div>
   )
@@ -343,17 +474,66 @@ function LeadCard({
   lead: LeadListRow
   onMove: (lead: LeadListRow, target: LeadStage) => void
 }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: lead.id,
+    data: { lead },
+  })
   const overdue = isOverdue(lead.follow_up_date)
+  const region = lead.region
+    ? (LEAD_REGION_CONFIG[lead.region] ?? { ...LEAD_REGION_FALLBACK, label: lead.region })
+    : null
+  const value = Number(lead.est_value) || 0
+
   return (
-    <div className="rounded-lg border border-brand-border bg-white p-3 shadow-sm">
-      <Link
-        to={`/app/leads/${lead.id}`}
-        className="block text-sm font-semibold text-brand-text hover:text-brand-navy hover:underline"
-      >
-        {lead.name}
-      </Link>
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={
+        transform
+          ? { transform: `translate(${transform.x}px, ${transform.y}px)` }
+          : undefined
+      }
+      className={cn(
+        'cursor-grab touch-none rounded-lg border border-brand-border bg-white p-3 shadow-sm',
+        isDragging && 'z-10 opacity-90 shadow-lg ring-2 ring-brand-navy/40'
+      )}
+    >
+      <div className="flex items-start gap-1.5">
+        <GripVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-text-muted/50" />
+        <div className="min-w-0 flex-1">
+          <Link
+            to={`/app/leads/${lead.id}`}
+            className="block text-sm font-semibold text-brand-text hover:text-brand-navy hover:underline"
+          >
+            {leadTitle(lead)}
+          </Link>
+          {lead.description && (
+            <div className="truncate text-xs text-brand-text-muted">{lead.description}</div>
+          )}
+        </div>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        {region && (
+          <span
+            className={cn(
+              'inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+              region.className
+            )}
+          >
+            {region.label}
+          </span>
+        )}
+        {value > 0 && (
+          <span className="text-xs font-bold text-brand-text">{formatMoney(value)}</span>
+        )}
+      </div>
       <div className="mt-1 space-y-0.5 text-xs text-brand-text-muted">
-        {lead.town && <div>{lead.town}</div>}
+        {(lead.name || lead.town) && (
+          <div className="truncate">
+            {[lead.name, lead.town].filter(Boolean).join(' · ')}
+          </div>
+        )}
         {lead.source && <div>via {lead.source}</div>}
         {lead.project && (
           <div className="flex items-center gap-1">
@@ -411,9 +591,10 @@ function LeadList({
   return (
     <div className="overflow-hidden rounded-xl border border-brand-border bg-white shadow-sm">
       {/* Header row — desktop only */}
-      <div className="hidden grid-cols-[1fr_110px_130px_minmax(0,140px)_110px_110px_150px] gap-4 border-b border-brand-border bg-brand-surface px-5 py-3 text-xs font-semibold uppercase tracking-wide text-brand-text-muted lg:grid">
-        <div>Lead</div>
-        <div>Town</div>
+      <div className="hidden grid-cols-[1fr_100px_95px_120px_minmax(0,120px)_95px_95px_140px] gap-4 border-b border-brand-border bg-brand-surface px-5 py-3 text-xs font-semibold uppercase tracking-wide text-brand-text-muted lg:grid">
+        <div>Project / Lead</div>
+        <div>Region</div>
+        <div>Value</div>
         <div>Stage</div>
         <div>Source</div>
         <div>Follow-up</div>
@@ -424,25 +605,43 @@ function LeadList({
       <ul className="divide-y divide-brand-border">
         {rows.map((lead) => {
           const overdue = isOverdue(lead.follow_up_date)
+          const region = lead.region
+            ? (LEAD_REGION_CONFIG[lead.region] ?? { ...LEAD_REGION_FALLBACK, label: lead.region })
+            : null
+          const value = Number(lead.est_value) || 0
           return (
             <li key={lead.id}>
               {/* Desktop layout */}
-              <div className="hidden grid-cols-[1fr_110px_130px_minmax(0,140px)_110px_110px_150px] items-center gap-4 px-5 py-4 lg:grid">
+              <div className="hidden grid-cols-[1fr_100px_95px_120px_minmax(0,120px)_95px_95px_140px] items-center gap-4 px-5 py-4 lg:grid">
                 <div className="min-w-0">
                   <Link
                     to={`/app/leads/${lead.id}`}
                     className="block truncate text-sm font-semibold text-brand-text hover:text-brand-navy hover:underline"
                   >
-                    {lead.name}
+                    {leadTitle(lead)}
                   </Link>
-                  {lead.project && (
-                    <div className="truncate text-xs text-brand-text-muted">
-                      {lead.project.name}
-                      {lead.proposal_count > 0 && ` · ${lead.proposal_count} proposal${lead.proposal_count === 1 ? '' : 's'}`}
-                    </div>
+                  <div className="truncate text-xs text-brand-text-muted">
+                    {[lead.name, lead.town, lead.description].filter(Boolean).join(' · ') || '—'}
+                    {lead.proposal_count > 0 && ` · ${lead.proposal_count} proposal${lead.proposal_count === 1 ? '' : 's'}`}
+                  </div>
+                </div>
+                <div>
+                  {region ? (
+                    <span
+                      className={cn(
+                        'inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+                        region.className
+                      )}
+                    >
+                      {region.label}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-brand-text-muted">—</span>
                   )}
                 </div>
-                <div className="truncate text-sm text-brand-text-muted">{lead.town ?? '—'}</div>
+                <div className="text-sm font-semibold text-brand-text">
+                  {value > 0 ? formatMoney(value) : '—'}
+                </div>
                 <div>
                   <StatusBadge kind="lead" value={lead.stage} />
                 </div>
@@ -463,12 +662,16 @@ function LeadList({
                     to={`/app/leads/${lead.id}`}
                     className="min-w-0 flex-1 truncate text-sm font-semibold text-brand-text"
                   >
-                    {lead.name}
+                    {leadTitle(lead)}
                   </Link>
                   <StatusBadge kind="lead" value={lead.stage} className="shrink-0" />
                 </div>
                 <div className="flex items-center justify-between text-xs text-brand-text-muted">
-                  <span>{[lead.town, lead.source].filter(Boolean).join(' · ') || '—'}</span>
+                  <span>
+                    {[region?.label, value > 0 ? formatMoney(value) : null, lead.town]
+                      .filter(Boolean)
+                      .join(' · ') || '—'}
+                  </span>
                   {lead.follow_up_date && (
                     <span className={cn(overdue && 'font-semibold text-rose-700')}>
                       Follow up {formatShortDate(lead.follow_up_date)}
@@ -490,7 +693,7 @@ function LeadList({
 /**
  * Compact stage mover. Renders the full stage list (Lost included —
  * reachable from any stage); the page-level handler confirms Lost
- * before writing.
+ * before writing and routes unconverted→Estimating through Convert.
  */
 function StageSelect({
   lead,
@@ -506,6 +709,7 @@ function StageSelect({
       value={lead.stage}
       onChange={(e) => onMove(lead, e.target.value as LeadStage)}
       onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
       className={cn(
         'w-full rounded-md border border-brand-border bg-white px-2 py-1.5 text-xs font-medium text-brand-text outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20',
         className
@@ -572,6 +776,11 @@ function FilterSelect({
 
 const dateInputClasses =
   'rounded-md border border-brand-border bg-white px-2 py-2 text-sm text-brand-text outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20'
+
+/** Whole-dollar pipeline money — the dashboard shows rollups, not cents. */
+function formatMoney(n: number): string {
+  return `$${Math.round(n).toLocaleString()}`
+}
 
 /** Local-date overdue check for the DATE-typed follow_up_date. */
 function isOverdue(followUpDate: string | null): boolean {

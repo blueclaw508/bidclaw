@@ -6,6 +6,7 @@ import { Modal } from '@/components/Modal'
 import { NewCustomerModal } from '@/components/NewCustomerModal'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { ensureLeadForProject } from '@/lib/leads'
 import { AddressFields } from '@/components/AddressFields'
 import type { SplitAddress } from '@/lib/address'
 import { PROJECT_STATUS_CONFIG, PROJECT_STATUS_ORDER } from '@/lib/statusConfig'
@@ -107,7 +108,7 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     if (!user) return
     const trimmedName = name.trim()
     if (!trimmedName) {
-      toast.error('Project name is required.')
+      toast.error('Estimate name is required.')
       return
     }
     setSubmitting(true)
@@ -129,10 +130,24 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     setSubmitting(false)
 
     if (error || !data) {
-      toast.error(`Could not create project: ${error?.message ?? 'unknown error'}`)
+      toast.error(`Could not create estimate: ${error?.message ?? 'unknown error'}`)
       return
     }
-    toast.success('Project created.')
+    // Bidirectional pipeline sync (0024): a directly-created estimate
+    // appears on the Leads & Bids board at Estimating. Best-effort — the
+    // estimate itself already exists.
+    try {
+      await ensureLeadForProject({
+        userId: user.id,
+        projectId: data.id as string,
+        projectName: trimmedName,
+        contactName: customers.find((c) => c.id === customerId)?.name ?? null,
+        town: site.city,
+      })
+    } catch {
+      /* best-effort */
+    }
+    toast.success('Estimate created — it’s on the Leads & Bids board too.')
     onCreated?.(data as Project)
     onClose()
     navigate(`/app/projects/${data.id}`)
@@ -142,12 +157,12 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     <Modal
       open={open}
       onClose={submitting ? () => {} : onClose}
-      title="New project"
-      description="Estimates, work areas, and files attach to this project."
+      title="New estimate"
+      description="Work areas, line items, and files attach to this estimate."
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <FormField label="Project name" required>
+        <FormField label="Estimate name" required>
           <input
             type="text"
             required
@@ -241,7 +256,7 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
             disabled={submitting || !name.trim()}
             className="rounded-md bg-brand-navy px-4 py-2 text-sm font-semibold text-white hover:bg-brand-navy-dark disabled:opacity-50"
           >
-            {submitting ? 'Creating…' : 'Create project'}
+            {submitting ? 'Creating…' : 'Create estimate'}
           </button>
         </div>
       </form>

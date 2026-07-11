@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { Modal } from '@/components/Modal'
 import { useAuth } from '@/contexts/AuthContext'
 import { createLead } from '@/lib/leads'
+import { LEAD_REGION_CONFIG, LEAD_REGION_ORDER } from '@/lib/statusConfig'
 import type { Lead } from '@/lib/types'
 
 interface NewLeadModalProps {
@@ -15,6 +16,10 @@ interface NewLeadModalProps {
 export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
   const { user } = useAuth()
 
+  const [projectName, setProjectName] = useState('')
+  const [description, setDescription] = useState('')
+  const [region, setRegion] = useState('')
+  const [estValue, setEstValue] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
@@ -27,6 +32,10 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
   // Reset form whenever the modal opens fresh
   useEffect(() => {
     if (!open) return
+    setProjectName('')
+    setDescription('')
+    setRegion('')
+    setEstValue('')
     setName('')
     setPhone('')
     setEmail('')
@@ -40,9 +49,17 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) return
+    const trimmedProject = projectName.trim()
     const trimmedName = name.trim()
-    if (!trimmedName) {
-      toast.error('Contact name is required.')
+    // Dashboard parity (0024): a lead is project-first — it needs a
+    // project name OR a contact ("? - Nantucket" rows are real).
+    if (!trimmedProject && !trimmedName) {
+      toast.error('Give the lead a project name or a contact name.')
+      return
+    }
+    const value = estValue.trim() === '' ? null : Number(estValue)
+    if (value !== null && (!Number.isFinite(value) || value < 0)) {
+      toast.error('Guess value must be a positive number.')
       return
     }
     const trimmedEmail = email.trim()
@@ -54,7 +71,11 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
     try {
       const lead = await createLead({
         userId: user.id,
-        name: trimmedName,
+        name: trimmedName || null,
+        project_name: trimmedProject || null,
+        description,
+        region,
+        est_value: value,
         phone,
         email: trimmedEmail,
         job_address: jobAddress,
@@ -81,17 +102,65 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <FormField label="Contact name" required>
+        <FormField label="Project name" required>
           <input
             type="text"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Robert Smith"
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            placeholder="e.g. Concannon — Mashpee backyard"
             className={inputClasses}
             autoFocus
           />
         </FormField>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField label="Description">
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Plunge pool, new construction, enhancement…"
+              className={inputClasses}
+            />
+          </FormField>
+          <FormField label="Region">
+            <select
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              className={inputClasses}
+            >
+              <option value="">—</option>
+              {LEAD_REGION_ORDER.map((r) => (
+                <option key={r} value={r}>
+                  {LEAD_REGION_CONFIG[r].label}
+                </option>
+              ))}
+            </select>
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField label="Guess value ($)">
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={estValue}
+              onChange={(e) => setEstValue(e.target.value)}
+              placeholder="15000"
+              className={inputClasses}
+            />
+          </FormField>
+          <FormField label="Contact name">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Robert Smith (leave blank if unknown)"
+              className={inputClasses}
+            />
+          </FormField>
+        </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormField label="Phone">
@@ -166,7 +235,7 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
           </button>
           <button
             type="submit"
-            disabled={submitting || !name.trim()}
+            disabled={submitting || (!name.trim() && !projectName.trim())}
             className="rounded-md bg-brand-navy px-4 py-2 text-sm font-semibold text-white hover:bg-brand-navy-dark disabled:opacity-50"
           >
             {submitting ? 'Adding…' : 'Add lead'}

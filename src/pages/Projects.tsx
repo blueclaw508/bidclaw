@@ -84,7 +84,7 @@ export default function ProjectsPage() {
               <ClipboardList className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Projects</h1>
+              <h1 className="text-2xl font-bold">Estimates</h1>
               <p className="text-blue-100 text-sm mt-0.5">
                 Every job, from first proposal to signed agreement to done.
               </p>
@@ -96,7 +96,7 @@ export default function ProjectsPage() {
             className="inline-flex items-center gap-2 self-start rounded-lg bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
           >
             <Plus className="h-4 w-4" />
-            New project
+            New estimate
           </button>
         </div>
       </div>
@@ -133,7 +133,7 @@ export default function ProjectsPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input
               type="search"
-              placeholder="Search by project name…"
+              placeholder="Search by estimate name…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-9 pr-3 text-sm outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
@@ -161,9 +161,9 @@ export default function ProjectsPage() {
       {!loadError && rows && hasNoProjects && (
         <EmptyState
           icon={ClipboardList}
-          title="No projects yet"
-          description="Create your first project to start tracking customers, work areas, measurements, and proposals."
-          ctaLabel="New project"
+          title="No estimates yet"
+          description="Create your first estimate to start tracking customers, work areas, measurements, and proposals."
+          ctaLabel="New estimate"
           onCta={() => setNewOpen(true)}
         />
       )}

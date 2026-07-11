@@ -93,6 +93,21 @@ export const LEAD_STAGE_ORDER: LeadStage[] = [
   'lost',
 ]
 
+// BCA territories per the Leads & Bids dashboard. Free-text column —
+// these are the suggested values; anything else renders the fallback style.
+export const LEAD_REGION_ORDER = ['CAPE COD', 'NANTUCKET', 'METRO BOSTON'] as const
+
+export const LEAD_REGION_CONFIG: Record<string, BadgeStyle> = {
+  'CAPE COD':     { label: 'Cape Cod',     className: 'bg-sky-100     text-sky-800     ring-sky-200' },
+  'NANTUCKET':    { label: 'Nantucket',    className: 'bg-violet-100  text-violet-800  ring-violet-200' },
+  'METRO BOSTON': { label: 'Metro Boston', className: 'bg-emerald-100 text-emerald-800 ring-emerald-200' },
+}
+
+export const LEAD_REGION_FALLBACK: BadgeStyle = {
+  label: '',
+  className: 'bg-slate-100 text-slate-700 ring-slate-200',
+}
+
 export const LEAD_STAGE_CONFIG: Record<LeadStage, BadgeStyle> = {
   lead:        { label: 'Leads',       className: 'bg-slate-100   text-slate-700   ring-slate-200' },
   pending:     { label: 'Pending',     className: 'bg-purple-100  text-purple-800  ring-purple-200' },

@@ -27,7 +27,7 @@ const WizardModal = lazy(() =>
 const navItems = [
   // Leads & Bids is the front door (LOOP.md P1-B) — first in nav.
   { to: '/app/leads',     label: 'Leads & Bids', icon: Inbox },
-  { to: '/app/projects',  label: 'Projects',  icon: ClipboardList },
+  { to: '/app/projects',  label: 'Estimates', icon: ClipboardList },
   { to: '/app/customers', label: 'Customers', icon: Users },
   { to: '/app/catalog',   label: 'Catalog',   icon: BookOpen },
   { to: '/app/kits',      label: 'Kits',      icon: Wrench },
