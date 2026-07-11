@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   ShieldAlert,
+  Sparkles,
   User,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -28,12 +29,16 @@ import {
 } from '@/lib/address'
 import { estimateLineTotal, formatUSD } from '@/lib/money'
 import { loadCompanySettings } from '@/lib/companySettings'
+import { canInvokeJamie } from '@/lib/jamieLoop'
 
 // Lazy-loaded so dnd-kit only ships when the Work Areas tab is opened.
 const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
 // Lazy-loaded so react-dropzone only ships when the Files tab is opened.
 const FilesTab = lazy(() => import('@/components/project/FilesTab'))
 const ProposalsTab = lazy(() => import('@/components/project/ProposalsTab'))
+// Jamie Chat (J2) — project-level conversational agent, founder-gated.
+// Distinct from the per-work-area "Ask Jamie" single-shot button.
+const JamieChatPanel = lazy(() => import('@/components/jamie/JamieChatPanel'))
 import {
   PROJECT_STATUS_CONFIG,
   PROJECT_STATUS_ORDER,
@@ -72,6 +77,26 @@ export default function ProjectDetailPage() {
   const [workAreaCount, setWorkAreaCount] = useState<number | null>(null)
   const [fileCount, setFileCount] = useState<number | null>(null)
   const [estimatedValue, setEstimatedValue] = useState<number | null>(null)
+  // Jamie Chat gating (J2): the entry button renders ONLY when the gate
+  // pre-check allows (founder-only pre-Stripe). Denied users see nothing —
+  // no disabled button, no upsell (that surface is J7's).
+  const [jamieChatAllowed, setJamieChatAllowed] = useState(false)
+  const [jamieChatOpen, setJamieChatOpen] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    canInvokeJamie(user.id)
+      .then((gate) => {
+        if (!cancelled) setJamieChatAllowed(gate.allowed)
+      })
+      .catch(() => {
+        /* gate pre-check failure = no button; the server re-checks anyway */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   /**
    * Totals rail refresh. Counts use HEAD queries; estimated value is the live
@@ -240,9 +265,11 @@ export default function ProjectDetailPage() {
           background (white-translucent input over gradient). */}
       <ProjectHeader project={project} onPatch={patch} />
 
-      {/* Tabs — underline pattern with QC blue active state */}
+      {/* Tabs — underline pattern with QC blue active state. Jamie Chat
+          entry sits right-aligned on the same row (project-level surface,
+          distinct from the per-WA "Ask Jamie" button — both live til J6). */}
       <nav
-        className="flex flex-wrap gap-1 border-b border-gray-200"
+        className="flex flex-wrap items-center gap-1 border-b border-gray-200"
         aria-label="Project sections"
       >
         {TABS.map((t) => (
@@ -261,6 +288,17 @@ export default function ProjectDetailPage() {
             {t.label}
           </button>
         ))}
+        {jamieChatAllowed && (
+          <button
+            type="button"
+            onClick={() => setJamieChatOpen(true)}
+            title="Chat with Jamie about this project"
+            className="mb-1.5 ml-auto flex items-center gap-1.5 rounded-lg bg-brand-gold px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
+          >
+            <Sparkles className="h-4 w-4" />
+            Jamie Chat
+          </button>
+        )}
       </nav>
 
       {/* Main grid: tab content + totals rail */}
@@ -294,6 +332,15 @@ export default function ProjectDetailPage() {
           fileCount={fileCount}
           estimatedValue={estimatedValue}
         />
+      {jamieChatOpen && user && (
+        <Suspense fallback={null}>
+          <JamieChatPanel
+            projectId={project.id}
+            userId={user.id}
+            onClose={() => setJamieChatOpen(false)}
+          />
+        </Suspense>
+      )}
       </div>
 
       <ConfirmDialog

@@ -316,6 +316,22 @@ export async function stageProposedLines(
 // Gate — founder mode (Loop Rule 8) over live COUNT queries
 // ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Tier limits for the CURRENT user — founder resolves to the founder tier
+ * (all-NULL = unlimited); everyone else resolves through their
+ * company_settings.plan (plan names match tier keys since J0). The panel
+ * uses this for the photo-count indicator ("4 of 10 photos"); a NULL
+ * images limit renders without a cap.
+ */
+export async function getMyTierLimits(userId: string): Promise<TierLimits | null> {
+  if (userId === FOUNDER_USER_ID) return loadTierLimits('founder')
+  const { data } = await supabase
+    .from('company_settings')
+    .select('plan')
+    .maybeSingle()
+  return loadTierLimits((data?.plan as string) ?? 'free')
+}
+
 async function loadTierLimits(tier: string): Promise<TierLimits | null> {
   const { data, error } = await supabase
     .from('subscription_tier_limits')
