@@ -1010,8 +1010,16 @@ function CategoryLineTable({
           {sorted.map((l) => {
             const qty = Number(l.quantity)
             const cost = Number(l.frozen_unit_cost)
-            const markup = Number(l.frozen_markup_percent)
-            const price = qty * cost * (1 + markup / 100)
+            // Money math via lib/money — price_override WINS (this was a
+            // local computed-only copy that showed $2,698 on a line while
+            // the subtotal underneath said $2,800). The markup column is
+            // the EFFECTIVE margin: (override − base) / base on overridden
+            // lines, which reduces to frozen_markup_percent on computed
+            // ones. Zero-base overrides (a $0-cost line priced by hand)
+            // have no meaningful % — render '—'.
+            const base = lineBase(l)
+            const price = lineTotal(l)
+            const effectivePct = base > 0 ? (lineMarkup(l) / base) * 100 : null
             return (
               <tr key={l.id} className="border-b border-gray-100">
                 <td className="py-1.5 pr-2 text-gray-900">
@@ -1027,7 +1035,9 @@ function CategoryLineTable({
                   {formatUSD(cost)}
                 </td>
                 <td className="py-1.5 pr-2 text-right tabular-nums text-gray-700">
-                  {showMarkup ? `${markup.toFixed(2)}%` : '—'}
+                  {showMarkup && effectivePct !== null
+                    ? `${effectivePct.toFixed(2)}%`
+                    : '—'}
                 </td>
                 <td className="py-1.5 text-right font-semibold tabular-nums text-gray-900">
                   {formatUSD(price)}
