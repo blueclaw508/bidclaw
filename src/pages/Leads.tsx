@@ -7,6 +7,7 @@ import {
   GripVertical,
   Inbox,
   List,
+  MapPin,
   Plus,
   Search,
 } from 'lucide-react'
@@ -44,6 +45,26 @@ export default function LeadsPage() {
   const [rows, setRows] = useState<LeadListRow[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [view, setView] = useState<View>('board')
+  // Sheet-fidelity: the dashboard splits Proposed/Signed into literal
+  // per-location sections. When on, board columns and the list render
+  // location sections (Cape Cod / Nantucket / Metro Boston / …) with
+  // their own subtotals. Sticky preference.
+  const [groupByLocation, setGroupByLocation] = useState(() => {
+    try {
+      return localStorage.getItem('leads:groupByLocation') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleGroupByLocation = () =>
+    setGroupByLocation((v) => {
+      try {
+        localStorage.setItem('leads:groupByLocation', v ? '0' : '1')
+      } catch {
+        /* private mode etc. — toggle still works for the session */
+      }
+      return !v
+    })
   const [search, setSearch] = useState('')
   const [townFilter, setTownFilter] = useState('all')
   const [regionFilter, setRegionFilter] = useState('all')
@@ -224,6 +245,14 @@ export default function LeadsPage() {
                 <ViewButton active={view === 'board'} onClick={() => setView('board')} icon={Columns3} label="Board" />
                 <ViewButton active={view === 'list'} onClick={() => setView('list')} icon={List} label="List" />
               </div>
+              <div className="inline-flex overflow-hidden rounded-md border border-brand-border">
+                <ViewButton
+                  active={groupByLocation}
+                  onClick={toggleGroupByLocation}
+                  icon={MapPin}
+                  label="By location"
+                />
+              </div>
               {view === 'list' && (
                 <FilterSelect
                   value={stageFilter}
@@ -328,12 +357,12 @@ export default function LeadsPage() {
 
       {!loadError && filtered && !hasNoLeads && view === 'board' && (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <LeadBoard rows={filtered} onMove={requestMove} />
+          <LeadBoard rows={filtered} onMove={requestMove} groupByLocation={groupByLocation} />
         </DndContext>
       )}
 
       {!loadError && listRows && !hasNoLeads && view === 'list' && (
-        <LeadList rows={listRows} onMove={requestMove} />
+        <LeadList rows={listRows} onMove={requestMove} groupByLocation={groupByLocation} />
       )}
 
       <NewLeadModal
@@ -385,15 +414,23 @@ export default function LeadsPage() {
 function LeadBoard({
   rows,
   onMove,
+  groupByLocation,
 }: {
   rows: LeadListRow[]
   onMove: (lead: LeadListRow, target: LeadStage) => void
+  groupByLocation: boolean
 }) {
   return (
     <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
       <div className="flex min-w-max gap-3">
         {LEAD_STAGE_ORDER.map((stage) => (
-          <BoardColumn key={stage} stage={stage} rows={rows} onMove={onMove} />
+          <BoardColumn
+            key={stage}
+            stage={stage}
+            rows={rows}
+            onMove={onMove}
+            groupByLocation={groupByLocation}
+          />
         ))}
       </div>
     </div>
@@ -404,19 +441,22 @@ function BoardColumn({
   stage,
   rows,
   onMove,
+  groupByLocation,
 }: {
   stage: LeadStage
   rows: LeadListRow[]
   onMove: (lead: LeadListRow, target: LeadStage) => void
+  groupByLocation: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage })
   const cards = rows.filter((r) => r.stage === stage)
   const total = cards.reduce((s, c) => s + (Number(c.est_value) || 0), 0)
 
-  // The dashboard splits Proposed + Signed by territory — here that's a
-  // per-region rollup in the column header (cards carry region badges).
+  // The dashboard splits Proposed + Signed by territory. Grouping OFF:
+  // a per-location rollup in these columns' headers. Grouping ON: every
+  // column renders literal location sections instead (no double display).
   const regionTotals =
-    stage === 'proposed' || stage === 'signed'
+    !groupByLocation && (stage === 'proposed' || stage === 'signed')
       ? LEAD_REGION_ORDER.map((r) => ({
           region: r,
           sum: cards
@@ -424,6 +464,7 @@ function BoardColumn({
             .reduce((s, c) => s + (Number(c.est_value) || 0), 0),
         })).filter((x) => x.sum > 0)
       : []
+  const groups = groupByLocation ? locationBuckets(cards) : null
 
   return (
     <div
@@ -459,12 +500,60 @@ function BoardColumn({
             {isOver ? 'Drop here' : 'Empty'}
           </div>
         )}
-        {cards.map((lead) => (
-          <LeadCard key={lead.id} lead={lead} onMove={onMove} />
-        ))}
+        {groups
+          ? groups.map((g) => (
+              <div key={g.key} className="space-y-2">
+                <div className="flex items-center justify-between gap-2 border-b border-brand-border/70 px-1 pb-1 pt-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-brand-text-muted">
+                    {g.label}
+                  </span>
+                  <span className="text-[11px] font-semibold text-brand-text">
+                    {g.total > 0 ? formatMoney(g.total) : g.cards.length}
+                  </span>
+                </div>
+                {g.cards.map((lead) => (
+                  <LeadCard key={lead.id} lead={lead} onMove={onMove} />
+                ))}
+              </div>
+            ))
+          : cards.map((lead) => (
+              <LeadCard key={lead.id} lead={lead} onMove={onMove} />
+            ))}
       </div>
     </div>
   )
+}
+
+/**
+ * Location sections in sheet order: the three canonical territories,
+ * then any custom location values (alpha), then location-less rows.
+ */
+function locationBuckets(cards: LeadListRow[]): Array<{
+  key: string
+  label: string
+  cards: LeadListRow[]
+  total: number
+}> {
+  const canonical: string[] = [...LEAD_REGION_ORDER]
+  const custom = [
+    ...new Set(
+      cards
+        .map((c) => c.region)
+        .filter((r): r is string => !!r && !canonical.includes(r))
+    ),
+  ].sort((a, b) => a.localeCompare(b))
+  const order: Array<string | null> = [...canonical, ...custom, null]
+  return order
+    .map((loc) => {
+      const bucket = cards.filter((c) => (loc === null ? !c.region : c.region === loc))
+      return {
+        key: loc ?? '__none__',
+        label: loc === null ? 'No location' : (LEAD_REGION_CONFIG[loc]?.label ?? loc),
+        cards: bucket,
+        total: bucket.reduce((s, c) => s + (Number(c.est_value) || 0), 0),
+      }
+    })
+    .filter((g) => g.cards.length > 0)
 }
 
 function LeadCard({
@@ -583,9 +672,11 @@ function LeadCard({
 function LeadList({
   rows,
   onMove,
+  groupByLocation,
 }: {
   rows: LeadListRow[]
   onMove: (lead: LeadListRow, target: LeadStage) => void
+  groupByLocation: boolean
 }) {
   if (rows.length === 0) {
     return (
@@ -594,6 +685,11 @@ function LeadList({
       </div>
     )
   }
+  // Grouping ON: the sheet's literal sections — a location band with
+  // count + subtotal, then that location's rows.
+  const sections = groupByLocation
+    ? locationBuckets(rows)
+    : [{ key: '__all__', label: '', cards: rows, total: 0 }]
   return (
     <div className="overflow-x-auto rounded-xl border border-brand-border bg-white shadow-sm">
       {/* Header row — desktop only. Column order mirrors the dashboard
@@ -611,8 +707,48 @@ function LeadList({
         <div>Move to</div>
       </div>
 
-      <ul className="divide-y divide-brand-border">
-        {rows.map((lead) => {
+      <ul className="min-w-[1180px] divide-y divide-brand-border lg:min-w-0">
+        {sections.map((section) => (
+          <SectionRows
+            key={section.key}
+            section={section}
+            showHeader={groupByLocation}
+            onMove={onMove}
+          />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function SectionRows({
+  section,
+  showHeader,
+  onMove,
+}: {
+  section: { key: string; label: string; cards: LeadListRow[]; total: number }
+  showHeader: boolean
+  onMove: (lead: LeadListRow, target: LeadStage) => void
+}) {
+  return (
+    <>
+      {showHeader && (
+        <li className="flex items-center justify-between gap-3 bg-brand-surface px-5 py-2">
+          <span className="text-xs font-bold uppercase tracking-wide text-brand-text">
+            {section.label}
+          </span>
+          <span className="text-xs font-semibold text-brand-text-muted">
+            {section.cards.length} {section.cards.length === 1 ? 'row' : 'rows'}
+            {section.total > 0 && (
+              <>
+                {' · '}
+                <span className="font-bold text-brand-text">{formatMoney(section.total)}</span>
+              </>
+            )}
+          </span>
+        </li>
+      )}
+      {section.cards.map((lead) => {
           const overdue = isOverdue(lead.follow_up_date)
           const region = lead.region
             ? (LEAD_REGION_CONFIG[lead.region] ?? { ...LEAD_REGION_FALLBACK, label: lead.region })
@@ -700,8 +836,7 @@ function LeadList({
             </li>
           )
         })}
-      </ul>
-    </div>
+    </>
   )
 }
 
