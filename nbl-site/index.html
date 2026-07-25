@@ -22,8 +22,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <!-- Hero poster paints before the video arrives -->
-  <link rel="preload" as="video" href="clips/clip1.mp4" type="video/mp4" />
+  <!-- The hero clip is decorative, so it is deliberately NOT preloaded — the
+       <video autoplay> fetches it at its own priority, behind the headline
+       and fonts that actually carry the page. -->
 
   <script type="application/ld+json">
   {
@@ -835,11 +836,10 @@
   <section class="call hairline-top" id="apply">
 
     <!-- Tunnel clip — Higgsfield / Kling 2.6, 1920×1080, 10s, silent.
-         Lazy: this section is far below the fold. -->
+         The src is attached by script only as this section nears the viewport,
+         so visitors who never scroll this far don't pay for the download. -->
     <div class="call-media" aria-hidden="true">
-      <video autoplay loop muted playsinline preload="none">
-        <source src="clips/clip3.mp4" type="video/mp4" />
-      </video>
+      <video autoplay loop muted playsinline preload="none" data-lazy-src="clips/clip3.mp4"></video>
     </div>
     <div class="call-shade" aria-hidden="true"></div>
     <div class="grain" aria-hidden="true"></div>
@@ -956,10 +956,35 @@
         return;
       }
 
+      // Attach a deferred clip's source and start it fetching.
+      function loadLazyVideo(v) {
+        if (!v || v.dataset.lazyLoaded) return;
+        v.dataset.lazyLoaded = '1';
+        var s = document.createElement('source');
+        s.src = v.dataset.lazySrc;
+        s.type = 'video/mp4';
+        v.appendChild(s);
+        v.load();
+      }
+
+      var lazyVideos = document.querySelectorAll('video[data-lazy-src]');
+
       if (!('IntersectionObserver' in window)) {
         els.forEach(function (el) { el.classList.add('is-visible'); });
+        lazyVideos.forEach(loadLazyVideo);
         return;
       }
+
+      // Start the download a screen early so the clip is playing by arrival.
+      var videoIo = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          loadLazyVideo(entry.target);
+          videoIo.unobserve(entry.target);
+        });
+      }, { rootMargin: '600px 0px' });
+
+      lazyVideos.forEach(function (v) { videoIo.observe(v); });
 
       var io = new IntersectionObserver(function (entries) {
         entries.forEach(function (entry) {
