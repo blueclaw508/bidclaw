@@ -24,6 +24,7 @@ const KitsPage                  = lazy(() => import('@/pages/Kits'))
 const KitDetailPage             = lazy(() => import('@/pages/KitDetail'))
 const ProposalEditorPage        = lazy(() => import('@/pages/ProposalEditor'))
 const ProposalPrintViewPage     = lazy(() => import('@/pages/ProposalPrintView'))
+const LeadsPrintViewPage        = lazy(() => import('@/pages/LeadsPrintView'))
 const SettingsPage                  = lazy(() => import('@/pages/Settings'))
 const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
 const EnterMyNumbersSettingsPage    = lazy(() => import('@/pages/EnterMyNumbersSettings'))
@@ -54,6 +55,18 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <ProposalPrintViewPage />
+                  </RequireAuth>
+                }
+              />
+
+              {/* Leads & Bids 11x17 pipeline report. Same deal as the
+                  proposal print view — inside RequireAuth, outside the
+                  AppShell chrome, declared before /app so it wins. */}
+              <Route
+                path="/app/leads/print"
+                element={
+                  <RequireAuth>
+                    <LeadsPrintViewPage />
                   </RequireAuth>
                 }
               />

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   CalendarClock,
   ClipboardList,
@@ -9,6 +9,7 @@ import {
   List,
   MapPin,
   Plus,
+  Printer,
   Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -42,6 +43,7 @@ type StageFilter = 'all' | LeadStage
 type DateField = 'none' | 'created' | 'follow_up' | 'presented'
 
 export default function LeadsPage() {
+  const navigate = useNavigate()
   const [rows, setRows] = useState<LeadListRow[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [view, setView] = useState<View>('board')
@@ -212,6 +214,38 @@ export default function LeadsPage() {
   const totalCount = rows?.length ?? 0
   const hasNoLeads = totalCount === 0
 
+  /**
+   * Open the 11x17 pipeline report, carrying the current view + filters
+   * through as query params so the printout is exactly what's on screen.
+   * Only non-default values are sent — keeps the URL readable.
+   */
+  const openPrintReport = useCallback(() => {
+    const p = new URLSearchParams()
+    p.set('view', view)
+    if (groupByLocation) p.set('byLocation', '1')
+    if (search.trim()) p.set('q', search.trim())
+    if (townFilter !== 'all') p.set('town', townFilter)
+    if (regionFilter !== 'all') p.set('region', regionFilter)
+    if (stageFilter !== 'all') p.set('stage', stageFilter)
+    if (dateField !== 'none' && (dateFrom || dateTo)) {
+      p.set('dateField', dateField)
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo) p.set('to', dateTo)
+    }
+    navigate(`/app/leads/print?${p.toString()}`)
+  }, [
+    navigate,
+    view,
+    groupByLocation,
+    search,
+    townFilter,
+    regionFilter,
+    stageFilter,
+    dateField,
+    dateFrom,
+    dateTo,
+  ])
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -225,14 +259,27 @@ export default function LeadsPage() {
             call to signed and done.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setNewOpen(true)}
-          className="inline-flex items-center gap-2 self-start rounded-md bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
-        >
-          <Plus className="h-4 w-4" />
-          New lead
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {!hasNoLeads && (
+            <button
+              type="button"
+              onClick={openPrintReport}
+              title="Printable 11×17 pipeline report — uses the filters you have set"
+              className="inline-flex items-center gap-2 rounded-md border border-brand-border bg-white px-4 py-2.5 text-sm font-semibold text-brand-text shadow-sm transition-colors hover:bg-brand-surface"
+            >
+              <Printer className="h-4 w-4" />
+              Print report
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setNewOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark"
+          >
+            <Plus className="h-4 w-4" />
+            New lead
+          </button>
+        </div>
       </header>
 
       {/* Controls (hidden when zero leads) */}
