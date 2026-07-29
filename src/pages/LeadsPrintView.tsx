@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Printer } from 'lucide-react'
+import { ArrowLeft, Download } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
 import { leadTitle, listLeads } from '@/lib/leads'
+import { POOL_CARD_CLASSES, POOL_LEGEND, POOL_ROW_CLASSES, isPoolWork } from '@/lib/poolWork'
 import {
   LEAD_REGION_CONFIG,
   LEAD_REGION_ORDER,
@@ -173,7 +174,29 @@ export default function LeadsPrintView() {
     return filtered.filter((r) => r.stage === stageFilter)
   }, [filtered, format, stageFilter])
 
-  const handlePrint = useCallback(() => window.print(), [])
+  /**
+   * There is no way to hand a browser a finished PDF from client-side
+   * markup without rasterising it (html2canvas et al), which would
+   * turn 8pt table text into mush at 11x17. So "Download PDF" opens the
+   * native print dialog, where Destination → Save as PDF produces real
+   * vector text at the exact page size we asked for. The toolbar text
+   * says so plainly rather than pretending otherwise.
+   */
+  const handleDownload = useCallback(() => window.print(), [])
+
+  // ?auto=1 — the Leads page's Download PDF button lands here and wants
+  // the dialog straight away. Fires once, after the sheet has painted,
+  // and only when there's something to show.
+  // A ref, not state — firing the dialog is a side effect on an external
+  // system, and nothing renders differently once it has happened.
+  const autoFired = useRef(false)
+  useEffect(() => {
+    if (autoFired.current || params.get('auto') !== '1') return
+    if (!rows || !settings) return
+    autoFired.current = true
+    const t = window.setTimeout(() => window.print(), 350)
+    return () => window.clearTimeout(t)
+  }, [params, rows, settings])
 
   /* ---------- guards ---------- */
 
@@ -254,18 +277,20 @@ export default function LeadsPrintView() {
               </label>
               <button
                 type="button"
-                onClick={handlePrint}
+                onClick={handleDownload}
                 className="inline-flex items-center gap-1.5 rounded-md bg-brand-navy px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90"
               >
-                <Printer className="h-4 w-4" />
-                Print
+                <Download className="h-4 w-4" />
+                Download PDF
               </button>
             </div>
           </div>
           <p className="mx-auto mt-2 max-w-[1560px] text-xs text-gray-500">
-            {FORMAT_META[format].blurb} · {PAPER_META[paper].blurb}. In the print
-            dialog set paper to <strong>Tabloid / 11×17</strong> and Margins:
-            Default, Background graphics: on.
+            {FORMAT_META[format].blurb} · {PAPER_META[paper].blurb}. In the dialog
+            choose Destination: <strong>Save as PDF</strong>, Paper:{' '}
+            <strong>Tabloid / 11×17</strong>, Margins: Default, Background
+            graphics: <strong>on</strong> (needed for the stage headers and the
+            pool shading).
           </p>
         </div>
 
@@ -337,6 +362,7 @@ function ReportHeader({
   // counts dead jobs is the number nobody trusts. Lost still shows in
   // its own board column / summary row.
   const live = rows.filter((r) => r.stage !== 'lost')
+  const pool = rows.filter(isPoolWork)
   // "Open" = everything still live: not signed-through-completed, not lost.
   const open = rows.filter((r) => ['lead', 'pending', 'estimating', 'proposed'].includes(r.stage))
   const proposed = rows.filter((r) => r.stage === 'proposed')
@@ -391,6 +417,17 @@ function ReportHeader({
           accent={overdue.length > 0 ? '#be123c' : accent}
         />
       </div>
+
+      {/* Only shown when there's actually something shaded — a legend for
+          a colour that never appears is just noise on the sheet. */}
+      {pool.length > 0 && (
+        <div className="mt-2 flex items-center gap-2 text-[8.5pt] text-gray-600">
+          <span className="inline-block h-3 w-6 rounded-sm border border-brand-pool-border bg-brand-pool" />
+          <span>
+            {POOL_LEGEND} — {pool.length} of {rows.length}, {formatMoney(sumValue(pool))}
+          </span>
+        </div>
+      )}
     </header>
   )
 }
@@ -487,8 +524,13 @@ function BoardCard({ lead }: { lead: LeadListRow }) {
   const overdue = isOverdue(lead.follow_up_date)
   const value = Number(lead.est_value) || 0
   const where = [lead.job_address, lead.town].filter(Boolean).join(', ')
+  const pool = isPoolWork(lead)
   return (
-    <div className="lpv-card rounded border border-gray-300 px-1.5 py-1 text-[8pt] leading-snug">
+    <div
+      className={`lpv-card rounded border px-1.5 py-1 text-[8pt] leading-snug ${
+        pool ? POOL_CARD_CLASSES : 'border-gray-300'
+      }`}
+    >
       <div className="font-bold text-gray-900">{leadTitle(lead)}</div>
       {where && <div className="text-gray-600">{where}</div>}
       {lead.description && <div className="text-gray-600">{lead.description}</div>}
@@ -608,8 +650,9 @@ function SectionRows({
       {section.cards.map((lead) => {
         const overdue = isOverdue(lead.follow_up_date)
         const value = Number(lead.est_value) || 0
+        const pool = isPoolWork(lead)
         return (
-          <tr key={lead.id} className="lpv-row align-top">
+          <tr key={lead.id} className={`lpv-row align-top ${pool ? POOL_ROW_CLASSES : ''}`}>
             <td className="border border-gray-300 px-1.5 py-1 font-semibold text-gray-900">
               {leadTitle(lead)}
             </td>

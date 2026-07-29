@@ -4,6 +4,7 @@ import {
   CalendarClock,
   ClipboardList,
   Columns3,
+  Download,
   GripVertical,
   Inbox,
   List,
@@ -28,6 +29,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewLeadModal } from '@/components/leads/NewLeadModal'
 import { ConvertLeadModal } from '@/components/leads/ConvertLeadModal'
 import { leadTitle, listLeads, updateLead } from '@/lib/leads'
+import { POOL_CARD_CLASSES, POOL_ROW_CLASSES, isPoolWork } from '@/lib/poolWork'
 import {
   LEAD_REGION_CONFIG,
   LEAD_REGION_FALLBACK,
@@ -219,9 +221,10 @@ export default function LeadsPage() {
    * through as query params so the printout is exactly what's on screen.
    * Only non-default values are sent — keeps the URL readable.
    */
-  const openPrintReport = useCallback(() => {
+  const openPrintReport = useCallback((auto = false) => {
     const p = new URLSearchParams()
     p.set('view', view)
+    if (auto) p.set('auto', '1')
     if (groupByLocation) p.set('byLocation', '1')
     if (search.trim()) p.set('q', search.trim())
     if (townFilter !== 'all') p.set('town', townFilter)
@@ -261,15 +264,31 @@ export default function LeadsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           {!hasNoLeads && (
-            <button
-              type="button"
-              onClick={openPrintReport}
-              title="Printable 11×17 pipeline report — uses the filters you have set"
-              className="inline-flex items-center gap-2 rounded-md border border-brand-border bg-white px-4 py-2.5 text-sm font-semibold text-brand-text shadow-sm transition-colors hover:bg-brand-surface"
-            >
-              <Printer className="h-4 w-4" />
-              Print report
-            </button>
+            <>
+              {/* Straight to the PDF — opens the report and fires the
+                  print dialog, where Destination: Save as PDF gives a
+                  real 11x17 vector file. */}
+              <button
+                type="button"
+                onClick={() => openPrintReport(true)}
+                title="Save this dashboard as an 11×17 PDF — uses the filters you have set"
+                className="inline-flex items-center gap-2 rounded-md border border-brand-border bg-white px-4 py-2.5 text-sm font-semibold text-brand-text shadow-sm transition-colors hover:bg-brand-surface"
+              >
+                <Download className="h-4 w-4" />
+                Download PDF
+              </button>
+              {/* Same report, but lands on the toolbar so you can switch
+                  format / paper before printing. */}
+              <button
+                type="button"
+                onClick={() => openPrintReport(false)}
+                title="Open the printable 11×17 pipeline report"
+                className="inline-flex items-center gap-2 rounded-md border border-brand-border bg-white px-4 py-2.5 text-sm font-semibold text-brand-text shadow-sm transition-colors hover:bg-brand-surface"
+              >
+                <Printer className="h-4 w-4" />
+                Print report
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -632,6 +651,8 @@ function LeadCard({
       }
       className={cn(
         'cursor-grab touch-none rounded-lg border border-brand-border bg-white p-3 shadow-sm',
+        // Pool / spa jobs read baby blue everywhere — see lib/poolWork.ts
+        isPoolWork(lead) && POOL_CARD_CLASSES,
         isDragging && 'z-10 opacity-90 shadow-lg ring-2 ring-brand-navy/40'
       )}
     >
@@ -801,8 +822,9 @@ function SectionRows({
             ? (LEAD_REGION_CONFIG[lead.region] ?? { ...LEAD_REGION_FALLBACK, label: lead.region })
             : null
           const value = Number(lead.est_value) || 0
+          const pool = isPoolWork(lead)
           return (
-            <li key={lead.id}>
+            <li key={lead.id} className={cn(pool && POOL_ROW_CLASSES)}>
               {/* Desktop layout — sheet column order */}
               <div className="hidden min-w-[1180px] grid-cols-[minmax(160px,1.2fr)_minmax(140px,1fr)_minmax(120px,1fr)_88px_105px_minmax(0,110px)_95px_120px_140px] items-center gap-4 px-5 py-4 lg:grid">
                 <div className="min-w-0">

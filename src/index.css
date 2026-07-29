@@ -17,6 +17,15 @@
   --color-brand-gold-pale: #F5EDD0;
   --color-brand-green: #22C55E;
 
+  /* Pool / spa work — baby blue. Hard-wired: any lead whose scope
+     mentions pool work is shaded with these everywhere it appears
+     (board card, list row, printed report). See src/lib/poolWork.ts —
+     that module owns the rule; these are just the paint. */
+  --color-brand-pool: #DCEEFB;
+  --color-brand-pool-strong: #BFE0F8;
+  --color-brand-pool-border: #7FBEEA;
+  --color-brand-pool-text: #0B4A6F;
+
   /* Surfaces & text */
   --color-brand-bg: #FFFFFF;
   --color-brand-surface: #F4F6FA;
