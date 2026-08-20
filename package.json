@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "verify:print": "node scripts/verify-print-view.mjs",
     "test:jamie-gate": "tsx scripts/test-jamie-gate.ts",
-    "verify:jamie": "node scripts/verify-jamie.mjs"
+    "verify:jamie": "node scripts/verify-jamie.mjs",
+    "verify:ingest-commit": "tsx scripts/verify-ingest-commit.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
