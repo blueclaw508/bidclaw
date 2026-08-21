@@ -78,13 +78,17 @@ const OUTPUT_SCHEMA = {
             items: {
               type: 'object',
               additionalProperties: false,
-              required: ['category', 'label', 'qty', 'unit', 'unit_cost', 'reasoning', 'needs_pricing'],
+              required: ['category', 'label', 'qty', 'unit', 'unit_cost', 'markup_pct', 'reasoning', 'needs_pricing'],
               properties: {
                 category: { type: 'string', enum: ['labor', 'material', 'equipment', 'subcontractor', 'other'] },
                 label: { type: 'string' },
                 qty: { type: 'number' },
                 unit: { type: 'string' },
                 unit_cost: { type: 'number' },
+                // Markup % BidClaw re-applies to this line. 0 for decomposed
+                // final-price lines; 10 for BCA pool-subcontractor lines
+                // (unit_cost is then the de-marked-up cost basis).
+                markup_pct: { type: 'number' },
                 reasoning: { type: 'string' },
                 needs_pricing: { type: 'boolean' },
               },
@@ -156,10 +160,11 @@ LAYER 1 — STRUCTURE (must be exact):
 - customer_name / site_address / proposal_date come from the header block.
 
 LAYER 2 — LINE-ITEM RECONSTRUCTION (you are DECOMPOSING a known final price, not marking up from cost):
-CRITICAL: the "$<Amount>" totals are the contractor's FINAL CLIENT PRICES — the margin is already inside them. You are breaking a known total into a plausible internal breakdown, NOT building up from raw cost. So unit_cost is the BILLED amount per unit and you NEVER apply or mention markup. For EACH work area, rebuild the KYN takeoff from the scope quantities + the KIT REFERENCE + the contractor's rates:
-- LABOR: qty = projected man-hours (use the kit hr/unit factors × the scope quantity, KYN full crew day = 27 man-hours); unit_cost = the contractor's labor rate (already a billed rate). EQUIPMENT: qty = hours; unit_cost = the equipment rate. MATERIAL / SUBCONTRACTOR / OTHER: qty = the measured count/quantity from the scope; unit_cost = a reasonable BILLED per-unit amount. Match the contractor's catalog by name where you can; anything you cannot price from scope → unit_cost 0 and needs_pricing true (never invent a firm price — the balancer below still makes the total exact).
-- RECONCILE EXACTLY. After your real lines, add ONE line { category:"other", label:"General Conditions & Rounding", qty:1, unit:"EA" } whose unit_cost = stated_total − (sum of qty×unit_cost of all the other lines). It may be positive or negative. The sum of qty×unit_cost across ALL line_items (this GC line included) MUST EQUAL stated_total to the penny. Set reconstructed_subtotal = the sum of the real lines (before GC) and general_conditions_amount = the GC unit_cost.
-- confidence: "high" = standard kit-able hardscape/softscape with clear quantities and the GC balancer is a SMALL share of the total (your decomposition is trustworthy); "low" = a pool/gunite/spa/equipment/allowance lump you could not take off from scope — for those emit ONE subcontractor line at the full stated_total (qty 1, unit_cost = stated_total, needs_pricing false) and a $0 GC line; "medium" = in between.
+CRITICAL: the "$<Amount>" totals are the contractor's FINAL CLIENT PRICES — the margin is already inside them. You are breaking a known total into a plausible internal breakdown. Each line has a markup_pct that BidClaw RE-APPLIES: line billed = qty × unit_cost × (1 + markup_pct/100). For EACH work area, rebuild the KYN takeoff from the scope quantities + the KIT REFERENCE + the contractor's rates:
+- Default markup_pct = 0 (the unit_cost IS the billed amount — the margin is already in the proposal price; do not add markup). LABOR: qty = projected man-hours (kit hr/unit factor × scope quantity; KYN full crew day = 27 man-hours); unit_cost = the contractor's labor rate. EQUIPMENT: qty = hours; unit_cost = the equipment rate. MATERIAL/OTHER: qty = the measured count/quantity; unit_cost = a reasonable BILLED per-unit amount, markup_pct 0. Match the contractor's catalog by name where you can; anything you cannot price from scope → unit_cost 0 and needs_pricing true (the balancer below still makes the total exact).
+- ⚑ BCA POOL-SUBCONTRACTOR RULE (this contractor subs out all pool-builder scope): for any work area OR equipment_selection that is POOL-BUILDER scope — gunite/shotcrete in-ground pool shell, built-in gunite spa, baja/tanning bench, AND pool equipment (salt generator, OmniLogic/automation panel, heater, winter safety cover, automatic pool cover with vault) — emit exactly ONE line: { category:"subcontractor", qty:1, unit:"LS", unit_cost = stated_total ÷ 1.10 (back the 10% markup out of the final price), markup_pct: 10, needs_pricing:false }, then a $0 General Conditions line. That reconstructs it as the pool subcontractor's COST with BCA's 10% markup re-applied, so billed = qty×unit_cost×1.10 = stated_total exactly. confidence "high". Do NOT apply this rule to BCA-self-performed hardscape (bluestone/granite/masonry coping, patios, steppers, walls, aprons, driveways) or to softscape/irrigation — decompose those normally at markup_pct 0.
+- RECONCILE EXACTLY. After your real lines, add ONE line { category:"other", label:"General Conditions & Rounding", qty:1, unit:"EA", markup_pct:0 } whose unit_cost = stated_total − (sum of BILLED amounts of all the other lines). It may be positive or negative. The sum of BILLED amounts (qty×unit_cost×(1+markup_pct/100)) across ALL line_items MUST EQUAL stated_total to the penny. Set reconstructed_subtotal = the billed sum of the real lines (before GC) and general_conditions_amount = the GC unit_cost.
+- confidence: "high" = standard kit-able hardscape/softscape with clear quantities and a SMALL GC balancer, OR a pool-sub line by the rule above; "medium" = decomposition with a larger GC share; "low" = a non-pool allowance/lump you truly could not break down.
 - "By others" / "NIC" / "by plumber" items are EXCLUSIONS — do not make them line items.
 
 ${KIT_REFERENCE}

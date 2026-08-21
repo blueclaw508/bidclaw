@@ -49,11 +49,17 @@ async function main() {
 
     // Every work area's billed total (markup 0 → sum qty*unit_cost) = stated.
     let allReconcile = true
+    let poolSubOk = true
     for (const wa of was ?? []) {
-      const { data: lines } = await admin.from('work_area_lines').select('quantity, unit_cost').eq('work_area_id', wa.id)
-      const billed = (lines ?? []).reduce((a, l) => a + Number(l.quantity) * Number(l.unit_cost), 0)
+      const { data: lines } = await admin.from('work_area_lines').select('category, quantity, unit_cost, markup_override').eq('work_area_id', wa.id)
+      const billed = (lines ?? []).reduce((a, l) => a + Number(l.quantity) * Number(l.unit_cost) * (1 + (Number(l.markup_override) || 0) / 100), 0)
       const stated = baseWAs.find((b) => b.name === wa.name)?.stated_total ?? -1
       if (Math.abs(billed - stated) > 0.02) { allReconcile = false; console.log(`   ✗ ${wa.name}: billed ${money(billed)} != stated ${money(stated)}`) }
+      // Pool-builder base WAs must be coded subcontractor @ 10% markup.
+      if (/gunite|swimming pool|\bspa\b|baja/i.test(wa.name)) {
+        const sub = (lines ?? []).find((l) => l.category === 'subcontractor' && Number(l.markup_override) === 10)
+        if (!sub) { poolSubOk = false; console.log(`   ✗ ${wa.name}: pool scope not coded subcontractor @10%`) }
+      }
     }
 
     const { data: lead } = await admin
@@ -68,12 +74,12 @@ async function main() {
     const poolOk = poolReads === t.pool
     const waCountOk = (was?.length ?? 0) === baseWAs.length
 
-    const pass = allReconcile && valueOk && onBoard && poolOk && waCountOk
+    const pass = allReconcile && valueOk && onBoard && poolOk && waCountOk && poolSubOk
     results.push({ key: t.key, pass })
     console.log(`\n${pass ? 'PASS' : 'FAIL'}  ${t.key}  → project ${res.projectId}`)
     console.log(`   ${res.workAreaCount} work areas · ${res.lineCount} lines · ${res.optionCount} options → notes`)
     console.log(`   BOARD CARD: "${lead!.project_name}" · value ${money(Number(lead!.est_value))} (base_total ${money(recon.base_total)}) · region ${lead!.region ?? '—'} · town ${lead!.town ?? '—'}`)
-    console.log(`   checks: WAs ${waCountOk ? 'OK' : 'FAIL'} · every WA billed==stated ${allReconcile ? 'OK' : 'FAIL'} · value ${valueOk ? 'OK' : 'FAIL'} · pool-blue ${poolOk ? `OK (${poolReads})` : `FAIL (got ${poolReads}, want ${t.pool})`}`)
+    console.log(`   checks: WAs ${waCountOk ? 'OK' : 'FAIL'} · every WA billed==stated ${allReconcile ? 'OK' : 'FAIL'} · value ${valueOk ? 'OK' : 'FAIL'} · pool-blue ${poolOk ? `OK (${poolReads})` : `FAIL`} · pool→sub@10% ${poolSubOk ? 'OK' : 'FAIL'}`)
   }
 
   const failed = results.filter((r) => !r.pass)

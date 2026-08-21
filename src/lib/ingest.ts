@@ -24,6 +24,9 @@ export interface IngestLine {
   qty: number
   unit: string
   unit_cost: number
+  /** Markup % BidClaw re-applies (0 for decomposed lines; 10 for BCA
+   *  pool-subcontractor lines whose unit_cost is the de-marked cost). */
+  markup_pct?: number
   reasoning?: string
   needs_pricing?: boolean
 }
@@ -167,15 +170,37 @@ export async function commitIngestedProposal(opts: {
     const waId = waRow.id as string
     const lines = wa.line_items.map((l, j) => ({
       work_area_id: waId,
-      category: l.category,
+      category: l.category as string,
       label: l.label,
       unit: l.unit || '',
       quantity: l.qty,
       unit_cost: l.unit_cost,
-      price_override: null,
-      markup_override: 0, // decomposed prices are already billed amounts
+      price_override: null as number | null,
+      // 0 for decomposed final-price lines; 10 for BCA pool-sub lines
+      // (unit_cost = de-marked cost → billed = cost × 1.10 = stated).
+      markup_override: l.markup_pct ?? 0,
       sort_order: j,
     }))
+    // The stated total is Ian's real price — sacrosanct. Never trust the
+    // model's arithmetic to hit it: RECOMPUTE the "General Conditions &
+    // Rounding" balancer so billed sum == stated_total to the penny,
+    // regardless of any slip in Jamie's line math.
+    const billed = (l: (typeof lines)[number]) =>
+      Number(l.quantity) * Number(l.unit_cost) * (1 + Number(l.markup_override) / 100)
+    let gc = lines.find((l) => /general conditions/i.test(l.label))
+    if (!gc) {
+      gc = {
+        work_area_id: waId, category: 'other', label: 'General Conditions & Rounding',
+        unit: 'EA', quantity: 1, unit_cost: 0, price_override: null, markup_override: 0,
+        sort_order: lines.length,
+      }
+      lines.push(gc)
+    }
+    gc.quantity = 1
+    gc.markup_override = 0
+    gc.unit_cost = 0
+    const othersBilled = lines.filter((l) => l !== gc).reduce((a, l) => a + billed(l), 0)
+    gc.unit_cost = Math.round((wa.stated_total - othersBilled) * 100) / 100
     if (lines.length) {
       const { error: lErr } = await client.from('work_area_lines').insert(lines)
       if (lErr) throw new Error(`Couldn't add lines to "${wa.name}": ${lErr.message}`)
