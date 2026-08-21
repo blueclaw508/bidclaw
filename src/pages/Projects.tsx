@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ClipboardList, Plus, Search } from 'lucide-react'
+import { ClipboardList, FileUp, Plus, Search } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
 import { StatusBadge } from '@/components/StatusBadge'
 import { NewProjectModal } from '@/components/NewProjectModal'
+import { canInvokeJamie } from '@/lib/jamieLoop'
 import { PROJECT_STATUS_CONFIG, PROJECT_STATUS_ORDER } from '@/lib/statusConfig'
 import type { Project, ProjectStatus } from '@/lib/types'
+
+// Reverse-ingestion import — lazy so pdfjs only ships when opened.
+const ImportProposalModal = lazy(() => import('@/components/ingest/ImportProposalModal'))
 
 type ProjectRow = Project & { customers: { name: string } | null }
 
@@ -23,6 +27,18 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('created_desc')
   const [newOpen, setNewOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  // Reverse ingestion is a Jamie/AI feature — founder-gated for now.
+  const [importAllowed, setImportAllowed] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    canInvokeJamie(user.id)
+      .then((g) => { if (!cancelled) setImportAllowed(g.allowed) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [user])
 
   const load = useCallback(async () => {
     if (!user) return
@@ -90,14 +106,27 @@ export default function ProjectsPage() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setNewOpen(true)}
-            className="inline-flex items-center gap-2 self-start rounded-lg bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark sm:self-auto"
-          >
-            <Plus className="h-4 w-4" />
-            New estimate
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            {importAllowed && (
+              <button
+                type="button"
+                onClick={() => setImportOpen(true)}
+                title="Rebuild a proposal you made outside BidClaw"
+                className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-inset ring-white/30 transition-colors hover:bg-white/25"
+              >
+                <FileUp className="h-4 w-4" />
+                Import proposal
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setNewOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-gold-dark"
+            >
+              <Plus className="h-4 w-4" />
+              New estimate
+            </button>
+          </div>
         </div>
       </div>
 
@@ -185,6 +214,12 @@ export default function ProjectsPage() {
           void load()
         }}
       />
+
+      {importOpen && (
+        <Suspense fallback={null}>
+          <ImportProposalModal open={importOpen} onClose={() => setImportOpen(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }
