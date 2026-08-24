@@ -16,12 +16,22 @@ import {
   getActiveJamieRun,
   listJamieMessages,
   getMyTierLimits,
+  commitLineGate,
+  commitWorkAreaGate,
+  listProposedLines,
+  listProposedWorkAreas,
   type JamieLoopRun,
+  type JamieProposedLine,
+  type JamieProposedWorkArea,
   type JamieRunStatus,
+  type LineDecision,
+  type WorkAreaDecision,
 } from '@/lib/jamieLoop'
-import { sendJamieChatMessage } from '@/lib/jamieChat'
+import { sendJamieChatMessage, type JamieAction } from '@/lib/jamieChat'
 import { signedJamieImageUrl, uploadJamieImage } from '@/lib/jamieImages'
+import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
+import { LineGate, WorkAreaGate } from './GateReview'
 
 interface ThreadMessage {
   id: string
@@ -62,6 +72,16 @@ export function JamieChatPanel({
   const [streaming, setStreaming] = useState(false)
   const [imageLimit, setImageLimit] = useState<number | null>(null)
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
+  // ── J3 gates ───────────────────────────────────────────────────────
+  const [stagedWas, setStagedWas] = useState<JamieProposedWorkArea[]>([])
+  const [stagedGroups, setStagedGroups] = useState<
+    Array<JamieProposedWorkArea & { lines: JamieProposedLine[] }>
+  >([])
+  const [existingNameById, setExistingNameById] = useState<Record<string, string>>({})
+  const [gateBusy, setGateBusy] = useState(false)
+  /** Chars of JSON Jamie has written this pass — the only honest progress
+   *  signal while a pass streams, since its deltas are swallowed. */
+  const [passChars, setPassChars] = useState<number | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -128,6 +148,54 @@ export function JamieChatPanel({
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight })
   }, [messages])
 
+  // ── Gate data. Reloads whenever the run reaches (or leaves) a gate, so a
+  // resumed session opens straight onto the review the contractor left. ──
+  const runStatus = run?.status
+  const runId = run?.id
+  useEffect(() => {
+    if (!runId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (runStatus === 'awaiting_wa_approval') {
+          const [staged, { data: own }] = await Promise.all([
+            listProposedWorkAreas(runId),
+            supabase.from('work_areas').select('id, name').eq('project_id', projectId),
+          ])
+          if (cancelled) return
+          setStagedWas(staged.filter((s) => s.status === 'pending'))
+          setExistingNameById(
+            Object.fromEntries(
+              ((own ?? []) as Array<{ id: string; name: string }>).map((w) => [w.id, w.name])
+            )
+          )
+          setStagedGroups([])
+        } else if (runStatus === 'awaiting_line_approval') {
+          const groups = await listProposedLines(runId)
+          if (cancelled) return
+          // Only groups that actually got lines staged this pass.
+          setStagedGroups(
+            groups
+              .map((g) => ({ ...g, lines: g.lines.filter((l) => l.status === 'pending') }))
+              .filter((g) => g.lines.length > 0)
+          )
+          setStagedWas([])
+        } else {
+          if (cancelled) return
+          setStagedWas([])
+          setStagedGroups([])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err instanceof Error ? err.message : "Couldn't load the review.")
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [runId, runStatus, projectId])
+
   const imagesUsed = (run?.image_count ?? 0) + pendingFiles.length
 
   const handleSend = useCallback(async () => {
@@ -185,6 +253,97 @@ export function JamieChatPanel({
       setStreaming(false)
     }
   }, [input, streaming, loading, run, projectId, userId, pendingFiles])
+
+  /**
+   * Run one of the two structured passes. Same transport as a chat turn —
+   * the difference is server-side: the function returns JSON, stages it, and
+   * moves the run to a gate. We only render Jamie's readable summary.
+   */
+  const runPass = useCallback(
+    async (action: Exclude<JamieAction, 'chat'>) => {
+      if (!run || streaming || loading) return
+      setStreaming(true)
+      setPassChars(0)
+      const asstMsgId = crypto.randomUUID()
+      setMessages((prev) => [
+        ...prev,
+        { id: asstMsgId, role: 'assistant', text: '', imageRefs: [], streaming: true },
+      ])
+      try {
+        await sendJamieChatMessage(
+          { runId: run.id, text: '', action },
+          {
+            onTextDelta: (t) =>
+              setMessages((prev) =>
+                prev.map((m) => (m.id === asstMsgId ? { ...m, text: m.text + t } : m))
+              ),
+            onProgress: (chars) => setPassChars(chars),
+            onStaged: () => setPassChars(null),
+            onDone: () => {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === asstMsgId ? { ...m, streaming: false } : m))
+              )
+              // The pass moved the run's status server-side; refetching it is
+              // what flips the panel into the gate.
+              getActiveJamieRun(projectId).then((r) => r && setRun(r)).catch(() => {})
+            },
+            onError: (msg) => {
+              setMessages((prev) => prev.filter((m) => m.id !== asstMsgId))
+              toast.error(msg)
+            },
+          }
+        )
+      } catch (err) {
+        setMessages((prev) => prev.filter((m) => m.id !== asstMsgId))
+        toast.error(err instanceof Error ? err.message : 'Jamie hit a snag.')
+      } finally {
+        setStreaming(false)
+        setPassChars(null)
+      }
+    },
+    [run, streaming, loading, projectId]
+  )
+
+  const handleWorkAreaGate = useCallback(
+    async (decisions: WorkAreaDecision[]) => {
+      if (!run) return
+      setGateBusy(true)
+      try {
+        const created = await commitWorkAreaGate(run.id, decisions)
+        toast.success(
+          `${created.length} work area${created.length === 1 ? '' : 's'} added.`
+        )
+        const fresh = await getActiveJamieRun(projectId)
+        if (fresh) setRun(fresh)
+        // Straight into Pass 2 — the contractor approved the scope, they
+        // want the takeoff, not another button.
+        await runPass('propose_lines')
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Couldn't add the work areas.")
+      } finally {
+        setGateBusy(false)
+      }
+    },
+    [run, projectId, runPass]
+  )
+
+  const handleLineGate = useCallback(
+    async (decisions: LineDecision[]) => {
+      if (!run) return
+      setGateBusy(true)
+      try {
+        const written = await commitLineGate(run.id, decisions)
+        toast.success(`${written} line${written === 1 ? '' : 's'} added to the estimate.`)
+        const fresh = await getActiveJamieRun(projectId)
+        setRun(fresh ?? { ...run, status: 'committed' })
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Couldn't add the lines.")
+      } finally {
+        setGateBusy(false)
+      }
+    },
+    [run, projectId]
+  )
 
   const addFiles = (list: FileList | null) => {
     if (!list) return
@@ -278,11 +437,60 @@ export function JamieChatPanel({
                 )}
                 <span className="whitespace-pre-wrap">
                   {m.text}
+                  {m.streaming && !m.text && passChars !== null && (
+                    <span className="text-gray-500">
+                      Jamie is working through the job
+                      {passChars > 0 ? ` — ${passChars.toLocaleString()} characters in` : '…'}
+                    </span>
+                  )}
                   {m.streaming && <span className="animate-pulse">▍</span>}
                 </span>
               </div>
             </div>
           ))
+        )}
+
+        {/* Gate 1 — Jamie proposed the work areas, contractor decides. */}
+        {stagedWas.length > 0 && !streaming && (
+          <WorkAreaGate
+            items={stagedWas}
+            existingNameById={existingNameById}
+            busy={gateBusy}
+            onCommit={(d) => void handleWorkAreaGate(d)}
+          />
+        )}
+
+        {/* Gate 2 — the priced takeoff for the approved work areas. */}
+        {stagedGroups.length > 0 && !streaming && (
+          <LineGate
+            groups={stagedGroups}
+            busy={gateBusy}
+            onCommit={(d) => void handleLineGate(d)}
+          />
+        )}
+
+        {/* Pass 1 trigger. Only once there's a conversation to work from and
+            the run isn't already sitting at a gate. */}
+        {run &&
+          run.status === 'in_progress' &&
+          messages.length > 0 &&
+          stagedWas.length === 0 &&
+          stagedGroups.length === 0 &&
+          !streaming && (
+            <button
+              type="button"
+              onClick={() => void runPass('propose_work_areas')}
+              className="w-full rounded-lg border border-brand-gold/40 bg-brand-gold/10 py-2 text-sm font-semibold text-brand-gold-dark transition-colors hover:bg-brand-gold/20"
+            >
+              Propose work areas
+            </button>
+          )}
+
+        {run?.status === 'committed' && (
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-center text-[12px] text-emerald-800">
+            Committed to the estimate. Open the Work Areas tab to price and
+            approve it.
+          </p>
         )}
       </div>
 

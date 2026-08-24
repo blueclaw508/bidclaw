@@ -1,5 +1,82 @@
 # LOOP-STATE — BidClaw
 
+## ⚠️ THE JAMIE LOOP — J0-J2 SHIPPED IN JULY, NEVER RECORDED HERE
+Between Phase 1 and master's tip there is a whole second Jamie arc that
+LOOP-STATE never captured. Reconstructed from commits 2026-08-24:
+  J0  6648194  data foundations — jamie_loop_runs (status machine:
+      in_progress / awaiting_wa_approval / awaiting_line_approval /
+      committed / rejected / abandoned / error), jamie_messages,
+      jamie_proposed_work_areas (Gate 1 staging), jamie_proposed_lines
+      (Gate 2 staging), jamie_invocations metering, subscription_tier_limits.
+      Migrations 0020-0023.
+  J1a 386cf38  jamie-chat Edge Function skeleton — auth, gate, metering,
+      streaming, prompt-cache structure.
+  J1b 354f2b6  scripts/verify-jamie.mjs autonomous harness.
+  J1c f2b7bfe  legacy jamie-estimate metering (recording only).
+  J2  d2b29e7  JamieChatPanel — streaming UI, image attach, session resume,
+      run-status chip. Project-anchored: ONE active run per project.
+The arc's plan (J3 brain, J5/J8 prompt growth, J6 retire jamie-estimate,
+J7 cleanup) exists ONLY in code comments — there is no spec file. Grep
+"J3"/"J6"/"J8" in supabase/functions/jamie-chat and JamieChatPanel.
+
+## J3 — WHOLE-PROJECT BRAIN + TWO GATES (2026-08-24) — CODE COMPLETE, NOT VERIFIED
+Replaces the ECHO stub with the real KYN brain and adds whole-project mode.
+STATUS: compiles and builds clean; ZERO behavioural verification. Not
+deployed, not run once. Do not describe J3 as working until it is.
+
+What was built:
+- supabase/functions/jamie-chat/index.ts — three actions over the one
+  pipeline: "chat" (conversational scope-gathering), "propose_work_areas"
+  (PASS 1 -> stages jamie_proposed_work_areas, run -> awaiting_wa_approval),
+  "propose_lines" (PASS 2 -> stages jamie_proposed_lines for every APPROVED
+  staged WA, run -> awaiting_line_approval). Structured output via
+  output_config json_schema (same shape jamie-ingest proved). Pass deltas
+  are SWALLOWED server-side — raw JSON would paint the chat bubble — and a
+  jamie_progress heartbeat goes out instead; the readable summary is sent
+  as one synthetic text delta after staging succeeds.
+- CONVERSATION REPLAY: J1/J2 sent only the latest message, so Jamie could
+  not gather scope across turns. J3 replays jamie_messages (text only —
+  re-downloading every historical photo per turn would multiply latency and
+  spend) and trims trailing user turns so the API never sees two same-role
+  turns in a row.
+- MODEL: estimation slot moved claude-opus-4-8 -> claude-opus-5. Same price
+  ($5/$25), 1M context. This WAS the "RE-VERIFY at J8" note in the router —
+  pulled forward because J3 is the first phase that actually spends. Opus
+  4.8 stays in MODEL_PRICING for historical rows and for jamie-ingest,
+  which is still pinned to it and was deliberately left untouched.
+- src/lib/jamieLoop.ts — commitWorkAreaGate (Gate 1: approved staged WAs ->
+  real work_areas appended after the contractor's existing ones, stamps
+  inserted_work_area_id; rejected marked and RETAINED per J0) and
+  commitLineGate (Gate 2: approved staged lines -> work_area_lines on the
+  WA their parent created, stamps inserted_work_area_line_id, run ->
+  committed), plus listProposedWorkAreas / listProposedLines. Both gates
+  commit CLIENT-SIDE under the user's own RLS — the edge function only ever
+  writes staging rows.
+- ADDITIVE-ONLY (Ian confirmed 2026-08-24): Jamie proposes NEW work areas
+  and may set source_work_area_id to flag "this looks like your existing X",
+  but commitWorkAreaGate deliberately never acts on that flag. She never
+  edits, renames, or deletes a work area the contractor made.
+- src/components/jamie/GateReview.tsx — WorkAreaGate + LineGate. Everything
+  defaults to APPROVED (the contractor is hunting the one wrong line, not
+  ticking twenty boxes). Gate 2 holds qty/cost as LOCAL STRING state and
+  parses on commit, per session-discipline 1A Pattern A.
+- supabase/functions/_shared/kitReference.ts — KIT_REFERENCE extracted so
+  the ingest brain and the loop brain share one copy. jamie-ingest still
+  carries its inline duplicate; dedupe on its next change.
+
+VERIFIED: npx tsc -b --noEmit exit 0; npm run build OK; esbuild parses the
+edge function + shared module; eslint on the touched files adds ZERO new
+errors (the one hit is the pre-existing `service: any` in loadUsage).
+NOT VERIFIED: every runtime behaviour. Nothing above has executed once.
+
+NEXT SESSION MUST START WITH:
+1. Deploy jamie-chat (npx supabase functions deploy jamie-chat) — Ian's
+   call; it spends real Opus 5 tokens on every pass.
+2. Rewrite scripts/verify-jamie.mjs — it asserts the ECHO stub in 7 places
+   and pins claude-opus-4-8, so it FAILS against J3 even when J3 is right.
+   The header carries the exact list of assertions to write.
+3. Then walk both gates on a real project before believing any of it.
+
 ## ⚠️ RI IS LIVE — BUT PRODUCTION IS NOT BUILT FROM GIT (as of 2026-08-24)
 All RI work (da1cd68, 32cc292, f99c1be) plus the 11x17 Leads report
 (515c0cf, bcd2652) lives on `feature/reverse-ingestion`. Master's tip is
@@ -294,11 +371,13 @@ are LOWER priority than R2-R5 — don't polish the surface being replaced.
 ## WATCH LIST
 - Rotate Supabase service_role key (Ian, dashboard) — Ian's to-do, do not execute
 - Call 2–3 QC users for trust/pricing input — Ian's to-do, do not execute
-- .env.local is MISSING on this machine (only .env with VITE_ vars exists) —
-  the Path B visual harness (verify-print-view.mjs and any leads variant)
-  can't run until Ian restores SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
-  there. P1-B visual walkthrough deferred to Ian's first dogfood; any
-  friction is P1-A same-session priority.
+- RESOLVED 2026-08-24: .env.local now EXISTS with SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY and VERIFY_USER_EMAIL, so the Path B harnesses
+  can run. (The old entry claiming it was missing was six weeks stale.)
+- ⚠️ scripts/verify-jamie.mjs is STALE against J3 — it asserts the ECHO stub
+  in 7 assertions and pins claude-opus-4-8. It will fail against a correct
+  J3. Rewrite it in the session that deploys J3; the file header lists the
+  assertions to write.
 - Leads P1-B conventions to know: lead stage auto-advance is FORWARD-ONLY
   (reopened/reverted proposals never demote a lead — manual board move);
   proposal declined prompts (never forces) lead → Lost in ProposalEditor.

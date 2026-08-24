@@ -481,3 +481,222 @@ export async function finalizeInvocation(
     .eq('id', id)
   if (error) throw new Error(`Couldn't finalize the invocation: ${error.message}`)
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Gates (J3) — the staged → real commit path
+//
+// The edge function only ever writes STAGING rows. Both gates commit from
+// the browser under the user's own RLS, the same way commitIngestedProposal
+// does for reverse ingestion. Rejected staging rows are RETAINED (J0: audit
+// trail, never deleted) — they just never become real rows.
+// ──────────────────────────────────────────────────────────────────────
+
+/** Gate 1 review payload: one entry per staged work area. */
+export interface WorkAreaDecision {
+  id: string
+  approved: boolean
+  /** Contractor's edit of Jamie's name, if they changed it. */
+  name: string
+  description: string | null
+}
+
+/**
+ * Commit Gate 1. Approved staged work areas become real `work_areas` rows
+ * appended after whatever the project already has; rejected ones are marked
+ * and left in place. Returns the ids of the work areas that were created.
+ *
+ * Jamie is additive-only — `source_work_area_id` (her "this looks like your
+ * existing X" flag) is deliberately NOT acted on here. If the contractor
+ * agrees it is a duplicate they reject the proposal; we never touch the row
+ * they made themselves.
+ */
+export async function commitWorkAreaGate(
+  runId: string,
+  decisions: WorkAreaDecision[]
+): Promise<string[]> {
+  const approved = decisions.filter((d) => d.approved)
+  const rejected = decisions.filter((d) => !d.approved)
+
+  const { data: runRow, error: runErr } = await supabase
+    .from('jamie_loop_runs')
+    .select('project_id')
+    .eq('id', runId)
+    .single()
+  if (runErr || !runRow) {
+    throw new Error(`Couldn't load the Jamie session: ${runErr?.message ?? 'not found'}`)
+  }
+  const projectId = runRow.project_id as string
+
+  // Append after the contractor's existing work areas — never renumber them.
+  const { data: existing } = await supabase
+    .from('work_areas')
+    .select('sequence_order')
+    .eq('project_id', projectId)
+    .order('sequence_order', { ascending: false })
+    .limit(1)
+  let nextOrder = ((existing?.[0]?.sequence_order as number) ?? -1) + 1
+
+  const createdIds: string[] = []
+  for (const d of approved) {
+    const { data: waRow, error: waErr } = await supabase
+      .from('work_areas')
+      .insert({
+        project_id: projectId,
+        name: d.name.trim(),
+        description: d.description?.trim() || null,
+        sequence_order: nextOrder++,
+      })
+      .select('id')
+      .single()
+    if (waErr || !waRow) {
+      throw new Error(`Couldn't create work area "${d.name}": ${waErr?.message ?? 'no row'}`)
+    }
+    const waId = waRow.id as string
+    createdIds.push(waId)
+    const { error: stampErr } = await supabase
+      .from('jamie_proposed_work_areas')
+      .update({ status: 'approved', inserted_work_area_id: waId })
+      .eq('id', d.id)
+    if (stampErr) throw new Error(`Couldn't record the approval: ${stampErr.message}`)
+  }
+
+  if (rejected.length > 0) {
+    const { error: rejErr } = await supabase
+      .from('jamie_proposed_work_areas')
+      .update({ status: 'rejected' })
+      .in(
+        'id',
+        rejected.map((r) => r.id)
+      )
+    if (rejErr) throw new Error(`Couldn't record the rejections: ${rejErr.message}`)
+  }
+
+  // Back to in_progress: Pass 2 needs a run it is allowed to write to.
+  await setRunStatus(runId, 'in_progress')
+  return createdIds
+}
+
+/** Gate 2 review payload: one entry per staged line. */
+export interface LineDecision {
+  id: string
+  approved: boolean
+  /** Contractor's edits — Gate 2 is where catalog misses get priced. */
+  quantity: number | null
+  unitCost: number | null
+}
+
+/**
+ * Commit Gate 2. Approved staged lines become real `work_area_lines` on the
+ * work area their parent proposal created at Gate 1, then the run closes as
+ * `committed`. Returns the number of lines written.
+ */
+export async function commitLineGate(
+  runId: string,
+  decisions: LineDecision[]
+): Promise<number> {
+  const byId = new Map(decisions.map((d) => [d.id, d]))
+  const approvedIds = decisions.filter((d) => d.approved).map((d) => d.id)
+  const rejectedIds = decisions.filter((d) => !d.approved).map((d) => d.id)
+
+  // Reload the staged rows so the commit uses server state, not whatever the
+  // panel was holding — category and label are not contractor-editable here.
+  const NO_MATCH = '00000000-0000-0000-0000-000000000000'
+  const { data: staged, error: loadErr } = await supabase
+    .from('jamie_proposed_lines')
+    .select(
+      'id, jamie_proposed_work_area_id, category, label, unit, quantity, unit_cost, catalog_item_id, kit_id, sort_order, jamie_proposed_work_areas!inner(inserted_work_area_id)'
+    )
+    .in('id', approvedIds.length > 0 ? approvedIds : [NO_MATCH])
+  if (loadErr) throw new Error(`Couldn't load the staged lines: ${loadErr.message}`)
+
+  let written = 0
+  for (const row of (staged ?? []) as unknown as Array<Record<string, unknown>>) {
+    const parent = row.jamie_proposed_work_areas as {
+      inserted_work_area_id: string | null
+    } | null
+    const waId = parent?.inserted_work_area_id
+    // A line whose work area was never approved has nowhere to land.
+    if (!waId) continue
+    const d = byId.get(row.id as string)
+    const { data: lineRow, error: lineErr } = await supabase
+      .from('work_area_lines')
+      .insert({
+        work_area_id: waId,
+        category: row.category as string,
+        label: row.label as string,
+        unit: (row.unit as string) ?? '',
+        quantity: d?.quantity ?? (row.quantity as number) ?? 0,
+        unit_cost: d?.unitCost ?? (row.unit_cost as number) ?? 0,
+        price_override: null,
+        catalog_item_id: (row.catalog_item_id as string) ?? null,
+        source_kit_id: (row.kit_id as string) ?? null,
+        sort_order: (row.sort_order as number) ?? 0,
+      })
+      .select('id')
+      .single()
+    if (lineErr || !lineRow) {
+      throw new Error(`Couldn't add "${row.label}": ${lineErr?.message ?? 'no row'}`)
+    }
+    written++
+    const { error: stampErr } = await supabase
+      .from('jamie_proposed_lines')
+      .update({ status: 'approved', inserted_work_area_line_id: lineRow.id as string })
+      .eq('id', row.id as string)
+    if (stampErr) throw new Error(`Couldn't record the approval: ${stampErr.message}`)
+  }
+
+  if (rejectedIds.length > 0) {
+    const { error: rejErr } = await supabase
+      .from('jamie_proposed_lines')
+      .update({ status: 'rejected' })
+      .in('id', rejectedIds)
+    if (rejErr) throw new Error(`Couldn't record the rejections: ${rejErr.message}`)
+  }
+
+  await setRunStatus(runId, 'committed')
+  return written
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Gate reads
+// ──────────────────────────────────────────────────────────────────────
+
+/** Staged work areas for a run, in Jamie's proposed order. */
+export async function listProposedWorkAreas(
+  runId: string
+): Promise<JamieProposedWorkArea[]> {
+  const { data, error } = await supabase
+    .from('jamie_proposed_work_areas')
+    .select('*')
+    .eq('jamie_run_id', runId)
+    .order('sort_order')
+  if (error) throw new Error(`Couldn't load the proposed work areas: ${error.message}`)
+  return (data ?? []) as JamieProposedWorkArea[]
+}
+
+/**
+ * Staged lines for a run, grouped under their staged work area. Only the
+ * work areas that survived Gate 1 carry lines, so this drives the Gate 2 UI
+ * directly.
+ */
+export async function listProposedLines(
+  runId: string
+): Promise<Array<JamieProposedWorkArea & { lines: JamieProposedLine[] }>> {
+  const was = await listProposedWorkAreas(runId)
+  const approved = was.filter((w) => w.status === 'approved')
+  if (approved.length === 0) return []
+  const { data, error } = await supabase
+    .from('jamie_proposed_lines')
+    .select('*')
+    .in(
+      'jamie_proposed_work_area_id',
+      approved.map((w) => w.id)
+    )
+    .order('sort_order')
+  if (error) throw new Error(`Couldn't load the proposed lines: ${error.message}`)
+  const lines = (data ?? []) as JamieProposedLine[]
+  return approved.map((w) => ({
+    ...w,
+    lines: lines.filter((l) => l.jamie_proposed_work_area_id === w.id),
+  }))
+}

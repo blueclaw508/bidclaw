@@ -4,6 +4,9 @@
 
 import { supabase } from '@/lib/supabase'
 
+/** What the function is being asked to do (J3). */
+export type JamieAction = 'chat' | 'propose_work_areas' | 'propose_lines'
+
 export interface JamieChatCallbacks {
   /** Streamed text as it arrives (append to the pending bubble). */
   onTextDelta: (text: string) => void
@@ -11,12 +14,21 @@ export interface JamieChatCallbacks {
   onDone: () => void
   /** Typed deny (403 JSON) or stream failure. */
   onError: (message: string, code?: string) => void
+  /**
+   * J3 pass heartbeat. A pass streams raw JSON, which the function swallows,
+   * so there is no visible text for 1-3 minutes — this is what keeps the
+   * progress line honest instead of a frozen spinner.
+   */
+  onProgress?: (chars: number) => void
+  /** A pass finished staging: the run has moved to its review gate. */
+  onStaged?: (gate: 'work_areas' | 'lines', count: number) => void
 }
 
 /**
- * Send one chat turn. Resolves when the stream closes (after onDone /
- * onError has fired). Contract: POST { jamie_run_id, message, request_type }
- * → SSE pass-through of Anthropic events + jamie_done / jamie_error.
+ * Send one turn. Resolves when the stream closes (after onDone / onError has
+ * fired). Contract: POST { jamie_run_id, message, request_type, action } →
+ * SSE pass-through of Anthropic events + jamie_progress / jamie_staged /
+ * jamie_done / jamie_error.
  */
 export async function sendJamieChatMessage(
   input: {
@@ -24,6 +36,7 @@ export async function sendJamieChatMessage(
     text: string
     imageRefs?: string[]
     requestType?: 'vision_estimate' | 'validation' | 'summary'
+    action?: JamieAction
     signal?: AbortSignal
   },
   cb: JamieChatCallbacks
@@ -51,6 +64,7 @@ export async function sendJamieChatMessage(
           jamie_run_id: input.runId,
           message: { text: input.text, image_refs: input.imageRefs ?? [] },
           request_type: input.requestType ?? 'vision_estimate',
+          action: input.action ?? 'chat',
         }),
         signal: input.signal,
       }
@@ -90,6 +104,9 @@ export async function sendJamieChatMessage(
         type?: string
         delta?: { type?: string; text?: string }
         error?: string
+        chars?: number
+        gate?: 'work_areas' | 'lines'
+        count?: number
       }
       try {
         event = JSON.parse(line.slice(6))
@@ -98,6 +115,10 @@ export async function sendJamieChatMessage(
       }
       if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
         cb.onTextDelta(event.delta.text ?? '')
+      } else if (event.type === 'jamie_progress') {
+        cb.onProgress?.(event.chars ?? 0)
+      } else if (event.type === 'jamie_staged') {
+        cb.onStaged?.(event.gate ?? 'work_areas', event.count ?? 0)
       } else if (event.type === 'jamie_done') {
         finished = true
         cb.onDone()

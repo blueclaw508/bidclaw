@@ -1,5 +1,22 @@
-// verify-jamie — J1 smoke harness for the jamie-chat Edge Function.
+// verify-jamie — J1/J2 smoke harness for the jamie-chat Edge Function.
 // Run: npm run verify:jamie
+//
+// ⚠️ STALE AS OF J3 (2026-08-24). This harness asserts the ECHO STUB brain,
+// which J3 deleted — assertions 2, 6, 7, 8, 10, 11 and 13 all match on
+// "ECHO: <text>" and WILL FAIL against the J3 function even when J3 is
+// working correctly. Assertion 3 also pins model_used to claude-opus-4-8;
+// J3 moved the estimation slot to claude-opus-5.
+//
+// It has NOT been rewritten because it calls the DEPLOYED function and J3 is
+// not deployed yet — the new assertions have to be written against observed
+// behaviour, not guessed. Rewrite it in the same session that deploys J3,
+// replacing the ECHO asserts with: a chat turn returns non-empty non-ECHO
+// prose; propose_work_areas stages >=1 jamie_proposed_work_areas row and
+// moves the run to awaiting_wa_approval; Gate 1 commit creates real
+// work_areas rows and stamps inserted_work_area_id; propose_lines stages
+// lines and moves to awaiting_line_approval; Gate 2 commit writes
+// work_area_lines and closes the run as committed; rejected staging rows
+// survive with status 'rejected' and a null inserted id.
 //
 // Path B pattern (service-role session injection), but API-level: we mint
 // real sessions and call the DEPLOYED function over HTTP, then assert
