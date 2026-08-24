@@ -593,10 +593,34 @@ export interface LineDecision {
 export async function commitLineGate(
   runId: string,
   decisions: LineDecision[]
-): Promise<number> {
+): Promise<{ written: number; catalogAdded: number }> {
   const byId = new Map(decisions.map((d) => [d.id, d]))
   const approvedIds = decisions.filter((d) => d.approved).map((d) => d.id)
   const rejectedIds = decisions.filter((d) => !d.approved).map((d) => d.id)
+
+  // ── The catalog flywheel (KYN Layer 3: active learning) ─────────────
+  // The contractor should never have to sit down and type a catalog. It
+  // accretes from jobs they have already priced: every item Jamie writes
+  // that isn't in the catalog yet becomes a catalog item at the moment
+  // the contractor approves its price here. Next estimate, she prices it
+  // from THEIR number instead of her own.
+  //
+  // Materials, subs and other only — labor and equipment rates belong to
+  // My Numbers (company_labor_types / company_equipment_rates), and the
+  // "General Conditions & Rounding" plug is per-job, not a catalog item.
+  const { data: auth } = await supabase.auth.getUser()
+  const userId = auth?.user?.id ?? null
+  const CATALOGABLE = new Set(['material', 'subcontractor', 'other'])
+  const { data: existingCatalog } = userId
+    ? await supabase.from('catalog_items').select('id, name').eq('user_id', userId)
+    : { data: null }
+  const catalogByName = new Map(
+    ((existingCatalog ?? []) as Array<{ id: string; name: string }>).map((c) => [
+      c.name.trim().toLowerCase(),
+      c.id,
+    ])
+  )
+  let catalogAdded = 0
 
   // Reload the staged rows so the commit uses server state, not whatever the
   // panel was holding — category and label are not contractor-editable here.
@@ -618,17 +642,66 @@ export async function commitLineGate(
     // A line whose work area was never approved has nowhere to land.
     if (!waId) continue
     const d = byId.get(row.id as string)
+    const label = String(row.label ?? '').trim()
+    const category = row.category as string
+    const cost = d?.unitCost ?? (row.unit_cost as number) ?? 0
+
+    // Find-or-create the catalog item this line represents, so the
+    // contractor's catalog grows from the work they actually price.
+    let catalogItemId = (row.catalog_item_id as string) ?? null
+    if (
+      !catalogItemId &&
+      userId &&
+      CATALOGABLE.has(category) &&
+      label &&
+      !/general conditions/i.test(label) &&
+      cost > 0
+    ) {
+      const key = label.toLowerCase()
+      const hit = catalogByName.get(key)
+      if (hit) {
+        catalogItemId = hit
+      } else {
+        const { data: newItem } = await supabase
+          .from('catalog_items')
+          .insert({
+            user_id: userId,
+            name: label,
+            unit: (row.unit as string) || 'EA',
+            category,
+            // The price the contractor just confirmed at Gate 2 — a real
+            // number from a real job, not a guess.
+            unit_cost: cost,
+            // Markup stays 0 on the item: BidClaw applies the company
+            // markup for the category at render (KYN — one universal
+            // markup, not a per-item one).
+            markup_percent: 0,
+            needs_pricing: false,
+            active: true,
+          })
+          .select('id')
+          .single()
+        if (newItem) {
+          catalogItemId = newItem.id as string
+          catalogByName.set(key, catalogItemId)
+          catalogAdded++
+        }
+        // A failed catalog insert is deliberately NOT fatal — losing the
+        // estimate because a catalog row wouldn't save is the wrong trade.
+      }
+    }
+
     const { data: lineRow, error: lineErr } = await supabase
       .from('work_area_lines')
       .insert({
         work_area_id: waId,
-        category: row.category as string,
-        label: row.label as string,
+        category,
+        label,
         unit: (row.unit as string) ?? '',
         quantity: d?.quantity ?? (row.quantity as number) ?? 0,
-        unit_cost: d?.unitCost ?? (row.unit_cost as number) ?? 0,
+        unit_cost: cost,
         price_override: null,
-        catalog_item_id: (row.catalog_item_id as string) ?? null,
+        catalog_item_id: catalogItemId,
         source_kit_id: (row.kit_id as string) ?? null,
         sort_order: (row.sort_order as number) ?? 0,
       })
@@ -654,7 +727,7 @@ export async function commitLineGate(
   }
 
   await setRunStatus(runId, 'committed')
-  return written
+  return { written, catalogAdded }
 }
 
 // ──────────────────────────────────────────────────────────────────────

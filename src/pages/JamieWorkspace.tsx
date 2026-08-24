@@ -275,8 +275,13 @@ export default function JamieWorkspace() {
       if (!run) return
       setGateBusy(true)
       try {
-        const written = await commitLineGate(run.id, decisions)
-        toast.success(`${written} line${written === 1 ? '' : 's'} added to the estimate.`)
+        const { written, catalogAdded } = await commitLineGate(run.id, decisions)
+        toast.success(
+          `${written} line${written === 1 ? '' : 's'} added to the estimate.` +
+            (catalogAdded
+              ? ` ${catalogAdded} new item${catalogAdded === 1 ? '' : 's'} saved to your catalog.`
+              : '')
+        )
         const fresh = await getActiveJamieRun(projectId)
         setRun(fresh ?? { ...run, status: 'committed' })
       } catch (err) {

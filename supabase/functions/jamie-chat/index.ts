@@ -273,7 +273,9 @@ ${staged}
 
 For each work area, work in this order: material takeoff → equipment → labor hours → general conditions. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is stone, mortar, lath, water-resistive barrier, fasteners, weep screed, corner pieces. Use the kit factors above against the quantities in the scope text, then apply the contractor's rates.
 
-reasoning: one short line on where the quantity came from ("1,240 SF × 0.22 hr/SF mason"). This is what the contractor reads to decide whether to trust the line.
+label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. "Thermal Bluestone 1.5\"", "Processed Dense Grade", "Mason Sand", "Polymeric Sand". NOT "Thermal Bluestone, Pattern Cut 1.5\" — terrace field" and NOT "Processed Dense Grade Gravel — 8\" compacted base". Every item you price that isn't already in the catalog gets SAVED to the contractor's catalog under this exact name and reused on their next job, so a job-specific label quietly fills their catalog with duplicates that never match again. Keep the same item spelled the same way every time.
+
+reasoning: where the quantity came from AND the job-specific detail that does not belong in the label ("620 SF × 1.10 waste = 682 SF, terrace field, pattern cut"; "1,240 SF × 0.22 hr/SF mason"). This is what the contractor reads to decide whether to trust the line.
 
 ${kyn}
 
