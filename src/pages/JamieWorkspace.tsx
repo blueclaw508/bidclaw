@@ -303,8 +303,13 @@ export default function JamieWorkspace() {
   }, [run, streaming, gateBusy, projectId])
 
   const chip = run ? STATUS_CHIP[run.status] : null
-  const readable = files.filter((f) => f.anthropic_file_id)
-  const unreadable = files.filter((f) => !f.anthropic_file_id && f.anthropic_sync_error)
+  // Readable = "Jamie will read this", NOT "already uploaded to Anthropic".
+  // The sync is lazy — it runs on the first message — so counting synced
+  // files made a fresh workspace announce "0 of 4 project files", which is
+  // the exact "she can't see my plans" scare this whole change exists to
+  // kill. A file only stops being readable when it has a sync error.
+  const readable = files.filter((f) => !f.anthropic_sync_error)
+  const unreadable = files.filter((f) => f.anthropic_sync_error)
   const atGate = stagedWas.length > 0 || stagedGroups.length > 0
   const canPropose =
     !!run && run.status === 'in_progress' && messages.length > 0 && !atGate && !streaming
@@ -365,8 +370,9 @@ export default function JamieWorkspace() {
               Jamie is reading
             </p>
             <p className="mt-0.5 text-[11px] text-gray-400">
-              {readable.length} of {files.length} project file
-              {files.length === 1 ? '' : 's'}
+              {unreadable.length === 0
+                ? `${files.length} project file${files.length === 1 ? '' : 's'}`
+                : `${readable.length} of ${files.length} project file${files.length === 1 ? '' : 's'}`}
             </p>
           </div>
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2">
@@ -377,7 +383,7 @@ export default function JamieWorkspace() {
               </p>
             ) : (
               files.map((f) => {
-                const ok = !!f.anthropic_file_id
+                const ok = !f.anthropic_sync_error
                 const Icon = (f.mime_type ?? '').startsWith('image/') ? ImageIcon : FileText
                 return (
                   <div
