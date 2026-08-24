@@ -1,5 +1,51 @@
 # LOOP-STATE — BidClaw
 
+## ⚑ KYN METHODOLOGY — THE RULE JAMIE KEEPS DRIFTING FROM (2026-08-24)
+Ian's correction, verbatim: "Jamie is supposed to come up with quantities
+and for materials/subs the costs plus markup (universal from My Numbers)
+and hours x retail labor rates (from My Numbers)....so nothing should be
+zero."
+
+THE CONTRACT, in one place, because this has now broken twice:
+  QUANTITIES   Jamie's job. Kit factors x measured quantity.
+  MATERIALS    unit_cost = BASE cost (what Ian PAYS). BidClaw applies the
+               materials markup from My Numbers. Never pre-marked-up.
+  SUBS         unit_cost = BASE sub cost. Subs markup applied by BidClaw.
+  LABOR        qty = man-hours (Jamie's projection). unit_cost = the
+               RETAIL labor rate from My Numbers, VERBATIM. No markup —
+               the retail rate is already fully burdened.
+  EQUIPMENT    qty = hours. unit_cost = the equipment rate from My
+               Numbers, verbatim. No markup.
+  NOTHING IS ZERO. Not in the catalog is NOT a reason to return 0 — she
+  prices it from real supplier pricing and flags needs_pricing, which
+  means "Jamie's figure, confirm it", never "$0".
+  markup_override stays NULL on a FORWARD estimate (follows My Numbers).
+  Only REVERSE INGESTION pins a markup, because there the signed price is
+  sacrosanct.
+
+HOW IT BROKE (both times a prompt line, not a code bug):
+- J3's Pass 2 prompt said "Anything you cannot price from the catalog:
+  unit_cost 0 and needs_pricing true. Never invent a price you don't have
+  a basis for." With Ian's near-empty catalog that produced a 27-line
+  takeoff with 16 lines at $0 — a valid-looking estimate that under-bid
+  the job. Fixed 287ec8b.
+- RI wrote the BILLED amount into unit_cost at 0% markup, so every
+  material line claimed zero margin. Fixed + backfilled earlier the same
+  day.
+
+CANNOT BE ENFORCED IN THE SCHEMA. Structured output supports NEITHER
+`exclusiveMinimum` NOR `minimum` on numbers — both 400 with "not
+supported for 'number' type" (verified 2026-08-24). Do not retry it. The
+rule is enforced by the ⚑ block in the Pass 2 prompt and by Gate 2, which
+disables the commit button while an approved line has no cost.
+
+VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
+  5b every staged line has a real qty and unit_cost
+  5c labor/equipment match a CONFIGURED My Numbers rate, not an invented one
+  6b markup_override NULL on forward estimates
+Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
+cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
+
 ## J4 — JAMIE READS THE PROJECT'S FILES + FULL-PAGE WORKSPACE (2026-08-24) — SHIPPED
 Ian tried to start a real proposal (Levinson / McPhee Builders), uploaded
 3 plan sheets + the bid form, and Jamie said "I don't see anything attached
