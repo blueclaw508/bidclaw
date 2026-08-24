@@ -119,11 +119,12 @@ const textOf = (events) =>
     .join('')
 
 // A real job, described the way Ian would describe one.
-const SCOPE = `New build on Osterville. Two things out back.
-Rear terrace: 620 SF of dry-laid bluestone, thermal, over compacted
-processed base. Roughly 96 LF of open edge that needs edge restraint.
-Front walk: 140 SF of the same bluestone, plus 4 granite steps up to the
-entry. Machine access is fine off the driveway. We haul off the spoils.`
+const SCOPE = `New build, foundation is exposed and the client wants it faced.
+Veneer the front and both side foundation walls in Boston Blend round
+fieldstone veneer, roughly 420 SF of face. Wall is poured concrete.
+Also a 620 SF dry-laid bluestone terrace off the back over compacted
+processed base, about 96 LF of open edge. Machine access off the
+driveway is fine, we haul off the spoils. Price it.`
 
 async function main() {
   const started = Date.now()
@@ -346,18 +347,32 @@ async function main() {
         .map((r) => Number(r.rate_per_hour))
         .filter((n) => n > 0)
     )
+    // A rate the contractor HAS configured must be used verbatim. A machine
+    // they have not configured still gets a real number (nothing is zero) —
+    // but it must be FLAGGED so they confirm it rather than it slipping in
+    // as though it came from My Numbers.
     const offRate = lines.filter(
       (l) =>
         (l.category === 'labor' || l.category === 'equipment') &&
         ownRates.size > 0 &&
-        !ownRates.has(Number(l.unit_cost))
+        !ownRates.has(Number(l.unit_cost)) &&
+        !l.needs_pricing
+    )
+    const flaggedRates = lines.filter(
+      (l) =>
+        (l.category === 'labor' || l.category === 'equipment') &&
+        !ownRates.has(Number(l.unit_cost)) &&
+        l.needs_pricing
     )
     check(
-      '5c. labor + equipment priced from My Numbers, not invented',
+      '5c. configured rates used verbatim; unconfigured ones flagged for confirmation',
       offRate.length === 0,
       offRate.length
-        ? offRate.map((o) => `"${o.label}" $${o.unit_cost}/hr`).slice(0, 5).join(' | ')
-        : `${ownRates.size} configured rates, all matched`
+        ? 'UNFLAGGED: ' + offRate.map((o) => `"${o.label}" $${o.unit_cost}/hr`).slice(0, 5).join(' | ')
+        : `${ownRates.size} configured rates matched` +
+          (flaggedRates.length
+            ? `; ${flaggedRates.length} flagged (${flaggedRates.map((f) => f.label).join(', ')})`
+            : '')
     )
 
     // ── 6: Gate 2 — commit every staged line ───────────────────────
@@ -421,6 +436,38 @@ async function main() {
       `written=${written}, realLines=${realLineCount}, status=${runFinal?.status}`
     )
 
+    // ── 5d: the veneer/mortar fail-safe ────────────────────────────
+    // Ian's real bug: a Veneer Foundation scope that described MORTARING
+    // the stone with no mortar on the materials list. The scope check
+    // runs on Sonnet after the takeoff and adds anything the words
+    // promise that the lines miss.
+    const scopeText = (
+      await admin
+        .from('jamie_proposed_work_areas')
+        .select('proposed_description')
+        .in('id', approvedPwaIds)
+    ).data
+      ?.map((w) => String(w.proposed_description ?? ''))
+      .join(' ')
+      .toLowerCase() ?? ''
+    const labels = lines.map((l) => String(l.label).toLowerCase()).join(' | ')
+    const mentionsMortar = /mortar|parge|point/.test(scopeText)
+    const billsMortarFamily = /mortar|portland|type s|masonry cement/.test(labels)
+    check(
+      '5d. scope-vs-lines: mortar promised in the words is billed in the lines',
+      !mentionsMortar || billsMortarFamily,
+      `scope mentions mortar=${mentionsMortar}, lines bill mortar/portland=${billsMortarFamily}`
+    )
+    const addedByCheck = lines.filter((l) =>
+      /added by scope check/i.test(String(l.reasoning ?? ''))
+    )
+    console.log(
+      `   scope check added ${addedByCheck.length} line(s)` +
+        (addedByCheck.length
+          ? ': ' + addedByCheck.map((l) => l.label).join(' · ')
+          : ' (takeoff was already complete)')
+    )
+
     // ── 6b: markup is LIVE on a forward estimate ───────────────────
     // markup_override NULL = "use the company markup for this category".
     // Forward estimates must follow My Numbers; only reverse ingestion
@@ -466,12 +513,18 @@ async function main() {
     const allFinal = (invs ?? []).every(
       (i) => i.ended_at !== null && i.input_tokens > 0 && i.output_tokens > 0
     )
-    const onOpus5 = (invs ?? []).every((i) => i.model_used === 'claude-opus-5')
+    // 3 Opus passes + 1 Sonnet scope check.
+    const onOpus5 = (invs ?? []).filter((i) => i.model_used === 'claude-opus-5').length >= 3
     const totalCost = (invs ?? []).reduce((a, i) => a + Number(i.estimated_cost_usd ?? 0), 0)
     check(
-      '7. every invocation metered on claude-opus-5 with real tokens + cost',
-      (invs?.length ?? 0) === 3 && allFinal && onOpus5 && totalCost > 0,
-      `rows=${invs?.length}, models=${[...new Set((invs ?? []).map((i) => i.model_used))].join('/')}, total=$${totalCost.toFixed(4)}`
+      '7. every invocation metered with real tokens + cost (3x Opus + scope check)',
+      (invs?.length ?? 0) >= 3 && allFinal && totalCost > 0,
+      (invs ?? [])
+        .map(
+          (i) =>
+            `${i.model_used} in=${i.input_tokens} out=${i.output_tokens} ended=${i.ended_at ? 'y' : 'NO'} $${i.estimated_cost_usd}`
+        )
+        .join(' | ')
     )
 
     mkdirSync('verifications/jamie', { recursive: true })

@@ -163,6 +163,91 @@ const LINE_SCHEMA = {
   },
 } as const
 
+// ── Reconciliation fail-safe (the veneer/mortar bug) ──────────────────
+// Ian, from a real estimate: a "Veneer Foundation" work area whose scope
+// described MORTARING the veneer, with no mortar anywhere on the
+// materials list. Writing the scope from the takeoff makes that less
+// likely; it does not make it impossible. So after the takeoff is built,
+// a second model re-reads the finished scope against the finished line
+// items and names anything the words promise that the lines do not bill.
+//
+// Runs on Sonnet (MODEL_ROUTER.validation, Loop Rule 9: Opus estimates,
+// Sonnet validates). Cheap, non-streaming, and it only ever ADDS lines —
+// it can never delete or reprice what Opus decided.
+
+const RECONCILE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['work_areas'],
+  properties: {
+    work_areas: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['proposed_work_area_id', 'missing_lines'],
+        properties: {
+          proposed_work_area_id: { type: 'string' },
+          missing_lines: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['category', 'label', 'qty', 'unit', 'unit_cost', 'mentioned_in_scope'],
+              properties: {
+                category: {
+                  type: 'string',
+                  enum: ['labor', 'material', 'equipment', 'subcontractor', 'other'],
+                },
+                label: { type: 'string' },
+                qty: { type: 'number' },
+                unit: { type: 'string' },
+                unit_cost: { type: 'number' },
+                // The exact words in the scope that promise this item —
+                // quoted back so the contractor can see WHY it was added.
+                mentioned_in_scope: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+} as const
+
+interface ReconcileWorkArea {
+  proposed_work_area_id: string
+  scope_description: string
+  line_items: Array<{ category: string; label: string; unit: string }>
+}
+
+function buildReconcilePrompt(ctx: BrainContext): string {
+  const cat = ctx.catalog.length
+    ? ctx.catalog.map((c) => `  - ${c.name} (${c.unit}): $${c.cost}`).join('\n')
+    : '  (empty — price from current supplier pricing for the trade and region)'
+  return `You are checking a finished contractor estimate for ONE specific failure: something the SCOPE TEXT promises the client, that the LINE ITEMS do not bill.
+
+The real example this check exists for: a "Veneer Foundation" work area whose scope described mortaring the stone veneer to the foundation — and the materials list had no mortar on it. The client was promised mortar; the estimate charged nothing for it. That is money out of the contractor's pocket on every job it happens.
+
+For each work area you are given the final scope description and the labels of every line item billed. Find every MATERIAL, EQUIPMENT, SUBCONTRACTOR or LABOR STEP that the scope text states or clearly implies but that no line item covers. Typical misses: mortar, portland, sand, lath, fasteners, weep screed, barrier/felt, joint sand, sealer, adhesive, rebar, wire mesh, form board, geotextile, drainage stone, disposal, delivery, a machine a described step cannot happen without, a saw for described cutting.
+
+Rules:
+- Only report something the SCOPE ACTUALLY MENTIONS or that a named step physically cannot happen without. Do not upsell, do not add scope, do not second-guess quantities that are already billed.
+- If a line already covers it under a different name, it is NOT missing. "Processed Dense Grade" covers "compacted base". "Mason Sand" covers "setting bed".
+- Give every missing line a real qty and unit_cost — never zero. Use the catalog where the item exists, otherwise current supplier pricing for the trade and region.
+- Materials/subs unit_cost is the BASE cost; the app applies the contractor's markup. Labor is man-hours x the contractor's retail rate; equipment is hours x their rate.
+- Quote the words from the scope that put you onto it in mentioned_in_scope.
+- A work area with nothing missing returns an empty missing_lines array. That is the expected result on a good estimate — do not invent something to report.
+
+THE CONTRACTOR'S RATES:
+Labor: ${ctx.laborTypes.map((l) => `${l.name} $${l.rate}/hr`).join(', ') || '(none set)'}
+Equipment: ${ctx.equipmentRates.map((e) => `${e.name} $${e.rate}/hr`).join(', ') || '(none set)'}
+Catalog:
+${cat}
+
+Return ONLY the JSON object.`
+}
+
 // ── System prompt ─────────────────────────────────────────────────────
 
 interface BrainContext {
@@ -236,7 +321,7 @@ number. needs_pricing means "Jamie's figure, please confirm" — it NEVER
 means zero. There is no such thing as a line you cannot price.
 
 - LABOR is projected man-hours × the contractor's retail labor rate. qty = man-hours (YOUR projection, from the kit factors × the measured quantity), unit_cost = the retail labor rate from THE CONTRACTOR'S KYN NUMBERS below, used verbatim — never a rate you invented. A full crew day is 27 man-hours (3 crew × 9 hours). Round UP to a full day when you are within 20% of 27 — crews fill the day. Half day = 13-14 hours. The retail rate is already fully burdened (wage + taxes + comp + overhead + profit), so labor carries NO markup.
-- EQUIPMENT is internal rental HOURS: qty = hours, unit_cost = the equipment rate from the contractor's numbers below, verbatim. Every machine is its own line — cement mixer, plate compactor, skid loader, cut-off saw. Not overhead. Equipment carries no markup either; the rate already includes it.
+- EQUIPMENT is internal rental HOURS: qty = hours, unit_cost = the equipment rate from the contractor's numbers below, VERBATIM — copy their figure exactly, never round or adjust it. If the machine a step needs is NOT in their configured rates (say the job needs a cement mixer and they have not set one), still price it at a realistic internal rental rate — never zero — but set needs_pricing TRUE on that line. Same rule for a labor type they have not configured. An invented rate must never sit in their estimate looking like a number they gave you. Every machine is its own line — cement mixer, plate compactor, skid loader, cut-off saw. Not overhead. Equipment carries no markup either; the rate already includes it.
 - MATERIALS and SUBCONTRACTORS: qty = the measured quantity from your takeoff, unit_cost = the BASE cost — what the contractor PAYS, before margin. Use the catalog cost when the item is in the catalog below. When it is not, use your own knowledge of current supplier pricing for this trade and region, and flag needs_pricing. BidClaw automatically applies the contractor's markups on top (materials ${ctx.materialsMarkup}%, subs ${ctx.subsMarkup}%) — so do NOT pre-mark-up, and do NOT put a retail/billed price in unit_cost. Name anything you priced yourself in new_catalog_items so it gets saved for next time.
 - GENERAL CONDITIONS: every work area ends with one "General Conditions & Rounding" line (category "other", qty 1, unit "EA") covering incidentals — a real dollar amount sized to the job, not zero.
 
@@ -1021,6 +1106,132 @@ Deno.serve(async (req: Request) => {
             })
           }
           if (rows.length === 0) throw new Error('Jamie returned no line items')
+
+          // ── Fail-safe: does the scope promise anything the lines miss?
+          let reconciled = 0
+          try {
+            const forCheck: ReconcileWorkArea[] = (parsed.work_areas ?? [])
+              .filter((w) => stagedIds.has(w.proposed_work_area_id))
+              .map((w) => ({
+                proposed_work_area_id: w.proposed_work_area_id,
+                scope_description: w.scope_description ?? '',
+                line_items: w.line_items.map((l) => ({
+                  category: l.category,
+                  label: l.label,
+                  unit: l.unit,
+                })),
+              }))
+            const checkModel = MODEL_ROUTER.validation
+            const { data: rInv } = await service
+              .from('jamie_invocations')
+              .insert({
+                user_id: user.id,
+                jamie_run_id: run.id,
+                model_used: checkModel,
+                chat_turn_number: run.chat_turn_count + 1,
+              })
+              .select('id')
+              .single()
+            const rMsg = await anthropic.messages.create({
+              model: checkModel,
+              max_tokens: 8000,
+              thinking: { type: 'adaptive' },
+              ...({
+                output_config: {
+                  effort: 'medium',
+                  format: { type: 'json_schema', schema: RECONCILE_SCHEMA },
+                },
+              } as Record<string, unknown>),
+              system: [
+                {
+                  type: 'text',
+                  text: buildReconcilePrompt(brainCtx),
+                  cache_control: { type: 'ephemeral' },
+                },
+              ],
+              messages: [
+                {
+                  role: 'user',
+                  content: `Check these finished work areas:\n\n${JSON.stringify(forCheck)}`,
+                },
+              ],
+            })
+            const rText = rMsg.content
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join('')
+            const rParsed = JSON.parse(rText) as {
+              work_areas?: Array<{
+                proposed_work_area_id: string
+                missing_lines: Array<{
+                  category: string
+                  label: string
+                  qty: number
+                  unit: string
+                  unit_cost: number
+                  mentioned_in_scope: string
+                }>
+              }>
+            }
+            for (const wa of rParsed.work_areas ?? []) {
+              if (!stagedIds.has(wa.proposed_work_area_id)) continue
+              const base = rows.filter(
+                (r) => r.jamie_proposed_work_area_id === wa.proposed_work_area_id
+              ).length
+              wa.missing_lines.forEach((m, i) => {
+                // Never zero, and never a duplicate of a line already billed.
+                if (!(Number(m.unit_cost) > 0) || !(Number(m.qty) > 0)) return
+                const dup = rows.some(
+                  (r) =>
+                    r.jamie_proposed_work_area_id === wa.proposed_work_area_id &&
+                    String(r.label).trim().toLowerCase() === m.label.trim().toLowerCase()
+                )
+                if (dup) return
+                rows.push({
+                  jamie_proposed_work_area_id: wa.proposed_work_area_id,
+                  category: m.category,
+                  label: m.label.trim(),
+                  unit: m.unit?.trim() || 'EA',
+                  quantity: m.qty,
+                  unit_cost: m.unit_cost,
+                  catalog_item_id:
+                    catalogByName.get(m.label.trim().toLowerCase()) ?? null,
+                  reasoning: `Added by scope check — the scope says "${m.mentioned_in_scope}" but nothing billed it.`,
+                  needs_pricing: true,
+                  sort_order: base + 900 + i,
+                })
+                reconciled++
+              })
+            }
+            if (rInv) {
+              const ru = rMsg.usage
+              await service
+                .from('jamie_invocations')
+                .update({
+                  ended_at: new Date().toISOString(),
+                  input_tokens:
+                    (ru.input_tokens ?? 0) + (ru.cache_creation_input_tokens ?? 0),
+                  output_tokens: ru.output_tokens ?? 0,
+                  cached_input_tokens: ru.cache_read_input_tokens ?? 0,
+                  estimated_cost_usd: estimateCostUsd(checkModel, ru),
+                })
+                .eq('id', rInv.id)
+            }
+          } catch (checkErr) {
+            // The check is a SAFETY NET, not a gate: if it fails the
+            // estimate still stands. But it must fail LOUDLY — a silently
+            // skipped safety net reads exactly like a clean bill of health.
+            reconciled = -1
+            const msg = checkErr instanceof Error ? checkErr.message : String(checkErr)
+            console.error('scope check failed:', msg)
+            await service
+              .from('jamie_invocations')
+              .update({ ended_at: new Date().toISOString(), outcome: 'error' })
+              .eq('jamie_run_id', run.id)
+              .eq('model_used', MODEL_ROUTER.validation)
+              .is('ended_at', null)
+          }
+
           const { error: lineErr } = await service.from('jamie_proposed_lines').insert(rows)
           if (lineErr) throw new Error(`couldn't stage the line items (${lineErr.message})`)
           await service
@@ -1028,11 +1239,16 @@ Deno.serve(async (req: Request) => {
             .update({ status: 'awaiting_line_approval' })
             .eq('id', run.id)
           const unpriced = rows.filter((r) => r.needs_pricing).length
+          const reconLine =
+            reconciled > 0
+              ? `I ran the scope back against the takeoff and found ${reconciled} thing${reconciled === 1 ? '' : 's'} the write-up promised but nothing billed — added, flagged for you to check.`
+              : ''
           const qs = parsed.gap_questions ?? []
           spokenText = [
             `${rows.length} line item${rows.length === 1 ? '' : 's'} across ${
               parsed.work_areas?.length ?? 0
             } work area${(parsed.work_areas?.length ?? 0) === 1 ? '' : 's'}.`,
+            reconLine,
             unpriced
               ? `${unpriced} of them aren't in your catalog yet — tell me what you pay and I'll save them.`
               : '',
