@@ -33,3 +33,6 @@ test-plans/
 # Phase 9-lite verification artifacts (auth state + screenshots + PDFs)
 verifications/
 .env.local
+
+# Supabase CLI scratch (project ref cache, local temp)
+supabase/.temp/

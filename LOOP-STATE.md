@@ -19,10 +19,14 @@ The arc's plan (J3 brain, J5/J8 prompt growth, J6 retire jamie-estimate,
 J7 cleanup) exists ONLY in code comments — there is no spec file. Grep
 "J3"/"J6"/"J8" in supabase/functions/jamie-chat and JamieChatPanel.
 
-## J3 — WHOLE-PROJECT BRAIN + TWO GATES (2026-08-24) — CODE COMPLETE, NOT VERIFIED
+## J3 — WHOLE-PROJECT BRAIN + TWO GATES (2026-08-24) — SHIPPED + LIVE-VERIFIED 7/7
 Replaces the ECHO stub with the real KYN brain and adds whole-project mode.
-STATUS: compiles and builds clean; ZERO behavioural verification. Not
-deployed, not run once. Do not describe J3 as working until it is.
+DEPLOYED to cdjpzvyqvohwmlmquldt and verified end to end: npm run
+verify:jamie-loop walks chat -> Pass 1 -> Gate 1 -> Pass 2 -> Gate 2 against
+the live function and DB, 7/7, 81s, $0.2158 for the whole loop, fixtures
+cleaned up. On a two-scope Osterville job Jamie proposed "Rear Bluestone
+Terrace" + "Front Walk & Granite Entry Steps" and built a 12-line takeoff
+(material/labor/equipment/other incl. a General Conditions line).
 
 What was built:
 - supabase/functions/jamie-chat/index.ts — three actions over the one
@@ -64,18 +68,32 @@ What was built:
   the ingest brain and the loop brain share one copy. jamie-ingest still
   carries its inline duplicate; dedupe on its next change.
 
-VERIFIED: npx tsc -b --noEmit exit 0; npm run build OK; esbuild parses the
-edge function + shared module; eslint on the touched files adds ZERO new
-errors (the one hit is the pre-existing `service: any` in loadUsage).
-NOT VERIFIED: every runtime behaviour. Nothing above has executed once.
+BUG CAUGHT BY THE HARNESS: the first cut read projects.job_address, which
+does not exist — R5 split it into site_address_line1/city/state/zip with the
+legacy freeform site_address left dormant. Because the query used
+.maybeSingle() without checking .error, it degraded SILENTLY to a blank
+address rather than failing. Fixed + redeployed. Lesson: a Supabase select
+of a non-existent column is not an exception, it is an empty result.
 
-NEXT SESSION MUST START WITH:
-1. Deploy jamie-chat (npx supabase functions deploy jamie-chat) — Ian's
-   call; it spends real Opus 5 tokens on every pass.
-2. Rewrite scripts/verify-jamie.mjs — it asserts the ECHO stub in 7 places
-   and pins claude-opus-4-8, so it FAILS against J3 even when J3 is right.
-   The header carries the exact list of assertions to write.
-3. Then walk both gates on a real project before believing any of it.
+VERIFIED: npx tsc -b --noEmit exit 0; npm run build OK; eslint on the
+touched files adds ZERO new errors (the one hit is the pre-existing
+`service: any` in loadUsage); npm run verify:jamie-loop 7/7 live.
+NOT COVERED YET: the UI legs. GateReview.tsx has never been rendered in a
+browser — the harness drives the API and replays the gate commits in node.
+Walk both gates in the panel before trusting the UI.
+
+STILL OPEN:
+1. scripts/verify-jamie.mjs (J1/J2) is STALE — asserts the ECHO stub in 7
+   places and pins claude-opus-4-8, so it now FAILS against a correct J3.
+   Its header lists the assertions to write. verify-jamie-loop.mjs is the
+   J3 replacement for the API legs; the J2 UI legs still need porting.
+2. Prompt caching is NOT hitting (cached_input_tokens 0 across all three
+   invocations) — each action builds a different system prompt, so the
+   cached prefix never repeats within a run. Worth restructuring at J8:
+   put the stable identity + KYN + KIT_REFERENCE block first with the
+   cache breakpoint after it, and the action-specific task text after.
+3. The gate commits exist TWICE — jamieLoop.ts (browser, real path) and
+   verify-jamie-loop.mjs (node, replayed). Change one, change both.
 
 ## ⚠️ RI IS LIVE — BUT PRODUCTION IS NOT BUILT FROM GIT (as of 2026-08-24)
 All RI work (da1cd68, 32cc292, f99c1be) plus the 11x17 Leads report

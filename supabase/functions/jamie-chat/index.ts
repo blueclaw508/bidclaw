@@ -481,7 +481,9 @@ Deno.serve(async (req: Request) => {
       .eq('active', true),
     service
       .from('projects')
-      .select('name, job_address')
+      .select(
+        'name, site_address, site_address_line1, site_address_city, site_address_state, site_address_zip'
+      )
       .eq('id', run.project_id)
       .maybeSingle(),
     service
@@ -536,7 +538,17 @@ Deno.serve(async (req: Request) => {
       cost: Number(c.unit_cost) || 0,
     })),
     projectName: (project?.name as string) ?? '',
-    projectAddress: (project?.job_address as string) ?? '',
+    // R5 split the job address into line1/city/state/zip and left the legacy
+    // freeform `site_address` dormant — prefer the split fields, fall back.
+    projectAddress:
+      [
+        project?.site_address_line1,
+        project?.site_address_city,
+        [project?.site_address_state, project?.site_address_zip].filter(Boolean).join(' '),
+      ]
+        .filter(Boolean)
+        .join(', ') ||
+      ((project?.site_address as string) ?? ''),
     existingWorkAreas: (existingWas ?? []).map((w: Record<string, unknown>) => ({
       id: w.id as string,
       name: w.name as string,
