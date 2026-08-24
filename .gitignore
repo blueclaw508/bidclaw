@@ -36,3 +36,6 @@ verifications/
 
 # Supabase CLI scratch (project ref cache, local temp)
 supabase/.temp/
+
+# Verification artifacts (screenshots + harness JSON)
+verifications/

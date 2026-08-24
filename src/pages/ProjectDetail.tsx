@@ -36,9 +36,10 @@ const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
 // Lazy-loaded so react-dropzone only ships when the Files tab is opened.
 const FilesTab = lazy(() => import('@/components/project/FilesTab'))
 const ProposalsTab = lazy(() => import('@/components/project/ProposalsTab'))
-// Jamie Chat (J2) — project-level conversational agent, founder-gated.
+// Jamie is a full-page workspace (J4) — see src/pages/JamieWorkspace.tsx.
+// The J2 side panel is retired: a drawer gave the contractor nowhere to
+// look and no obvious next click.
 // Distinct from the per-work-area "Ask Jamie" single-shot button.
-const JamieChatPanel = lazy(() => import('@/components/jamie/JamieChatPanel'))
 import {
   PROJECT_STATUS_CONFIG,
   PROJECT_STATUS_ORDER,
@@ -81,7 +82,6 @@ export default function ProjectDetailPage() {
   // pre-check allows (founder-only pre-Stripe). Denied users see nothing —
   // no disabled button, no upsell (that surface is J7's).
   const [jamieChatAllowed, setJamieChatAllowed] = useState(false)
-  const [jamieChatOpen, setJamieChatOpen] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -291,12 +291,12 @@ export default function ProjectDetailPage() {
         {jamieChatAllowed && (
           <button
             type="button"
-            onClick={() => setJamieChatOpen(true)}
-            title="Chat with Jamie about this project"
+            onClick={() => navigate(`/app/projects/${project.id}/jamie`)}
+            title="Build this estimate with Jamie"
             className="mb-1.5 ml-auto flex items-center gap-1.5 rounded-lg bg-brand-gold px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
           >
             <Sparkles className="h-4 w-4" />
-            Jamie Chat
+            Build with Jamie
           </button>
         )}
       </nav>
@@ -332,15 +332,6 @@ export default function ProjectDetailPage() {
           fileCount={fileCount}
           estimatedValue={estimatedValue}
         />
-      {jamieChatOpen && user && (
-        <Suspense fallback={null}>
-          <JamieChatPanel
-            projectId={project.id}
-            userId={user.id}
-            onClose={() => setJamieChatOpen(false)}
-          />
-        </Suspense>
-      )}
       </div>
 
       <ConfirmDialog

@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Sparkles,
   FileText,
   GripVertical,
   Plus,
@@ -72,6 +73,7 @@ export default function WorkAreasTab({
   onChange,
   onEstimateTotalChange,
 }: WorkAreasTabProps) {
+  const navigate = useNavigate()
   const [rows, setRows] = useState<WorkArea[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -297,17 +299,29 @@ export default function WorkAreasTab({
             <ClipboardList className="h-6 w-6" />
           </div>
           <h3 className="text-base font-semibold text-gray-900">No work areas yet</h3>
-          <p className="mt-1 max-w-xs text-sm text-gray-500">
-            Add work areas to break this project into discrete scopes. Each one
-            can have its own measurements and line items.
+          <p className="mt-1 max-w-sm text-sm text-gray-500">
+            Work areas break the project into discrete scopes, each with its own
+            measurements and line items. Jamie can read your plans and propose
+            them, or you can add them yourself.
           </p>
+          {/* Jamie first: on a new project with plans uploaded, letting her
+              propose the breakdown is the faster path, and the empty tab is
+              exactly where a contractor gets stuck wondering what to click. */}
+          <button
+            type="button"
+            onClick={() => navigate(`/app/projects/${projectId}/jamie`)}
+            className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
+          >
+            <Sparkles className="h-4 w-4" />
+            Build with Jamie
+          </button>
           <button
             type="button"
             onClick={() => setNewOpen(true)}
-            className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark"
+            className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-100"
           >
             <Plus className="h-4 w-4" />
-            Add work area
+            Add work area myself
           </button>
         </div>
       )}

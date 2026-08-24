@@ -17,6 +17,7 @@ const LeadsPage                 = lazy(() => import('@/pages/Leads'))
 const LeadDetailPage            = lazy(() => import('@/pages/LeadDetail'))
 const ProjectsPage              = lazy(() => import('@/pages/Projects'))
 const ProjectDetailPage         = lazy(() => import('@/pages/ProjectDetail'))
+const JamieWorkspacePage        = lazy(() => import('@/pages/JamieWorkspace'))
 const CustomersPage             = lazy(() => import('@/pages/Customers'))
 const CustomerDetailPage        = lazy(() => import('@/pages/CustomerDetail'))
 const CatalogPage               = lazy(() => import('@/pages/Catalog'))
@@ -87,6 +88,10 @@ export default function App() {
                 <Route path="leads/:id"     element={<LeadDetailPage />} />
                 <Route path="projects"      element={<ProjectsPage />} />
                 <Route path="projects/:id"  element={<ProjectDetailPage />} />
+                <Route
+                  path="projects/:projectId/jamie"
+                  element={<JamieWorkspacePage />}
+                />
                 <Route
                   path="projects/:projectId/measure/:fileId"
                   element={<MeasureViewPage />}
