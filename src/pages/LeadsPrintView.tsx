@@ -660,7 +660,7 @@ function SectionRows({
               {[lead.job_address, lead.town].filter(Boolean).join(', ') || '—'}
             </td>
             <td className="border border-gray-300 px-1.5 py-1 text-gray-700">
-              {lead.description ?? '—'}
+              {lead.description ? clipDescription(lead.description) : '—'}
             </td>
             <td className="border border-gray-300 px-1.5 py-1 whitespace-nowrap text-gray-700">
               {formatShortDate(lead.created_at)}
@@ -911,6 +911,20 @@ function isOverdue(followUpDate: string | null): boolean {
   return followUpDate < today
 }
 
+/**
+ * Descriptions in the wild are multi-paragraph notes — one live lead runs
+ * ~2,000 characters. Left whole, a single row swallows a whole sheet and
+ * throws the column widths out. The board cards show the full text; the
+ * detail table gets a readable clip at a word boundary.
+ */
+function clipDescription(text: string, max = 95): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (flat.length <= max) return flat
+  const cut = flat.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
+}
+
 function formatShortDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
   const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso)
@@ -956,9 +970,11 @@ function printCss(pageSize: string): string {
   /* Header block repeats nothing — it's a cover band, keep it whole */
   .lpv-header { break-inside: avoid; page-break-inside: avoid; }
 
-  /* Board: keep a stage column together; let cards break if a column
-     is genuinely taller than the sheet. */
-  .lpv-column { break-inside: avoid; page-break-inside: avoid; }
+  /* Board: individual cards stay whole, but a COLUMN must be free to
+     fragment across sheets. With real data one stage holds 24 leads —
+     taller than 11in — and break-inside:avoid on the column made Chrome
+     give every single stage its own sheet. Do not set this to avoid. */
+  .lpv-column { break-inside: auto; page-break-inside: auto; }
   .lpv-card   { break-inside: avoid; page-break-inside: avoid; }
 
   /* Detail table: repeat the header row, keep rows and section bands
