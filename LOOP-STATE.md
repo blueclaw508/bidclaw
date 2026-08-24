@@ -1,5 +1,93 @@
 # LOOP-STATE — BidClaw
 
+## J4 — JAMIE READS THE PROJECT'S FILES + FULL-PAGE WORKSPACE (2026-08-24) — SHIPPED
+Ian tried to start a real proposal (Levinson / McPhee Builders), uploaded
+3 plan sheets + the bid form, and Jamie said "I don't see anything attached
+on my end." She was telling the truth. His verdict: "There should not be
+two places to upload...only one file repository per project", "I don't
+like Jamie Chat on the side", "I don't even know intuitively what to click
+next."
+
+THE BUG. Two file systems existed and Jamie was wired to the wrong one:
+  project_files / `project-files` bucket  PDF/images/Word/Excel, 50MB —
+                                          what the Files tab writes;
+                                          Jamie could NOT see it.
+  `jamie-images` bucket                   images only, chat-panel upload —
+                                          the only thing she could see.
+
+THE FIX (one repository, and it is the Files tab):
+- 0025: anthropic_file_id / anthropic_synced_at / anthropic_sync_error on
+  project_files.
+- jamie-chat syncProjectFiles(): each file is pushed to the Anthropic
+  FILES API once and referenced by id thereafter. Lazy + self-healing;
+  a failure is written to the row, never thrown, so one bad file cannot
+  block an estimate. Word/Excel get a plain-English "export to PDF".
+- Documents ride on the FIRST user turn so they sit in the cached prefix —
+  plan sheets are the most expensive thing in the request.
+- beta.messages + betas ['files-api-2025-04-14'] (required on BOTH the
+  upload and the message that references the file).
+- src/pages/JamieWorkspace.tsx at /app/projects/:projectId/jamie: files
+  rail (read-only, names every file, flags unreadable ones with the
+  reason) + conversation + gates inline. Composer takes TEXT ONLY.
+- The J2 side panel is DELETED. Two surfaces for one job was the problem.
+- "Build with Jamie" on the project header AND leading the empty Work
+  Areas tab (secondary "Add work area myself") — that tab is where a
+  contractor gets stuck.
+- "Start over" abandons the run and opens a fresh one: history is replayed
+  verbatim, so a session begun before the fix still carries her "I don't
+  see anything attached" reply and she believes it.
+
+LIVE-VERIFIED on Ian's real Levinson project: she read all 4 sheets and
+returned quantities off the drawings (921 SF gravel drive, 160 LF cobble
+edging, 195 face-feet fieldstone veneer wall, TOC 22.34 / BOC 14.84, full
+plant list), then cross-referenced McPhee's spec and flagged that sheets
+L1 and L2.0 are MISSING and that she needs L2.0 to size lawn/loam/
+irrigation. 39.6s, $0.146.
+
+END-TO-END 8/8 against PRODUCTION on a throwaway project (script kept in
+the session scratchpad, not committed): empty WA tab -> workspace ->
+chat -> Propose -> Gate 1 (2 work areas, KYN scope with kit factors:
+0.014 ton/SF dense grade, 0.008 ton/SF mason sand, 0.21 hr/SF mason,
+1.10 stone waste, 0.13 EA/LF restraint) -> Gate 2 (27 lines) -> committed
+$18,450, zero console errors, fixtures deleted.
+
+GOTCHA the walk caught: the rail counted SYNCED files, so a freshly
+opened workspace said "0 of 1 project file" — the same scare all over
+again. It now counts files WITHOUT a sync error (a2f1200).
+
+NOT A BUG, worth knowing: 16 of those 27 lines came back at $0
+needs_pricing because Ian's Item Catalog holds ONE material item. Labor
+and equipment priced correctly from My Numbers. Populate the catalog (or
+price at Gate 2, which the UI supports) and that number drops.
+
+## RI COST RECOVERY (2026-08-24) — SHIPPED + BACKFILLED
+Ian: "Although the reverse ingestion worked, it didn't reverse out price
+and show markup back to original cost." He was right — RI put the BILLED
+amount in unit_cost at markup_override 0, so every material line claimed
+ZERO margin (2000 x $0.60 cost + 0.00% = $1,200.00). Correct total,
+useless numbers; knowing your numbers is the whole point.
+commitIngestedProposal now UNWINDS the contractor's own markup back out:
+unit_cost = billed / (1 + m/100), markup_override = m, using the same
+category rule the app renders with (material -> materials markup;
+subcontractor + other -> subs markup; labor + equipment never bear markup
+because KYN rates already include margin). Billed is unchanged to the
+penny. Done deterministically on COMMIT, not in the prompt — the model is
+not trusted with this arithmetic, same as the GC balancer.
+- Pool-sub lines (markup_pct 10) pass through untouched: already a cost basis.
+- markup_override is PINNED, not left to live settings, so retuning
+  markups later cannot drift a proposal away from the signed price.
+- GC balancer still runs LAST and stays at 0% — it is a rounding plug, and
+  it absorbs the sub-cent drift from dividing a cost basis.
+- verify-ingest-commit now FAILS if any markup-bearing line sits at 0%,
+  and reports the cost/billed/margin split. 2/2 live.
+- scripts/backfill-ingest-markup.mjs (npm run backfill:ingest-markup,
+  dry-run by default) retrofitted the old imports. APPLIED: 18 work areas,
+  48 lines, every customer-facing total unchanged. Ian's Landscaping Work
+  now reads 2000 x $0.40 + 50% = $1,200.
+  Signature for "this was reverse-ingested": markup_override is NULL on a
+  hand-built line (NULL = live markup) and RI is the only thing that
+  writes an explicit 0 to EVERY line of a work area.
+
 ## ⚠️ THE JAMIE LOOP — J0-J2 SHIPPED IN JULY, NEVER RECORDED HERE
 Between Phase 1 and master's tip there is a whole second Jamie arc that
 LOOP-STATE never captured. Reconstructed from commits 2026-08-24:
@@ -377,6 +465,21 @@ are LOWER priority than R2-R5 — don't polish the surface being replaced.
   `git log`/`git status` reconcile — a stale clone fails silently.
 
 ## WATCH LIST
+- ⚠️ Ian's ITEM CATALOG is nearly empty — 1 material, 1 equipment, 2 other,
+  1 subcontractor. Jamie prices labor + equipment fine (My Numbers), but
+  returns $0 needs_pricing for most materials because she has no basis.
+  On a 27-line takeoff 16 came back unpriced. Not a bug; populate the
+  catalog or price at Gate 2. Revisit before judging estimate quality.
+- ⚠️ jamie-images bucket is now LEGACY. Nothing writes to it (the panel
+  that did is deleted); jamie-chat still READS refs so old sessions render.
+  Retire the bucket once no run references it.
+- ⚠️ jamie-ingest still carries its own inline copy of KIT_REFERENCE.
+  _shared/kitReference.ts is the shared one jamie-chat uses. Dedupe on the
+  next jamie-ingest change.
+- ⚠️ The J3/J4 harnesses are split: verify-jamie-loop.mjs (API legs, 7/7)
+  and the throwaway e2e walk (UI legs, 8/8, kept in the session scratchpad
+  only — NOT committed). verify-jamie.mjs (J1/J2) is still ECHO-stale.
+  Fold the UI walk into a committed harness next session.
 - Rotate Supabase service_role key (Ian, dashboard) — Ian's to-do, do not execute
 - Call 2–3 QC users for trust/pricing input — Ian's to-do, do not execute
 - RESOLVED 2026-08-24: .env.local now EXISTS with SUPABASE_URL,
