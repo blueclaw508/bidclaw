@@ -17,7 +17,7 @@ import type {
   LineDecision,
   WorkAreaDecision,
 } from '@/lib/jamieLoop'
-import { formatUSD } from '@/lib/money'
+import { formatUSD, liveMarkupPercent, type LiveMarkupSettings } from '@/lib/money'
 import { cn } from '@/lib/utils'
 
 // ──────────────────────────────────────────────────────────────────────
@@ -142,10 +142,14 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 export function LineGate({
   groups,
+  markups,
   busy,
   onCommit,
 }: {
   groups: Array<JamieProposedWorkArea & { lines: JamieProposedLine[] }>
+  /** The contractor's live My Numbers markups, so this review shows the
+   *  BILLED price — not the cost basis dressed up as a price. */
+  markups: LiveMarkupSettings
   busy: boolean
   onCommit: (decisions: LineDecision[]) => void
 }) {
@@ -168,7 +172,20 @@ export function LineGate({
   )
 
   const approved = allLines.filter((l) => state[l.id]?.approved)
-  const unpriced = approved.filter((l) => {
+  /** Billed price of one staged line at the contractor's live markup. */
+  const billedOf = (l: JamieProposedLine) => {
+    const st = state[l.id]
+    if (!st?.approved) return 0
+    const q = parseFloat(st.qty)
+    const c = parseFloat(st.cost)
+    if (!Number.isFinite(q) || !Number.isFinite(c)) return 0
+    return q * c * (1 + liveMarkupPercent(l.category, markups) / 100)
+  }
+  const grandTotal = allLines.reduce((a, l) => a + billedOf(l), 0)
+  // Jamie's own figures, flagged for confirmation. NOT zeros — a $0 line
+  // is an unfinished estimate and the schema no longer permits one.
+  const toConfirm = approved.filter((l) => l.needs_pricing).length
+  const stillBlank = approved.filter((l) => {
     const raw = state[l.id]?.cost ?? ''
     return raw.trim() === '' || parseFloat(raw) === 0
   }).length
@@ -181,14 +198,24 @@ export function LineGate({
       <div className="space-y-3">
         {groups.map((g) => (
           <div key={g.id} className="rounded-lg border border-gray-200 bg-white p-2.5">
-            <p className="mb-1.5 text-sm font-bold text-gray-900">{g.proposed_name}</p>
+            <div className="mb-1.5 flex items-baseline justify-between gap-2">
+              <p className="text-sm font-bold text-gray-900">{g.proposed_name}</p>
+              <span className="shrink-0 text-[12px] font-semibold text-gray-500">
+                {formatUSD(g.lines.reduce((a, l) => a + billedOf(l), 0))}
+              </span>
+            </div>
             <div className="space-y-1">
               {g.lines.map((l) => {
                 const s = state[l.id] ?? { approved: true, qty: '', cost: '' }
                 const qty = parseFloat(s.qty)
                 const cost = parseFloat(s.cost)
-                const total =
-                  Number.isFinite(qty) && Number.isFinite(cost) ? qty * cost : 0
+                const base = Number.isFinite(qty) && Number.isFinite(cost) ? qty * cost : 0
+                // KYN: material/sub/other carry the contractor's markup;
+                // labor and equipment are already fully burdened at their
+                // retail rate. unit_cost here is the COST — showing base as
+                // the line price would understate every material line.
+                const mk = liveMarkupPercent(l.category, markups)
+                const total = base * (1 + mk / 100)
                 return (
                   <div
                     key={l.id}
@@ -248,8 +275,13 @@ export function LineGate({
                             : 'border-gray-200'
                         )}
                       />
-                      <span className="ml-auto shrink-0 text-[12px] font-semibold text-gray-700">
+                      <span className="ml-auto shrink-0 text-right text-[12px] font-semibold text-gray-700">
                         {formatUSD(total)}
+                        {mk > 0 && (
+                          <span className="block text-[10px] font-normal text-gray-400">
+                            {formatUSD(base)} cost + {mk}%
+                          </span>
+                        )}
                       </span>
                     </div>
                     {l.reasoning && (
@@ -264,15 +296,29 @@ export function LineGate({
           </div>
         ))}
       </div>
-      {unpriced > 0 && (
-        <p className="mt-2 rounded-md bg-rose-50 px-2 py-1.5 text-[11px] text-rose-800">
-          {unpriced} line{unpriced === 1 ? " isn't" : "s aren't"} priced yet. You can
-          add them at $0 and price them on the estimate, or fill them in here.
+      <div className="mt-2 flex items-baseline justify-between rounded-md bg-white px-2.5 py-2">
+        <span className="text-[12px] font-bold text-gray-900">Estimate total</span>
+        <span className="text-sm font-bold text-gray-900">{formatUSD(grandTotal)}</span>
+      </div>
+      {toConfirm > 0 && (
+        <p className="mt-1.5 rounded-md bg-amber-100/70 px-2 py-1.5 text-[11px] text-amber-900">
+          {toConfirm} line{toConfirm === 1 ? ' uses' : 's use'} Jamie&apos;s own price
+          rather than one from your catalog. Worth a look — change anything that
+          isn&apos;t what you actually pay.
+        </p>
+      )}
+      {stillBlank > 0 && (
+        <p className="mt-1.5 rounded-md bg-rose-50 px-2 py-1.5 text-[11px] text-rose-800">
+          {stillBlank} line{stillBlank === 1 ? ' has' : 's have'} no cost. That
+          under-bids the job — put a real number in before adding it.
         </p>
       )}
       <button
         type="button"
-        disabled={busy || approved.length === 0}
+        // A zero-cost line under-bids the job, so it cannot be committed.
+        // KYN is enforced here because structured output has no numeric
+        // bounds — see the schema note in jamie-chat.
+        disabled={busy || approved.length === 0 || stillBlank > 0}
         onClick={() =>
           onCommit(
             allLines.map((l) => {
@@ -293,7 +339,9 @@ export function LineGate({
         {busy && <Loader2 className="h-4 w-4 animate-spin" />}
         {approved.length === 0
           ? 'Keep at least one'
-          : `Add ${approved.length} line${approved.length === 1 ? '' : 's'} to the estimate`}
+          : stillBlank > 0
+            ? `Price ${stillBlank} line${stillBlank === 1 ? '' : 's'} first`
+            : `Add ${approved.length} line${approved.length === 1 ? '' : 's'} · ${formatUSD(grandTotal)}`}
       </button>
     </div>
   )

@@ -319,6 +319,47 @@ async function main() {
       `labor=${hasLabor}, generalConditions=${hasGC}, categories=${categories.join('/')}, strayOnRejectedWA=${strayLines?.length ?? 0}`
     )
 
+    // ── 5b: NOTHING IS ZERO ────────────────────────────────────────
+    // KYN: Jamie produces quantities AND costs. Materials/subs are a base
+    // cost the app marks up; labor/equipment are hours x the contractor's
+    // retail rate. A $0 line is an unfinished estimate that under-bids the
+    // job — she prices from her own knowledge and flags needs_pricing
+    // instead. The schema now forbids zeros; this proves it end to end.
+    const zeroLines = lines.filter(
+      (l) => !(Number(l.unit_cost) > 0) || !(Number(l.quantity) > 0)
+    )
+    check(
+      '5b. NOTHING IS ZERO — every staged line has a real qty and unit_cost',
+      zeroLines.length === 0,
+      zeroLines.length
+        ? zeroLines.map((z) => `"${z.label}" ${z.quantity}x$${z.unit_cost}`).slice(0, 6).join(' | ')
+        : `${lines.length} lines, cheapest $${Math.min(...lines.map((l) => Number(l.unit_cost))).toFixed(2)}/unit`
+    )
+
+    // Labor and equipment must use the contractor's OWN rates verbatim.
+    const [{ data: laborRates }, { data: equipRates }] = await Promise.all([
+      admin.from('company_labor_types').select('rate_per_hour').eq('user_id', founderId),
+      admin.from('company_equipment_rates').select('rate_per_hour').eq('user_id', founderId),
+    ])
+    const ownRates = new Set(
+      [...(laborRates ?? []), ...(equipRates ?? [])]
+        .map((r) => Number(r.rate_per_hour))
+        .filter((n) => n > 0)
+    )
+    const offRate = lines.filter(
+      (l) =>
+        (l.category === 'labor' || l.category === 'equipment') &&
+        ownRates.size > 0 &&
+        !ownRates.has(Number(l.unit_cost))
+    )
+    check(
+      '5c. labor + equipment priced from My Numbers, not invented',
+      offRate.length === 0,
+      offRate.length
+        ? offRate.map((o) => `"${o.label}" $${o.unit_cost}/hr`).slice(0, 5).join(' | ')
+        : `${ownRates.size} configured rates, all matched`
+    )
+
     // ── 6: Gate 2 — commit every staged line ───────────────────────
     const pwaToWa = Object.fromEntries(
       (stampCheck ?? [])
@@ -378,6 +419,42 @@ async function main() {
       '6. Gate 2 → work_area_lines written, run committed',
       written > 0 && realLineCount === written && runFinal?.status === 'committed',
       `written=${written}, realLines=${realLineCount}, status=${runFinal?.status}`
+    )
+
+    // ── 6b: markup is LIVE on a forward estimate ───────────────────
+    // markup_override NULL = "use the company markup for this category".
+    // Forward estimates must follow My Numbers; only reverse ingestion
+    // pins a markup, because there the signed price is sacrosanct.
+    const { data: committed } = await admin
+      .from('work_area_lines')
+      .select('category, label, quantity, unit_cost, markup_override')
+      .in('work_area_id', createdIds)
+    const pinned = (committed ?? []).filter((l) => l.markup_override !== null)
+    check(
+      '6b. markup left LIVE from My Numbers (markup_override NULL)',
+      pinned.length === 0,
+      pinned.length ? `${pinned.length} pinned` : 'all live'
+    )
+
+    const { data: mkRow } = await admin
+      .from('company_settings')
+      .select('markup_materials_percent, markup_subs_percent')
+      .eq('user_id', founderId)
+      .maybeSingle()
+    const matM = Number(mkRow?.markup_materials_percent) || 0
+    const subM = Number(mkRow?.markup_subs_percent) || 0
+    const mkFor = (c) =>
+      c === 'material' ? matM : c === 'subcontractor' || c === 'other' ? subM : 0
+    const costBasis = (committed ?? []).reduce(
+      (a, l) => a + Number(l.quantity) * Number(l.unit_cost),
+      0
+    )
+    const billedTotal = (committed ?? []).reduce(
+      (a, l) => a + Number(l.quantity) * Number(l.unit_cost) * (1 + mkFor(l.category) / 100),
+      0
+    )
+    console.log(
+      `   COST $${costBasis.toFixed(2)} -> BILLED $${billedTotal.toFixed(2)} · margin $${(billedTotal - costBasis).toFixed(2)} · markups ${matM}% mat / ${subM}% subs`
     )
 
     // ── 7: metering on the new model ───────────────────────────────

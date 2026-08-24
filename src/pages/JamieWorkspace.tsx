@@ -42,6 +42,7 @@ import {
 } from '@/lib/jamieLoop'
 import { sendJamieChatMessage, type JamieAction } from '@/lib/jamieChat'
 import { supabase } from '@/lib/supabase'
+import type { LiveMarkupSettings } from '@/lib/money'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import { LineGate, WorkAreaGate } from '@/components/jamie/GateReview'
@@ -94,6 +95,11 @@ export default function JamieWorkspace() {
   >([])
   const [existingNameById, setExistingNameById] = useState<Record<string, string>>({})
   const [gateBusy, setGateBusy] = useState(false)
+  // My Numbers markups — Gate 2 shows BILLED prices, so it needs these.
+  const [markups, setMarkups] = useState<LiveMarkupSettings>({
+    markup_materials_percent: 0,
+    markup_subs_percent: 0,
+  })
   const threadRef = useRef<HTMLDivElement>(null)
 
   // ── Load project, files, and any run already in flight ──────────────
@@ -102,7 +108,7 @@ export default function JamieWorkspace() {
     let cancelled = false
     ;(async () => {
       try {
-        const [{ data: proj }, { data: fileRows }, active] = await Promise.all([
+        const [{ data: proj }, { data: fileRows }, active, { data: settings }] = await Promise.all([
           supabase.from('projects').select('name').eq('id', projectId).maybeSingle(),
           supabase
             .from('project_files')
@@ -110,9 +116,14 @@ export default function JamieWorkspace() {
             .eq('project_id', projectId)
             .order('uploaded_at'),
           getActiveJamieRun(projectId),
+          supabase
+            .from('company_settings')
+            .select('markup_materials_percent, markup_subs_percent')
+            .maybeSingle(),
         ])
         if (cancelled) return
         setProjectName((proj?.name as string) ?? '')
+        if (settings) setMarkups(settings as LiveMarkupSettings)
         setFiles((fileRows ?? []) as WorkspaceFile[])
         if (active) {
           setRun(active)
@@ -501,6 +512,7 @@ export default function JamieWorkspace() {
               {stagedGroups.length > 0 && !streaming && (
                 <LineGate
                   groups={stagedGroups}
+                  markups={markups}
                   busy={gateBusy}
                   onCommit={(d) => void handleLineGate(d)}
                 />

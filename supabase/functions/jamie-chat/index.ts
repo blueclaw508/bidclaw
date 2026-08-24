@@ -137,6 +137,15 @@ const LINE_SCHEMA = {
                 // (labor/equipment). BidClaw applies the contractor's
                 // markups on top — unlike jamie-ingest, this is a real
                 // cost-up estimate, not a decomposition of a known price.
+                //
+                // NOTE: the KYN "nothing is zero" rule CANNOT be enforced
+                // here. Structured output rejects both `exclusiveMinimum`
+                // and `minimum` on numbers ("not supported for 'number'
+                // type" — both verified as 400s on 2026-08-24), so numeric
+                // bounds are unavailable. It is enforced instead by the
+                // prompt (see the ⚑ block in the KYN rules) and by Gate 2,
+                // which refuses to commit while an approved line has no
+                // cost.
                 unit_cost: { type: 'number' },
                 reasoning: { type: 'string' },
                 needs_pricing: { type: 'boolean' },
@@ -171,17 +180,17 @@ function buildSystemPrompt(
 ): string {
   const lt = ctx.laborTypes.length
     ? ctx.laborTypes.map((l) => `  - ${l.name}: $${l.rate}/hr`).join('\n')
-    : '  (none configured — put labor lines at unit_cost 0, needs_pricing true)'
+    : '  (NONE CONFIGURED — the contractor has not set a retail labor rate. Use a realistic fully-burdened retail rate for this trade and region, and flag needs_pricing. Never zero.)'
   const eq = ctx.equipmentRates.length
     ? ctx.equipmentRates.map((e) => `  - ${e.name}: $${e.rate}/hr`).join('\n')
-    : '  (none configured — put equipment lines at unit_cost 0, needs_pricing true)'
+    : '  (NONE CONFIGURED — the contractor has not set equipment rates. Use realistic internal rental rates for this machine class, and flag needs_pricing. Never zero.)'
   const byCat: Record<string, string[]> = {}
   for (const c of ctx.catalog) {
     ;(byCat[c.category] ??= []).push(`  - ${c.name} (${c.unit}): $${c.cost} base cost`)
   }
   const cat = Object.keys(byCat).length
     ? Object.entries(byCat).map(([k, v]) => `${k}:\n${v.join('\n')}`).join('\n')
-    : '  (catalog is empty — set every material/sub unit_cost to 0 and needs_pricing true so the contractor prices them once)'
+    : '  (CATALOG IS EMPTY — price every material and sub yourself from current supplier pricing for this trade and region, flag needs_pricing on each, and list them in new_catalog_items so they get saved. An empty catalog is NOT a reason to return zeros.)'
   const existing = ctx.existingWorkAreas.length
     ? ctx.existingWorkAreas
         .map((w) => `  - id ${w.id} — "${w.name}"${w.description ? `: ${w.description}` : ''}`)
@@ -211,11 +220,20 @@ ${
   }`
 
   const kyn = `KYN RULES:
-- LABOR is projected man-hours × the contractor's retail labor rate. A full crew day is 27 man-hours (3 crew × 9 hours). Round UP to a full day when you are within 20% of 27 — crews fill the day. Half day = 13-14 hours. Labor hours are ALWAYS your projection, never a catalog default.
-- EQUIPMENT is billed as internal rental HOURS at the contractor's equipment rate. Every machine is its own line — cement mixer, plate compactor, skid loader, cut-off saw. Not overhead.
-- MATERIALS: quantity from your takeoff, unit_cost from the catalog below where the item exists. These are BASE costs — BidClaw applies the contractor's markups (materials ${ctx.materialsMarkup}%, subs ${ctx.subsMarkup}%) on top. Do NOT pre-mark-up.
-- Anything you cannot price from the catalog: unit_cost 0 and needs_pricing true, and name it in new_catalog_items. Never invent a price you don't have a basis for.
-- GENERAL CONDITIONS: every work area ends with one "General Conditions & Rounding" line (category "other", qty 1, unit "EA") covering incidentals.
+
+⚑ NOTHING IS EVER ZERO. Every single line carries a real quantity and a
+real unit_cost. A $0 line is not "honest uncertainty" — it is an unfinished
+estimate, and it silently under-bids the job. You are an estimator with a
+thousand jobs behind you: if an item is not in the contractor's catalog,
+you PRICE IT from what that material actually costs from a supplier in this
+market today, and set needs_pricing true so the contractor can confirm your
+number. needs_pricing means "Jamie's figure, please confirm" — it NEVER
+means zero. There is no such thing as a line you cannot price.
+
+- LABOR is projected man-hours × the contractor's retail labor rate. qty = man-hours (YOUR projection, from the kit factors × the measured quantity), unit_cost = the retail labor rate from THE CONTRACTOR'S KYN NUMBERS below, used verbatim — never a rate you invented. A full crew day is 27 man-hours (3 crew × 9 hours). Round UP to a full day when you are within 20% of 27 — crews fill the day. Half day = 13-14 hours. The retail rate is already fully burdened (wage + taxes + comp + overhead + profit), so labor carries NO markup.
+- EQUIPMENT is internal rental HOURS: qty = hours, unit_cost = the equipment rate from the contractor's numbers below, verbatim. Every machine is its own line — cement mixer, plate compactor, skid loader, cut-off saw. Not overhead. Equipment carries no markup either; the rate already includes it.
+- MATERIALS and SUBCONTRACTORS: qty = the measured quantity from your takeoff, unit_cost = the BASE cost — what the contractor PAYS, before margin. Use the catalog cost when the item is in the catalog below. When it is not, use your own knowledge of current supplier pricing for this trade and region, and flag needs_pricing. BidClaw automatically applies the contractor's markups on top (materials ${ctx.materialsMarkup}%, subs ${ctx.subsMarkup}%) — so do NOT pre-mark-up, and do NOT put a retail/billed price in unit_cost. Name anything you priced yourself in new_catalog_items so it gets saved for next time.
+- GENERAL CONDITIONS: every work area ends with one "General Conditions & Rounding" line (category "other", qty 1, unit "EA") covering incidentals — a real dollar amount sized to the job, not zero.
 
 ${KIT_REFERENCE}
 
