@@ -116,9 +116,14 @@ const LINE_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['proposed_work_area_id', 'line_items'],
+        required: ['proposed_work_area_id', 'scope_description', 'line_items'],
         properties: {
           proposed_work_area_id: { type: 'string' },
+          // The FINAL client-facing scope, rewritten from the takeoff
+          // below it. Pass 1's description was written before any line
+          // existed; this one is derived from the lines, which is the
+          // only way "if she writes it, she bills it" can hold.
+          scope_description: { type: 'string' },
           line_items: {
             type: 'array',
             items: {
@@ -272,6 +277,14 @@ TASK — PASS 2: BUILD THE PRICED TAKEOFF. The contractor APPROVED these work ar
 ${staged}
 
 For each work area, work in this order: material takeoff → equipment → labor hours → general conditions. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is stone, mortar, lath, water-resistive barrier, fasteners, weep screed, corner pieces. Use the kit factors above against the quantities in the scope text, then apply the contractor's rates.
+
+THEN WRITE THE SCOPE — LAST, FROM THE LINES YOU JUST BUILT. scope_description replaces whatever was written at Gate 1, because that was written before a single line item existed. Now that the takeoff is real, the scope must describe exactly it: EVERY component you billed appears in the scope, and NOTHING appears in the scope that you did not bill. That is the prime directive and this is the step where it is actually enforced.
+
+Format, exactly:
+  First line — one sentence summarising what is being done ("Install 620 SF of dry-laid thermal bluestone terrace at the rear of the house.").
+  Then bullet lines beginning with "- ", walking the crew through the work STEP BY STEP in the order it happens: excavate, haul off, base, compact, screed, set, cut, joint, clean.
+  Then any qualifying statements about material or method — pattern-cut vs random, wet set vs dry set, thermal vs natural cleft, who supplies what, what is excluded.
+This text is read by TWO audiences at once: it is what the client is buying, and it is the instruction sheet the crew works from. Write it so both can act on it. Plain contractor English, no marketing.
 
 label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. "Thermal Bluestone 1.5\"", "Processed Dense Grade", "Mason Sand", "Polymeric Sand". NOT "Thermal Bluestone, Pattern Cut 1.5\" — terrace field" and NOT "Processed Dense Grade Gravel — 8\" compacted base". Every item you price that isn't already in the catalog gets SAVED to the contractor's catalog under this exact name and reused on their next job, so a job-specific label quietly fills their catalog with duplicates that never match again. Keep the same item spelled the same way every time.
 
@@ -966,6 +979,7 @@ Deno.serve(async (req: Request) => {
             new_catalog_items?: string[]
             work_areas?: Array<{
               proposed_work_area_id: string
+              scope_description: string
               line_items: Array<{
                 category: string
                 label: string
@@ -982,6 +996,15 @@ Deno.serve(async (req: Request) => {
           const rows: Array<Record<string, unknown>> = []
           for (const wa of parsed.work_areas ?? []) {
             if (!stagedIds.has(wa.proposed_work_area_id)) continue
+            // Overwrite Gate 1's scope with the one derived from the
+            // takeoff. Gate 2 shows it for editing, and the commit copies
+            // it onto the real work area.
+            if (wa.scope_description?.trim()) {
+              await service
+                .from('jamie_proposed_work_areas')
+                .update({ proposed_description: wa.scope_description.trim() })
+                .eq('id', wa.proposed_work_area_id)
+            }
             wa.line_items.forEach((l, i) => {
               rows.push({
                 jamie_proposed_work_area_id: wa.proposed_work_area_id,

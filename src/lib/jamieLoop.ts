@@ -592,7 +592,11 @@ export interface LineDecision {
  */
 export async function commitLineGate(
   runId: string,
-  decisions: LineDecision[]
+  decisions: LineDecision[],
+  /** Final scope text per STAGED work area id, as edited at Gate 2. Pass 2
+   *  rewrites the scope from the takeoff; this carries the contractor's
+   *  edits of that text onto the real work area. */
+  descriptions: Record<string, string> = {}
 ): Promise<{ written: number; catalogAdded: number }> {
   const byId = new Map(decisions.map((d) => [d.id, d]))
   const approvedIds = decisions.filter((d) => d.approved).map((d) => d.id)
@@ -724,6 +728,22 @@ export async function commitLineGate(
       .update({ status: 'rejected' })
       .in('id', rejectedIds)
     if (rejErr) throw new Error(`Couldn't record the rejections: ${rejErr.message}`)
+  }
+
+  // The scope description is written LAST, from the line items, so it
+  // lands on the real work area only now — after the takeoff it describes
+  // actually exists. Scope and line items match by construction.
+  const { data: approvedWas } = await supabase
+    .from('jamie_proposed_work_areas')
+    .select('id, inserted_work_area_id, proposed_description')
+    .eq('jamie_run_id', runId)
+    .eq('status', 'approved')
+  for (const wa of (approvedWas ?? []) as Array<Record<string, unknown>>) {
+    const waId = wa.inserted_work_area_id as string | null
+    if (!waId) continue
+    const text = (descriptions[wa.id as string] ?? (wa.proposed_description as string) ?? '').trim()
+    if (!text) continue
+    await supabase.from('work_areas').update({ description: text }).eq('id', waId)
   }
 
   await setRunStatus(runId, 'committed')

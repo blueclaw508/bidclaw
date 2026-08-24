@@ -151,9 +151,15 @@ export function LineGate({
    *  BILLED price — not the cost basis dressed up as a price. */
   markups: LiveMarkupSettings
   busy: boolean
-  onCommit: (decisions: LineDecision[]) => void
+  onCommit: (decisions: LineDecision[], descriptions: Record<string, string>) => void
 }) {
   const allLines = useMemo(() => groups.flatMap((g) => g.lines), [groups])
+  // The scope Pass 2 wrote FROM the takeoff. Editable here — it is what
+  // the client reads and what the crew works from, so the contractor gets
+  // the last word on the wording.
+  const [scopes, setScopes] = useState<Record<string, string>>(() =>
+    Object.fromEntries(groups.map((g) => [g.id, g.proposed_description ?? '']))
+  )
   // Local string state per editable cell — parse on commit, not per
   // keystroke, so "0." and "5.2" survive typing (session-discipline 1A/A).
   const [state, setState] = useState<
@@ -204,6 +210,14 @@ export function LineGate({
                 {formatUSD(g.lines.reduce((a, l) => a + billedOf(l), 0))}
               </span>
             </div>
+            <textarea
+              value={scopes[g.id] ?? ''}
+              onChange={(e) => setScopes((p) => ({ ...p, [g.id]: e.target.value }))}
+              disabled={busy}
+              rows={8}
+              aria-label={`Scope description for ${g.proposed_name}`}
+              className="mb-2 w-full resize-y rounded-md border border-gray-200 bg-gray-50/60 px-2 py-1.5 text-[12px] leading-relaxed text-gray-700 outline-none transition-colors focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500"
+            />
             <div className="space-y-1">
               {g.lines.map((l) => {
                 const s = state[l.id] ?? { approved: true, qty: '', cost: '' }
@@ -331,7 +345,8 @@ export function LineGate({
                 quantity: Number.isFinite(qty) ? qty : 0,
                 unitCost: Number.isFinite(cost) ? cost : 0,
               }
-            })
+            }),
+            scopes
           )
         }
         className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-brand-gold py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark disabled:cursor-not-allowed disabled:opacity-40"

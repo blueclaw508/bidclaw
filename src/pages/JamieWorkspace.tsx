@@ -271,11 +271,15 @@ export default function JamieWorkspace() {
   )
 
   const handleLineGate = useCallback(
-    async (decisions: LineDecision[]) => {
+    async (decisions: LineDecision[], descriptions: Record<string, string>) => {
       if (!run) return
       setGateBusy(true)
       try {
-        const { written, catalogAdded } = await commitLineGate(run.id, decisions)
+        const { written, catalogAdded } = await commitLineGate(
+          run.id,
+          decisions,
+          descriptions
+        )
         toast.success(
           `${written} line${written === 1 ? '' : 's'} added to the estimate.` +
             (catalogAdded
@@ -519,7 +523,7 @@ export default function JamieWorkspace() {
                   groups={stagedGroups}
                   markups={markups}
                   busy={gateBusy}
-                  onCommit={(d) => void handleLineGate(d)}
+                  onCommit={(d, desc) => void handleLineGate(d, desc)}
                 />
               )}
 
