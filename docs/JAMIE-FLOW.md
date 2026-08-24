@@ -135,10 +135,38 @@ Once the user approves, the estimate goes to a proposal.
 | Catalog builds itself from priced items | BUILT |
 | **"Enter or detect?" explicit fork** | NOT BUILT — no prompt, user must infer |
 | **Gate 1: add / delete work areas** | NOT BUILT — approve/reject + rename only |
-| **Scope written FROM the line items** | NOT BUILT — written in Pass 1, before the takeoff |
-| **Bullet scope format (summary + steps)** | NOT BUILT — free prose |
+| **Scope written FROM the line items** | BUILT — Pass 2 writes it from the takeoff and overwrites Gate 1's |
+| **Bullet scope format (summary + steps)** | BUILT — summary line, step bullets, qualifiers, exclusions |
 | **Questions on the fly** | NOT BUILT — `gap_questions` arrive as text at the end |
-| **Gate 2: add lines, edit markup/price/verbiage** | PARTIAL — qty + cost only |
+| **Gate 2: edit verbiage** | BUILT — editable scope per work area |
+| **Gate 2: add lines, change markup/price** | NOT BUILT — qty + cost only |
 | **User's own kits instead of BCA's** | NOT BUILT — `KIT_REFERENCE` is hardcoded BCA |
 | **Learning from the user's edits** | NOT BUILT — the deltas ARE recorded (`jamie_proposed_lines` vs `inserted_work_area_line_id`); nothing reads them |
 | **Web search for unfamiliar trades** | NOT BUILT |
+
+---
+
+## The scope engine's resolution order (Ian, 2026-08-24)
+
+When Jamie needs to know how a work area is actually built, she resolves
+in this order:
+
+1. **The user's kits** — their own assemblies and production factors.
+2. **Learned knowledge** — how they estimated the same or a similar work
+   area before, including what they EDITED on those estimates.
+3. **The internet** — how-to, step by step, best practices for that kind
+   of work. This is the day-one fallback and the thing that makes her
+   useful outside the trades the user has already priced.
+
+Only step 3 is genuinely absent today; steps 1 and 2 exist as data
+(`kits`, `jamie_proposed_lines` vs `inserted_work_area_line_id`) that
+nothing reads. What ships today instead of all three is a hardcoded copy
+of BCA's kits — see §0.
+
+## The fail-safe
+
+After the estimate resolves, re-read the finished scope against the
+finished line items: **anything the verbiage mentions must appear as a
+line item.** Built 2026-08-24 (Sonnet validation pass). It exists because
+a Veneer Foundation estimate once described mortaring the veneer and
+billed no mortar.

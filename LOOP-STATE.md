@@ -511,6 +511,17 @@ are LOWER priority than R2-R5 — don't polish the surface being replaced.
   `git log`/`git status` reconcile — a stale clone fails silently.
 
 ## WATCH LIST
+- ⚠️ 2026-08-24: the ANTHROPIC API CREDIT BALANCE ran out mid-verification.
+  Jamie is DOWN for every user until credits are added (console.anthropic.com
+  → Plans & Billing). Nothing in the app is broken; it cannot reach the API.
+  Verification runs are real spend — a full verify:jamie-loop is ~$0.30 and
+  a whole-project pass on big plan sets is more. Batch them, and do not
+  re-run a harness to confirm something already proven.
+- ⚠️ DEPLOYED BUT UNVERIFIED: the rule that an equipment/labor rate the
+  contractor has NOT configured must be flagged needs_pricing. The harness
+  caught Jamie pricing a Cement Mixer at $15/hr unflagged; the fix is live
+  but the confirming run died on the empty credit balance. Re-run
+  verify:jamie-loop assertion 5c once credits are back.
 - ⚠️ Ian's ITEM CATALOG is nearly empty — 1 material, 1 equipment, 2 other,
   1 subcontractor. Jamie prices labor + equipment fine (My Numbers), but
   returns $0 needs_pricing for most materials because she has no basis.
