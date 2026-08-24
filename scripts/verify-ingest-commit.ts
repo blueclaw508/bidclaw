@@ -47,11 +47,25 @@ async function main() {
       .order('sequence_order')
     const baseWAs = recon.work_areas.filter((w) => w.kind === 'base')
 
-    // Every work area's billed total (markup 0 → sum qty*unit_cost) = stated.
+    // The contractor's own markups — cost recovery is only assertable when
+    // they actually have some configured.
+    const { data: mkSettings } = await admin
+      .from('company_settings')
+      .select('markup_materials_percent, markup_subs_percent')
+      .eq('user_id', userId)
+      .maybeSingle()
+    const matMk = Number(mkSettings?.markup_materials_percent) || 0
+    const subMk = Number(mkSettings?.markup_subs_percent) || 0
+    const marksConfigured = matMk > 0 || subMk > 0
+
+    // Every work area's billed total = stated.
     let allReconcile = true
     let poolSubOk = true
+    let costOk = true
+    let totalCost = 0
+    let totalBilled = 0
     for (const wa of was ?? []) {
-      const { data: lines } = await admin.from('work_area_lines').select('category, quantity, unit_cost, markup_override').eq('work_area_id', wa.id)
+      const { data: lines } = await admin.from('work_area_lines').select('category, label, quantity, unit_cost, markup_override').eq('work_area_id', wa.id)
       const billed = (lines ?? []).reduce((a, l) => a + Number(l.quantity) * Number(l.unit_cost) * (1 + (Number(l.markup_override) || 0) / 100), 0)
       const stated = baseWAs.find((b) => b.name === wa.name)?.stated_total ?? -1
       if (Math.abs(billed - stated) > 0.02) { allReconcile = false; console.log(`   ✗ ${wa.name}: billed ${money(billed)} != stated ${money(stated)}`) }
@@ -59,6 +73,25 @@ async function main() {
       if (/gunite|swimming pool|\bspa\b|baja/i.test(wa.name)) {
         const sub = (lines ?? []).find((l) => l.category === 'subcontractor' && Number(l.markup_override) === 10)
         if (!sub) { poolSubOk = false; console.log(`   ✗ ${wa.name}: pool scope not coded subcontractor @10%`) }
+      }
+      // COST RECOVERY. Every markup-bearing line must carry a real markup
+      // with a cost basis BELOW its billed price. A 0% material line means
+      // the estimate claims ZERO margin on materials — the bug this
+      // assertion exists to catch (cost $0.60 -> price $0.60).
+      // "General Conditions & Rounding" is exempt: it is a rounding plug
+      // held at 0% on purpose.
+      for (const l of lines ?? []) {
+        const cat = String(l.category)
+        const cost = Number(l.quantity) * Number(l.unit_cost)
+        totalCost += cost
+        totalBilled += cost * (1 + (Number(l.markup_override) || 0) / 100)
+        if (!['material', 'subcontractor', 'other'].includes(cat)) continue
+        if (/general conditions/i.test(String(l.label ?? ''))) continue
+        if (!marksConfigured) continue
+        if ((Number(l.markup_override) || 0) <= 0) {
+          costOk = false
+          console.log(`   ✗ ${wa.name}: "${l.label}" (${cat}) at 0% markup — cost == price, margin lost`)
+        }
       }
     }
 
@@ -74,12 +107,13 @@ async function main() {
     const poolOk = poolReads === t.pool
     const waCountOk = (was?.length ?? 0) === baseWAs.length
 
-    const pass = allReconcile && valueOk && onBoard && poolOk && waCountOk && poolSubOk
+    const pass = allReconcile && valueOk && onBoard && poolOk && waCountOk && poolSubOk && costOk
     results.push({ key: t.key, pass })
     console.log(`\n${pass ? 'PASS' : 'FAIL'}  ${t.key}  → project ${res.projectId}`)
     console.log(`   ${res.workAreaCount} work areas · ${res.lineCount} lines · ${res.optionCount} options → notes`)
     console.log(`   BOARD CARD: "${lead!.project_name}" · value ${money(Number(lead!.est_value))} (base_total ${money(recon.base_total)}) · region ${lead!.region ?? '—'} · town ${lead!.town ?? '—'}`)
-    console.log(`   checks: WAs ${waCountOk ? 'OK' : 'FAIL'} · every WA billed==stated ${allReconcile ? 'OK' : 'FAIL'} · value ${valueOk ? 'OK' : 'FAIL'} · pool-blue ${poolOk ? `OK (${poolReads})` : `FAIL`} · pool→sub@10% ${poolSubOk ? 'OK' : 'FAIL'}`)
+    console.log(`   checks: WAs ${waCountOk ? 'OK' : 'FAIL'} · every WA billed==stated ${allReconcile ? 'OK' : 'FAIL'} · value ${valueOk ? 'OK' : 'FAIL'} · pool-blue ${poolOk ? `OK (${poolReads})` : `FAIL`} · pool→sub@10% ${poolSubOk ? 'OK' : 'FAIL'} · cost recovered ${costOk ? 'OK' : 'FAIL'}`)
+    console.log(`   COST BASIS: ${money(totalCost)} cost → ${money(totalBilled)} billed · margin ${money(totalBilled - totalCost)} (${totalBilled > 0 ? (((totalBilled - totalCost) / totalBilled) * 100).toFixed(1) : '0.0'}% of price) · markups ${matMk}% mat / ${subMk}% subs`)
   }
 
   const failed = results.filter((r) => !r.pass)

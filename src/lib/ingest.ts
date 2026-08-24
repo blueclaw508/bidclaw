@@ -2,10 +2,24 @@
 // reconstruction into a real BidClaw estimate + a Leads & Bids card.
 //
 // The estimate is built through the SAME columns manual creation uses, so
-// the result is indistinguishable from a hand-built one. Line markup is
-// pinned to 0 because the reconstruction already DECOMPOSED the
-// contractor's final prices (margin is inside them) — so a work area's
-// billed total = sum(qty x unit_cost) = the proposal's stated total.
+// the result is indistinguishable from a hand-built one.
+//
+// COST RECOVERY (the whole point of KYN). Jamie emits BILLED amounts —
+// the proposal's prices, with margin already inside them. Writing those
+// straight into unit_cost at 0% markup produced a technically-correct
+// total on an estimate that claimed ZERO margin on every material line:
+// cost $0.60 -> price $0.60. Useless for knowing your numbers.
+//
+// So on commit we UNWIND the contractor's own markup back out of every
+// markup-bearing line: unit_cost = billed / (1 + m/100), markup_override
+// = m. The billed price is unchanged to the penny; the estimate now shows
+// the real cost basis and the real margin. Labor and equipment are left
+// alone — KYN rates already include margin and the app fixes those
+// categories at 0% (see categoryBearsMarkup in money.ts).
+//
+// Lines that already carry an explicit markup (the BCA pool-subcontractor
+// rule, markup_pct 10) pass through untouched — their unit_cost is
+// already a cost basis, not a billed amount.
 //
 // Client-agnostic on purpose: pass the browser supabase client from the
 // UI, or a session-injected node client from the verify harness. Every
@@ -103,6 +117,23 @@ export async function commitIngestedProposal(opts: {
   const town = inferTown(r.site_address)
   const region = inferRegion(r.site_address)
 
+  // 0 — The contractor's own markups, for unwinding cost out of Jamie's
+  //     billed amounts. Mirrors liveMarkupPercent() in money.ts: material
+  //     uses the materials markup, subcontractor + other use the subs
+  //     markup, labor + equipment never bear markup.
+  const { data: settingsRow } = await client
+    .from('company_settings')
+    .select('markup_materials_percent, markup_subs_percent')
+    .eq('user_id', userId)
+    .maybeSingle()
+  const materialsMarkup = Number(settingsRow?.markup_materials_percent) || 0
+  const subsMarkup = Number(settingsRow?.markup_subs_percent) || 0
+  const markupForCategory = (cat: string): number => {
+    if (cat === 'material') return materialsMarkup
+    if (cat === 'subcontractor' || cat === 'other') return subsMarkup
+    return 0 // labor + equipment — rates already include margin
+  }
+
   // 1 — Customer (when the proposal named one).
   let customerId: string | null = null
   if (r.customer_name?.trim()) {
@@ -168,23 +199,46 @@ export async function commitIngestedProposal(opts: {
       .single()
     if (waErr) throw new Error(`Couldn't create work area "${wa.name}": ${waErr.message}`)
     const waId = waRow.id as string
-    const lines = wa.line_items.map((l, j) => ({
-      work_area_id: waId,
-      category: l.category as string,
-      label: l.label,
-      unit: l.unit || '',
-      quantity: l.qty,
-      unit_cost: l.unit_cost,
-      price_override: null as number | null,
-      // 0 for decomposed final-price lines; 10 for BCA pool-sub lines
-      // (unit_cost = de-marked cost → billed = cost × 1.10 = stated).
-      markup_override: l.markup_pct ?? 0,
-      sort_order: j,
-    }))
+    const lines = wa.line_items.map((l, j) => {
+      const cat = l.category as string
+      const emitted = Number(l.markup_pct ?? 0)
+      // Jamie already priced this as a cost basis (BCA pool-sub rule,
+      // markup_pct 10) — leave it exactly as she built it.
+      const preMarked = emitted > 0
+      const m = preMarked ? emitted : markupForCategory(cat)
+      const cost =
+        preMarked || m <= 0
+          ? Number(l.unit_cost)
+          : // Unwind: the emitted unit_cost is a BILLED amount.
+            Number(l.unit_cost) / (1 + m / 100)
+      return {
+        work_area_id: waId,
+        category: cat,
+        label: l.label,
+        unit: l.unit || '',
+        quantity: l.qty,
+        // Cents on the cost basis; any drift is absorbed by the GC
+        // balancer below, which is recomputed AFTER this unwind.
+        unit_cost: Math.round(cost * 100) / 100,
+        price_override: null as number | null,
+        // Pinned, not left to live settings: the stated total is the
+        // contractor's real price and must not drift if they retune
+        // their markups later (RI's sacrosanct-total rule).
+        markup_override: m,
+        sort_order: j,
+      }
+    })
     // The stated total is Ian's real price — sacrosanct. Never trust the
     // model's arithmetic to hit it: RECOMPUTE the "General Conditions &
     // Rounding" balancer so billed sum == stated_total to the penny,
     // regardless of any slip in Jamie's line math.
+    //
+    // Runs AFTER the cost unwind above, so it also absorbs the sub-cent
+    // drift that rounding a divided cost basis introduces (billed 100 at
+    // 50% → cost 66.67 → billed 100.005). The balancer itself stays at 0%
+    // markup: it is a rounding plug, not scope you earn margin on, and
+    // marking it up would reintroduce the very rounding error it exists
+    // to absorb.
     const billed = (l: (typeof lines)[number]) =>
       Number(l.quantity) * Number(l.unit_cost) * (1 + Number(l.markup_override) / 100)
     let gc = lines.find((l) => /general conditions/i.test(l.label))
