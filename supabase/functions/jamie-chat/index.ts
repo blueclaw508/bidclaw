@@ -28,7 +28,7 @@
 //   4. Full gate vs tier limits + live usage counts
 //   5. Meter (invocation row, in_progress) → Anthropic → finalize
 
-import Anthropic from 'npm:@anthropic-ai/sdk'
+import Anthropic, { toFile } from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
   evaluateFounderModeGate,
@@ -164,7 +164,11 @@ interface BrainContext {
   stagedWorkAreas: Array<{ id: string; name: string; description: string }>
 }
 
-function buildSystemPrompt(action: JamieAction, ctx: BrainContext): string {
+function buildSystemPrompt(
+  action: JamieAction,
+  ctx: BrainContext,
+  files: SyncedFile[] = []
+): string {
   const lt = ctx.laborTypes.length
     ? ctx.laborTypes.map((l) => `  - ${l.name}: $${l.rate}/hr`).join('\n')
     : '  (none configured — put labor lines at unit_cost 0, needs_pricing true)'
@@ -196,7 +200,15 @@ THE PROJECT:
   Name: ${ctx.projectName || '(unnamed)'}
   Address: ${ctx.projectAddress || '(not given)'}
 Work areas the CONTRACTOR already created (theirs — never modify):
-${existing}`
+${existing}
+
+THE PROJECT'S FILES:
+${
+    files.length
+      ? files.map((f) => `  - ${f.name}`).join('\n') +
+        `\nThey are attached to this conversation — read them. Do NOT ask the contractor to send files that are already in this list; they have uploaded them and can see them on the project. If a plan sheet is unreadable or you need a sheet that is not here, say WHICH sheet and why.`
+      : '  (nothing uploaded to this project yet)'
+  }`
 
   const kyn = `KYN RULES:
 - LABOR is projected man-hours × the contractor's retail labor rate. A full crew day is 27 man-hours (3 crew × 9 hours). Round UP to a full day when you are within 20% of 27 — crews fill the day. Half day = 13-14 hours. Labor hours are ALWAYS your projection, never a catalog default.
@@ -299,6 +311,130 @@ const MEDIA_TYPES: Record<string, string> = {
   jpeg: 'image/jpeg',
   webp: 'image/webp',
   gif: 'image/gif',
+}
+
+// ── Project file repository (J4) ───────────────────────────────────────
+// ONE repository per project: `project_files` / the `project-files` bucket.
+// Jamie used to be able to see only photos uploaded through her own panel,
+// so a contractor could upload four plan sheets and be told "I don't see
+// anything attached" — which was true, and wrong.
+//
+// Each file is pushed to the Anthropic Files API ONCE and referenced by id
+// afterwards. Re-sending 20MB of plan sheets on every turn would be both
+// slow and expensive; a file_id costs nothing to repeat.
+
+const FILES_BETA = 'files-api-2025-04-14'
+
+/** What Claude can actually read, and as which content block. */
+function fileKind(mime: string | null, name: string): 'document' | 'image' | null {
+  const m = (mime ?? '').toLowerCase()
+  if (m === 'application/pdf' || /\.pdf$/i.test(name)) return 'document'
+  if (m === 'text/plain' || m === 'text/csv' || /\.(txt|csv|md)$/i.test(name)) return 'document'
+  if (m.startsWith('image/')) return 'image'
+  return null // Word/Excel/etc — the API takes no document block for them
+}
+
+const UNSUPPORTED =
+  "Jamie can't read this file type yet — export it to PDF and re-upload."
+
+interface SyncedFile {
+  id: string
+  name: string
+  kind: 'document' | 'image'
+  fileId: string
+}
+
+/**
+ * Bring the project's files up to date on the Anthropic side and return
+ * everything Jamie can read. Lazy and self-healing: any file without an
+ * anthropic_file_id is uploaded on the next call, and a failure is recorded
+ * on the row rather than thrown, so one bad file can't block the estimate.
+ */
+async function syncProjectFiles(
+  // deno-lint-ignore no-explicit-any
+  service: any,
+  anthropic: Anthropic,
+  projectId: string
+): Promise<SyncedFile[]> {
+  const { data: rows } = await service
+    .from('project_files')
+    .select('id, file_name, mime_type, storage_path, anthropic_file_id, anthropic_sync_error')
+    .eq('project_id', projectId)
+    .order('uploaded_at')
+  if (!rows) return []
+
+  const out: SyncedFile[] = []
+  for (const f of rows as Array<Record<string, unknown>>) {
+    const name = String(f.file_name ?? '')
+    const kind = fileKind(f.mime_type as string | null, name)
+    if (!kind) {
+      if (!f.anthropic_sync_error) {
+        await service
+          .from('project_files')
+          .update({ anthropic_sync_error: UNSUPPORTED })
+          .eq('id', f.id)
+      }
+      continue
+    }
+    if (f.anthropic_file_id) {
+      out.push({ id: f.id as string, name, kind, fileId: f.anthropic_file_id as string })
+      continue
+    }
+    // Already tried and failed for a non-type reason — don't retry forever.
+    if (f.anthropic_sync_error) continue
+
+    try {
+      const { data: blob, error: dlErr } = await service.storage
+        .from('project-files')
+        .download(f.storage_path as string)
+      if (dlErr || !blob) throw new Error(dlErr?.message ?? 'could not read the stored file')
+      const uploaded = await anthropic.beta.files.upload({
+        file: await toFile(blob, name, {
+          type: (f.mime_type as string) || 'application/octet-stream',
+        }),
+        betas: [FILES_BETA],
+      })
+      await service
+        .from('project_files')
+        .update({
+          anthropic_file_id: uploaded.id,
+          anthropic_synced_at: new Date().toISOString(),
+          anthropic_sync_error: null,
+        })
+        .eq('id', f.id)
+      out.push({ id: f.id as string, name, kind, fileId: uploaded.id })
+    } catch (err) {
+      await service
+        .from('project_files')
+        .update({
+          anthropic_sync_error: err instanceof Error ? err.message : 'upload failed',
+        })
+        .eq('id', f.id)
+    }
+  }
+  return out
+}
+
+/** Content blocks for the synced files, newest-last, cache breakpoint on
+ *  the final one so the whole document prefix bills at cache rates. */
+function fileBlocks(files: SyncedFile[]): Anthropic.ContentBlockParam[] {
+  const blocks: Anthropic.ContentBlockParam[] = files.map((f) =>
+    f.kind === 'document'
+      ? ({
+          type: 'document',
+          source: { type: 'file', file_id: f.fileId },
+          title: f.name,
+        } as unknown as Anthropic.ContentBlockParam)
+      : ({
+          type: 'image',
+          source: { type: 'file', file_id: f.fileId },
+        } as unknown as Anthropic.ContentBlockParam)
+  )
+  if (blocks.length > 0) {
+    const last = blocks[blocks.length - 1] as unknown as Record<string, unknown>
+    last.cache_control = { type: 'ephemeral' }
+  }
+  return blocks
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -618,6 +754,16 @@ Deno.serve(async (req: Request) => {
       },
     })
   }
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!apiKey) return json({ error: 'Jamie is not configured (missing API key).' }, 500)
+  const anthropic = new Anthropic({ apiKey })
+
+  // The project's file repository — plans, bid forms, surveys, photos.
+  const projectFiles = await syncProjectFiles(service, anthropic, run.project_id)
+  const docBlocks = fileBlocks(projectFiles)
+
+  const systemPrompt = buildSystemPrompt(action, brainCtx, projectFiles)
+
   // The two passes are button-driven, so when the contractor typed nothing
   // we still need a user turn to hang the request on.
   const PASS_PROMPT: Record<JamieAction, string> = {
@@ -660,10 +806,23 @@ Deno.serve(async (req: Request) => {
     priorMessages.pop()
   }
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) return json({ error: 'Jamie is not configured (missing API key).' }, 500)
-  const anthropic = new Anthropic({ apiKey })
-  const systemPrompt = buildSystemPrompt(action, brainCtx)
+  // Project files ride on the FIRST user turn, not the current one. That
+  // keeps them inside the stable cached prefix — plan sheets are the most
+  // expensive thing in the request, and re-reading them at the head of a
+  // growing conversation bills at cache rates instead of full price.
+  if (docBlocks.length > 0) {
+    if (priorMessages.length > 0) {
+      const first = priorMessages[0]
+      const original = typeof first.content === 'string' ? first.content : ''
+      first.content = [
+        ...docBlocks,
+        { type: 'text', text: original || 'These are the files for this job.' },
+      ]
+    } else {
+      content.unshift(...docBlocks)
+    }
+  }
+
   const structuredOutput: Record<string, unknown> =
     action === 'chat'
       ? {}
@@ -686,7 +845,10 @@ Deno.serve(async (req: Request) => {
       const send = (obj: unknown) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`))
       try {
-        const msgStream = anthropic.messages.stream({
+        // beta.messages — referencing a Files-API file_id needs the same
+        // beta flag the upload used, on the message request too.
+        const msgStream = anthropic.beta.messages.stream({
+          betas: [FILES_BETA],
           model,
           max_tokens: MAX_TOKENS[action],
           thinking: { type: 'adaptive' },
