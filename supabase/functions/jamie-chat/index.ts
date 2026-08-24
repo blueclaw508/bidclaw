@@ -36,7 +36,6 @@ import {
   type JamieUsage,
   type TierLimits,
 } from './jamieGate.ts'
-import { KIT_REFERENCE } from '../_shared/kitReference.ts'
 
 // ── Model router (Loop Rule 9: Opus for estimation reasoning, Sonnet for
 // validation/formatting/summaries; never silently downgrade an Opus task).
@@ -60,6 +59,10 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'claude-opus-4-8': { input: 5, output: 25 },
   'claude-sonnet-5': { input: 3, output: 15 },
 }
+
+/** Newline, built rather than escaped — prompt strings get rewritten
+ *  by tooling often enough that a bare escape is a liability. */
+const NEWLINE = String.fromCharCode(10)
 
 /** The three things this function can be asked to do. */
 type JamieAction = 'chat' | 'propose_work_areas' | 'propose_lines'
@@ -261,6 +264,16 @@ interface BrainContext {
   projectAddress: string
   existingWorkAreas: Array<{ id: string; name: string; description: string }>
   stagedWorkAreas: Array<{ id: string; name: string; description: string }>
+  /** THIS company's own kits. The product ships blank — there is no
+   *  built-in kit library, and no other company's factors are ever put
+   *  in front of a user. An empty list is a valid, expected state. */
+  kits: Array<{
+    name: string
+    category: string
+    inputUnit: string
+    notes: string
+    lines: Array<{ type: string; name: string; factor: number; factorUnit: string }>
+  }>
 }
 
 function buildSystemPrompt(
@@ -281,6 +294,26 @@ function buildSystemPrompt(
   const cat = Object.keys(byCat).length
     ? Object.entries(byCat).map(([k, v]) => `${k}:\n${v.join('\n')}`).join('\n')
     : '  (CATALOG IS EMPTY — price every material and sub yourself from current supplier pricing for this trade and region, flag needs_pricing on each, and list them in new_catalog_items so they get saved. An empty catalog is NOT a reason to return zeros.)'
+  // THIS company's kits. BidClaw ships BLANK — no built-in library, and
+  // one company's production factors are never shown to another. With no
+  // kits yet, Jamie estimates from general trade knowledge and the
+  // company's own numbers, and the kits they build later take over.
+  const kitsBlock = ctx.kits.length
+    ? `THIS COMPANY'S OWN KITS (their production factors — these OVERRIDE any general rule of thumb you have):` +
+      NEWLINE +
+      ctx.kits
+        .map(
+          (k) =>
+            `- ${k.name} (${k.category}, per ${k.inputUnit})${k.notes ? ' — ' + k.notes : ''}` +
+            NEWLINE +
+            k.lines
+              .map((l) => `    ${l.type}: ${l.name} — ${l.factor} ${l.factorUnit}`)
+              .join(NEWLINE)
+        )
+        .join(NEWLINE)
+    : `THIS COMPANY HAS NOT BUILT ANY KITS YET.
+That is normal — BidClaw ships blank and learns each company. Estimate this work from standard trade practice for the region, the company's own rates and catalog below, and what they have corrected you on before. Show your production factors in the reasoning (e.g. "0.21 hr/SF mason") so they can see what you assumed and correct it. Their corrections become their kits.`
+
   const existing = ctx.existingWorkAreas.length
     ? ctx.existingWorkAreas
         .map((w) => `  - id ${w.id} — "${w.name}"${w.description ? `: ${w.description}` : ''}`)
@@ -325,7 +358,7 @@ means zero. There is no such thing as a line you cannot price.
 - MATERIALS and SUBCONTRACTORS: qty = the measured quantity from your takeoff, unit_cost = the BASE cost — what the contractor PAYS, before margin. Use the catalog cost when the item is in the catalog below. When it is not, use your own knowledge of current supplier pricing for this trade and region, and flag needs_pricing. BidClaw automatically applies the contractor's markups on top (materials ${ctx.materialsMarkup}%, subs ${ctx.subsMarkup}%) — so do NOT pre-mark-up, and do NOT put a retail/billed price in unit_cost. Name anything you priced yourself in new_catalog_items so it gets saved for next time.
 - GENERAL CONDITIONS: every work area ends with one "General Conditions & Rounding" line (category "other", qty 1, unit "EA") covering incidentals — a real dollar amount sized to the job, not zero.
 
-${KIT_REFERENCE}
+${kitsBlock}
 
 THE CONTRACTOR'S KYN NUMBERS:
 Labor rates ($/hr):
@@ -338,13 +371,13 @@ ${cat}`
   if (action === 'propose_work_areas') {
     return `${identity}
 
-TASK — PASS 1: PROPOSE THE WORK AREAS. Read everything the contractor has told you in this conversation (and any photos). Break the project into the work areas you would estimate it in. One work area = one coherent scope that gets its own price: "Bluestone Terrace", "Pool Coping & Waterline Tile", "Front Walk & Steps", "Planting Beds & Irrigation Repair".
+TASK — PASS 1: PROPOSE THE WORK AREAS. Read everything the contractor has told you in this conversation (and any photos). Break the project into the work areas you would estimate it in. One work area = one coherent scope that gets its own price, in whatever trade this company actually works in — "Rear Terrace", "Foundation Veneer", "Cedar Privacy Fence — West Line", "Irrigation Zone Rebuild", "Composite Deck & Rail", "Driveway Apron". Name it the way THIS contractor names work, following the language they use in this conversation and in their own kits and past work areas. Do not import the vocabulary of a trade they are not in.
 
 - name: short and specific, the way it would read on a proposal.
 - scope_description: the step-by-step of what will actually be done, with the real quantities (SF, LF, CY, counts, depths) you were given or can read off a photo. Pass 2 rebuilds the takeoff from THIS text, so the quantities have to be in it. Do not mention anything you would not bill.
 - matches_existing_work_area_id: if one of the contractor's existing work areas above already covers this scope, put its id here so they can see the overlap. Otherwise null. NEVER propose editing theirs.
 - confidence: "high" = clear scope with real quantities; "medium" = scope clear, quantities inferred; "low" = you are guessing at scope.
-- gap_questions: the things you genuinely need answered before pricing — substrate, stone profile, disposal by whom, equipment access, whether it's a Nantucket job. Ask what changes the price. Do not pad the list.
+- gap_questions: the things you genuinely need answered before pricing, for THIS trade — substrate and what it is being fixed to, material spec and grade, method (wet set vs dry set, surface vs sub-surface, hand vs machine), who is doing disposal, equipment access, and any logistics that carry a premium on this job (island or ferry access, permits, restricted hours, long carries). Ask only what changes the price. Do not pad the list.
 
 ${kyn}
 
@@ -366,12 +399,12 @@ For each work area, work in this order: material takeoff → equipment → labor
 THEN WRITE THE SCOPE — LAST, FROM THE LINES YOU JUST BUILT. scope_description replaces whatever was written at Gate 1, because that was written before a single line item existed. Now that the takeoff is real, the scope must describe exactly it: EVERY component you billed appears in the scope, and NOTHING appears in the scope that you did not bill. That is the prime directive and this is the step where it is actually enforced.
 
 Format, exactly:
-  First line — one sentence summarising what is being done ("Install 620 SF of dry-laid thermal bluestone terrace at the rear of the house.").
-  Then bullet lines beginning with "- ", walking the crew through the work STEP BY STEP in the order it happens: excavate, haul off, base, compact, screed, set, cut, joint, clean.
+  First line — one sentence summarising what is being done, in this trade's own terms ("Install 620 SF of dry-laid thermal bluestone terrace at the rear of the house." / "Install 240 LF of 6 ft cedar board-on-board privacy fence along the west property line.").
+  Then bullet lines beginning with "- ", walking the crew through the work STEP BY STEP in the order it actually happens for THIS kind of work — whatever that sequence is in this trade.
   Then any qualifying statements about material or method — pattern-cut vs random, wet set vs dry set, thermal vs natural cleft, who supplies what, what is excluded.
 This text is read by TWO audiences at once: it is what the client is buying, and it is the instruction sheet the crew works from. Write it so both can act on it. Plain contractor English, no marketing.
 
-label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. "Thermal Bluestone 1.5\"", "Processed Dense Grade", "Mason Sand", "Polymeric Sand". NOT "Thermal Bluestone, Pattern Cut 1.5\" — terrace field" and NOT "Processed Dense Grade Gravel — 8\" compacted base". Every item you price that isn't already in the catalog gets SAVED to the contractor's catalog under this exact name and reused on their next job, so a job-specific label quietly fills their catalog with duplicates that never match again. Keep the same item spelled the same way every time.
+label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. a supplier's name for the thing, not the job it is doing: "Processed Dense Grade" not "Processed Dense Grade Gravel — 8 inch compacted base"; "Cedar 1x6 Board" not "Cedar boards for the west line". Every item you price that isn't already in the catalog gets SAVED to the contractor's catalog under this exact name and reused on their next job, so a job-specific label quietly fills their catalog with duplicates that never match again. Keep the same item spelled the same way every time.
 
 reasoning: where the quantity came from AND the job-specific detail that does not belong in the label ("620 SF × 1.10 waste = 682 SF, terrace field, pattern cut"; "1,240 SF × 0.22 hr/SF mason"). This is what the contractor reads to decide whether to trust the line.
 
@@ -712,6 +745,7 @@ Deno.serve(async (req: Request) => {
     { data: project },
     { data: existingWas },
     { data: history },
+    { data: kitRows },
   ] = await Promise.all([
     service
       .from('company_settings')
@@ -749,6 +783,10 @@ Deno.serve(async (req: Request) => {
       .select('role, content')
       .eq('jamie_run_id', run.id)
       .order('created_at'),
+    service
+      .from('kits')
+      .select('name, category, input_unit, jamie_notes, status, kit_lines(type, display_name, factor, factor_unit, position)')
+      .eq('user_id', user.id),
   ])
 
   // Pass 2 works from the work areas approved at Gate 1. Staged rows the
@@ -809,6 +847,24 @@ Deno.serve(async (req: Request) => {
       description: (w.description as string) ?? '',
     })),
     stagedWorkAreas,
+    kits: ((kitRows ?? []) as Array<Record<string, unknown>>)
+      .filter((k) => (k.status ?? 'active') !== 'archived')
+      .map((k) => ({
+        name: (k.name as string) ?? '',
+        category: (k.category as string) ?? '',
+        inputUnit: (k.input_unit as string) ?? '',
+        notes: (k.jamie_notes as string) ?? '',
+        lines: ((k.kit_lines ?? []) as Array<Record<string, unknown>>)
+          .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
+          .filter((l) => Number(l.factor) > 0)
+          .map((l) => ({
+            type: (l.type as string) ?? '',
+            name: (l.display_name as string) ?? '',
+            factor: Number(l.factor),
+            factorUnit: (l.factor_unit as string) ?? '',
+          })),
+      }))
+      .filter((k) => k.lines.length > 0),
   }
 
   // Name → catalog id, for stamping catalog_item_id on staged lines. Lower-

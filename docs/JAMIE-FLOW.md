@@ -18,11 +18,21 @@ pre-seeded, and nothing is assumed about their trade.
 > She must estimate fencing, irrigation, decking, masonry — whatever the
 > user actually sells. She learns the user's work FROM the user.
 
-This is the hard constraint that most of the current implementation
-violates: `supabase/functions/_shared/kitReference.ts` bakes BCA's 25
-hardscape/masonry kits into the prompt for **every** user. That is a
-seed for Ian's own account, not a universal truth, and it must become
-the user's own kits + their bid history + general trade knowledge.
+Ian, 2026-08-24: *"I want the system to be shipped ready to learn and
+evolve to the user's company. It should ship blank. My login can learn my
+stuff fine. But each other version starts blank with the engine to become
+the wizards of that company."*
+
+There is **no built-in kit library**, and no company's production factors
+are ever shown to another company. `jamie-chat` reads THIS user's `kits`
+rows; with none, Jamie estimates from general trade practice and shows her
+production factors in the reasoning so the contractor can correct them —
+and their corrections become their kits. The founder account learns the
+same way everyone else does.
+
+The prompt is trade-neutral too: work-area naming, gap questions and scope
+examples must not push a contractor toward masonry just because that is
+what the first user sold.
 
 Sources of Jamie's knowledge, in priority order:
 
@@ -140,7 +150,7 @@ Once the user approves, the estimate goes to a proposal.
 | **Questions on the fly** | NOT BUILT — `gap_questions` arrive as text at the end |
 | **Gate 2: edit verbiage** | BUILT — editable scope per work area |
 | **Gate 2: add lines, change markup/price** | NOT BUILT — qty + cost only |
-| **User's own kits instead of BCA's** | NOT BUILT — `KIT_REFERENCE` is hardcoded BCA |
+| **User's own kits instead of BCA's** | BUILT — hardcoded library DELETED; jamie-chat reads the user's `kits`. jamie-ingest still holds an inline copy (founder-gated, and unverifiable while API credits are out) |
 | **Learning from the user's edits** | NOT BUILT — the deltas ARE recorded (`jamie_proposed_lines` vs `inserted_work_area_line_id`); nothing reads them |
 | **Web search for unfamiliar trades** | NOT BUILT |
 
