@@ -13,7 +13,8 @@
     "verify:jamie": "node scripts/verify-jamie.mjs",
     "verify:ingest-commit": "tsx scripts/verify-ingest-commit.ts",
     "verify:ingest": "node scripts/verify-ingest.mjs",
-    "verify:jamie-loop": "node scripts/verify-jamie-loop.mjs"
+    "verify:jamie-loop": "node scripts/verify-jamie-loop.mjs",
+    "backfill:ingest-markup": "node scripts/backfill-ingest-markup.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
