@@ -1,5 +1,94 @@
 # LOOP-STATE — BidClaw
 
+## ⚠️ RI IS LIVE — BUT PRODUCTION IS NOT BUILT FROM GIT (as of 2026-08-24)
+All RI work (da1cd68, 32cc292, f99c1be) plus the 11x17 Leads report
+(515c0cf, bcd2652) lives on `feature/reverse-ingestion`. Master's tip is
+still e9520f6 (2026-07-12) and contains NONE of it.
+PRODUCTION IS LIVE WITH RI ANYWAY. bluebidclaw.app currently serves
+deploy 6a88ac09ea3174381fa03022 (2026-08-21 19:50 UTC) — a direct dist
+upload: deploy_source "api", commit_ref null, build_id null, 49 files.
+Netlify labels it branch "master" because that is the site's production
+branch setting, but NO COMMIT IS ATTACHED to it. Verified 2026-08-24:
+the live site serves /assets/ImportProposalModal-DcHDcrk2.js — the exact
+content-hashed chunk this branch's build produces. RI2 is in production.
+⚠️ CONSEQUENCE: any git push to master fires a Netlify build from
+e9520f6 and REGRESSES production to July — RI disappears from the live
+site. Until this branch is merged, DO NOT PUSH MASTER. Merging the
+branch to master is the insurance, not a deployment step.
+⚠️ Do not read "origin/master is stale" as "RI was never deployed" —
+that inference was made on 2026-08-24 and was wrong. Check the Netlify
+deploy, not the git ref.
+START EVERY SESSION with `git fetch` + `git checkout
+feature/reverse-ingestion`; a `git log` on master shows a July codebase
+and will make you think none of this exists.
+(A local branch `feature/leads-11x17-report` points at the same commit —
+a leftover alias, not separate work.)
+
+## RI2 — IN-APP PROPOSAL IMPORT (2026-08-21, f99c1be)
+"Import proposal" on the Estimates page (founder-gated via
+canInvokeJamie) opens a 4-step modal: upload a PDF (bundled pdfjs, lazy —
+only ships when the modal opens) or paste text (Word/CoWork) -> Jamie
+rebuilds it (streamed jamie-ingest, rotating status line + live "N work
+areas so far" to carry the 1-3 min Opus call) -> review (customer, site,
+base total, work areas with confidence dots, editable estimate name, pool
+jobs flagged "coded to Blue Water Pools"; totals LOCKED to the proposal)
+-> Create estimate -> commitIngestedProposal -> navigates to the new
+estimate; card lands on Leads & Bids at the base total.
+Files: src/lib/pdfText.ts (pdfjs getTextContent, hasEOL preserves the
+"Total ... $" lines), src/lib/jamieIngest.ts (SSE transport + live
+work-area counter), src/components/ingest/ImportProposalModal.tsx,
+Projects.tsx (gated entry button + lazy modal).
+Verified 5/5 end-to-end (Playwright: local UI -> live fn -> real commit)
+on Scott Davidson $32,261 / 3 work areas; test estimate cleaned up.
+
+## BCA POOL-SUBCONTRACTOR RULE + GUARANTEED RECONCILIATION (2026-08-21, 32cc292)
+Ian's rule: on a BCA reconstruction ALL pool-builder scope is subbed to
+Blue Water Pools, so it is coded Subcontractor at COST (stated / 1.10)
+with markup_pct 10, and BidClaw re-applies the 10% so the client total is
+unchanged. jamie-ingest emits pool scope (gunite pool/spa/baja bench +
+pool equipment: salt gen, automation, heater, covers) as ONE
+subcontractor line at stated/1.10; BCA-self hardscape/softscape stay
+decomposed at markup_pct 0. commitIngestedProposal RECOMPUTES the
+"General Conditions & Rounding" balancer per work area so billed ==
+stated to the penny regardless of any slip in the model's arithmetic.
+THE STATED TOTAL IS IAN'S REAL PRICE AND IS NEVER TRUSTED TO THE LLM'S
+MATH. verify-ingest treats Jamie's raw GC arithmetic as a quality signal,
+not a gate (commit guarantees exactness).
+Live-verified: Pinkham gunite pool commits as subcontractor "Blue Water
+Pools" cost $93,181.82 + 10% = $102,500 billed; every WA reconciles;
+board card correct + baby-blue.
+
+## RI1 + RI-COMMIT — JAMIE-INGEST BRAIN (2026-08-20, da1cd68)
+Upload an outside proposal (CoWork/Word/PDF) -> Jamie rebuilds it as a
+BidClaw estimate that lands on Leads & Bids. TWO LAYERS IN ONE PASS:
+  Layer 1  work areas + scope + STATED totals, base vs. option, skip T&C
+  Layer 2  line-item takeoff per WA, DECOMPOSED from the scope quantities
+           + kit reference + the contractor's rates, reconciled to each
+           stated total via a General Conditions balancer line.
+supabase/functions/jamie-ingest: one-shot structured-output edge fn —
+streamed, founder-gated (gate copied verbatim from src/lib/jamieGate.ts),
+metered, Opus at 32k max_tokens (a 24-work-area proposal overran 16k).
+Decomposition model: proposal prices are FINAL (margin inside), so
+unit_cost = billed amount, never marked up; lines sum to the stated
+total. Gunite pool / spa / equipment = low-confidence subcontractor
+lumps; allowances + "by others"/NIC handled.
+src/lib/ingest.ts commitIngestedProposal is client-agnostic (browser or
+node): customer + estimate + base work areas + lines (markup_override 0
+so billed == stated) + a Leads & Bids card with est_value = base_total
+and inferred region/town; options + payment terms + exclusions go to
+project notes.
+Harnesses: scripts/verify-ingest.mjs 5/5 on Ian's real proposals
+(Valente/Goff/Davidson/Pinkham/Weedweeder incl. the .docx) — Layer 1
+exact to the dollar, Layer 2 every WA reconciles; scripts/
+verify-ingest-commit.ts (npm run verify:ingest-commit) 2/2 committed
+end-to-end. Live-verified on bluebidclaw.app: Pinkham baby-blue
+$335,484, Davidson white $32,261.
+DO NOT REBUILD JAMIE-INGEST. The brain and the commit path are proven.
+Candidates after RI2 (NOT confirmed — ask Ian): RI3 in the reverse-
+ingestion arc, or Jamie P2 from the Phase 1 note (web-search Layer 1,
+whole-project mode with all WAs + two-gate, pricing new_catalog_items
+in-context).
+
 ## JAMIE PHASE 1 SHIPPED (2026-07-05, interactive session, 401293e)
 The AI estimating agent is LIVE. "Ask Jamie" on a work area -> edge fn
 `jamie-estimate` (Deno, claude-opus-4-8, structured JSON) prices the WA
@@ -116,6 +205,27 @@ are LOWER priority than R2-R5 — don't polish the surface being replaced.
 3. P1-C support: eval/ scaffolding when Ian's first WoZ eval is ready
 
 ## DONE (newest first — task · commit · verification)
+- 2026-08-24 · Leads 11x17 print fixes: 95-char word-boundary
+  description clip + .lpv-column break-inside avoid -> auto (a 24-lead
+  stage was forcing one sheet per stage) · e46ffa3 · TS-green build.
+- 2026-08-21 · RI2 in-app proposal import (upload/paste -> Jamie ->
+  review -> estimate) · f99c1be · 5/5 Playwright end-to-end (local UI ->
+  live jamie-ingest -> real commit): founder gate, streaming progress,
+  review screen, navigation, and Leads & Bids card all confirmed;
+  review screen inspected clean + on-brand; test estimate cleaned up.
+- 2026-08-21 · BCA pool-subcontractor rule + penny-exact reconciliation
+  (per-line markup_pct; GC balancer recomputed on commit) · 32cc292 ·
+  live-verified on Pinkham ($93,181.82 sub cost + 10% = $102,500
+  billed); every committed WA billed == stated.
+- 2026-08-20 · RI1 + RI-commit: jamie-ingest edge fn (streamed,
+  founder-gated, metered, Opus 32k) + commitIngestedProposal · da1cd68 ·
+  verify-ingest 5/5 on Ian's real proposals; verify-ingest-commit 2/2;
+  live-verified on bluebidclaw.app (Pinkham baby-blue $335,484,
+  Davidson white $32,261).
+- 2026-07-29 · Leads & Bids: baby blue pool shading + Download PDF ·
+  bcd2652 · TS-green build.
+- 2026-07-29 · Leads & Bids: printable 11x17 pipeline report
+  (src/pages/LeadsPrintView.tsx) · 515c0cf · TS-green build.
 - 2026-06-11 · Phase 1.5: optimistic concurrency — 0012 (applied +
   DB-smoke-tested: bumps on proposal update + every child line/WA
   insert/update/delete; stale conditional touch matches 0 rows,
@@ -192,3 +302,14 @@ are LOWER priority than R2-R5 — don't polish the surface being replaced.
 - Leads P1-B conventions to know: lead stage auto-advance is FORWARD-ONLY
   (reopened/reverted proposals never demote a lead — manual board move);
   proposal declined prompts (never forces) lead → Lost in ProposalEditor.
+- ⚠️ PROD IS A COMMITLESS DIST UPLOAD. bluebidclaw.app runs deploy
+  6a88ac09ea3174381fa03022 (08-21, deploy_source api, no commit_ref) —
+  RI IS live and verified. But the site's production branch is master
+  (e9520f6, July), so any push to master rebuilds prod from July code
+  and wipes RI off the live site. Merge feature/reverse-ingestion to
+  master to close this trap. DO NOT PUSH MASTER until then.
+- `npm run verify:ingest` DOES NOT EXIST — da1cd68's commit message
+  claims it, but package.json only ever had verify:ingest-commit. The
+  harness file scripts/verify-ingest.mjs is present and current; run it
+  as `node scripts/verify-ingest.mjs`, or add the script entry.
+- supabase/.temp/ is untracked Supabase-CLI scratch — ignore or gitignore.
