@@ -95,29 +95,19 @@ STILL OPEN:
 3. The gate commits exist TWICE — jamieLoop.ts (browser, real path) and
    verify-jamie-loop.mjs (node, replayed). Change one, change both.
 
-## ⚠️ RI IS LIVE — BUT PRODUCTION IS NOT BUILT FROM GIT (as of 2026-08-24)
-All RI work (da1cd68, 32cc292, f99c1be) plus the 11x17 Leads report
-(515c0cf, bcd2652) lives on `feature/reverse-ingestion`. Master's tip is
-still e9520f6 (2026-07-12) and contains NONE of it.
-PRODUCTION IS LIVE WITH RI ANYWAY. bluebidclaw.app currently serves
-deploy 6a88ac09ea3174381fa03022 (2026-08-21 19:50 UTC) — a direct dist
-upload: deploy_source "api", commit_ref null, build_id null, 49 files.
-Netlify labels it branch "master" because that is the site's production
-branch setting, but NO COMMIT IS ATTACHED to it. Verified 2026-08-24:
-the live site serves /assets/ImportProposalModal-DcHDcrk2.js — the exact
-content-hashed chunk this branch's build produces. RI2 is in production.
-⚠️ CONSEQUENCE: any git push to master fires a Netlify build from
-e9520f6 and REGRESSES production to July — RI disappears from the live
-site. Until this branch is merged, DO NOT PUSH MASTER. Merging the
-branch to master is the insurance, not a deployment step.
-⚠️ Do not read "origin/master is stale" as "RI was never deployed" —
-that inference was made on 2026-08-24 and was wrong. Check the Netlify
-deploy, not the git ref.
-START EVERY SESSION with `git fetch` + `git checkout
-feature/reverse-ingestion`; a `git log` on master shows a July codebase
-and will make you think none of this exists.
-(A local branch `feature/leads-11x17-report` points at the same commit —
-a leftover alias, not separate work.)
+## PRODUCTION IS NOW GIT-BUILT FROM MASTER (2026-08-24) — TRAP CLOSED
+Master WAS stuck at e9520f6 (2026-07-12) while production ran a commitless
+dist upload, so any push to master would have rebuilt prod from July code
+and wiped reverse ingestion off the live site. Closed on 2026-08-24:
+feature/reverse-ingestion fast-forwarded into master (9 commits, 0 behind)
+and pushed. Netlify auto-built and published deploy
+6a8c9059b2bd1d0008083a33; the site's branch URL moved from a bare deploy
+hash to master--bidclaw.netlify.app, i.e. it is a real git build now.
+Verified live: /assets/ImportProposalModal-*.js, JamieChatPanel-*.js and
+jamieLoop-*.js all 200 on bluebidclaw.app.
+master == feature/reverse-ingestion == cf28b94. Pushing master is SAFE
+again. Work can go back onto master, or keep using the branch and merge —
+just don't let master drift six weeks behind a second time.
 
 ## RI2 — IN-APP PROPOSAL IMPORT (2026-08-21, f99c1be)
 "Import proposal" on the Estimates page (founder-gated via
@@ -399,14 +389,22 @@ are LOWER priority than R2-R5 — don't polish the surface being replaced.
 - Leads P1-B conventions to know: lead stage auto-advance is FORWARD-ONLY
   (reopened/reverted proposals never demote a lead — manual board move);
   proposal declined prompts (never forces) lead → Lost in ProposalEditor.
-- ⚠️ PROD IS A COMMITLESS DIST UPLOAD. bluebidclaw.app runs deploy
-  6a88ac09ea3174381fa03022 (08-21, deploy_source api, no commit_ref) —
-  RI IS live and verified. But the site's production branch is master
-  (e9520f6, July), so any push to master rebuilds prod from July code
-  and wipes RI off the live site. Merge feature/reverse-ingestion to
-  master to close this trap. DO NOT PUSH MASTER until then.
-- `npm run verify:ingest` DOES NOT EXIST — da1cd68's commit message
-  claims it, but package.json only ever had verify:ingest-commit. The
-  harness file scripts/verify-ingest.mjs is present and current; run it
-  as `node scripts/verify-ingest.mjs`, or add the script entry.
-- supabase/.temp/ is untracked Supabase-CLI scratch — ignore or gitignore.
+- RESOLVED 2026-08-24: the commitless-prod trap is closed. master was
+  fast-forwarded to the branch tip and pushed; Netlify git-built and
+  published 6a8c9059b2bd1d0008083a33. Pushing master is safe again.
+- RESOLVED 2026-08-24: `npm run verify:ingest` now exists (it never did,
+  despite da1cd68's message claiming it). `npm run verify:jamie-loop`
+  added alongside it for J3.
+- RESOLVED 2026-08-24: supabase/.temp/ is now gitignored.
+- ⚠️ J3's GateReview.tsx has NEVER been rendered in a browser. The 7/7
+  harness drives the API and replays the gate commits in node; the panel
+  UI legs are unproven. Walk both gates in the app before trusting them.
+- ⚠️ Prompt caching is not hitting on jamie-chat (cached_input_tokens 0
+  across all three J3 invocations) — each action builds a different system
+  prompt so the cached prefix never repeats. Fix at J8 by putting the
+  stable identity + KYN + KIT_REFERENCE block first with the cache
+  breakpoint after it, and the action-specific task text last.
+- ⚠️ The gate commit logic exists TWICE — src/lib/jamieLoop.ts (the real
+  browser path) and scripts/verify-jamie-loop.mjs (replayed in node,
+  because a .mjs harness cannot import the browser data layer). Change
+  one, change both.
