@@ -19,7 +19,7 @@ export interface JamieChatCallbacks {
    * so there is no visible text for 1-3 minutes — this is what keeps the
    * progress line honest instead of a frozen spinner.
    */
-  onProgress?: (chars: number) => void
+  onProgress?: (chars: number, stage?: 'searching' | 'writing') => void
   /** A pass finished staging: the run has moved to its review gate. */
   onStaged?: (gate: 'work_areas' | 'lines', count: number) => void
 }
@@ -105,6 +105,9 @@ export async function sendJamieChatMessage(
         delta?: { type?: string; text?: string }
         error?: string
         chars?: number
+        /** Pass 2 heartbeat detail: Jamie is on the web checking an
+         *  assembly or a price, versus writing the takeoff. */
+        stage?: 'searching' | 'writing'
         gate?: 'work_areas' | 'lines'
         count?: number
       }
@@ -116,7 +119,7 @@ export async function sendJamieChatMessage(
       if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
         cb.onTextDelta(event.delta.text ?? '')
       } else if (event.type === 'jamie_progress') {
-        cb.onProgress?.(event.chars ?? 0)
+        cb.onProgress?.(event.chars ?? 0, event.stage)
       } else if (event.type === 'jamie_staged') {
         cb.onStaged?.(event.gate ?? 'work_areas', event.count ?? 0)
       } else if (event.type === 'jamie_done') {

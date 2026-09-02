@@ -46,7 +46,69 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
-## GATE 1 INLINE ADD + EDITABLE SCOPE (2026-09-02) — BUILT, ON BRANCH
+## JAMIE P2 — WEB-SEARCH LAYER 1 + PRICING IN CONTEXT (2026-09-02) — BUILT, ON BRANCH
+Ian picked "jamie p2" from the Phase 1 note's candidate list. Of its
+three items, whole-project mode shipped as J3; these are the other two.
+
+LAYER 1 — WEB SEARCH ON PASS 2 (supabase/functions/jamie-chat):
+- propose_lines now carries Anthropic's server-side web_search tool
+  (type web_search_20260209, max_uses 6 — WEB_SEARCH_MAX_USES). Server
+  tool: Anthropic runs the search, results land in her context, no
+  client loop. Structured output + tools is a supported combination
+  (only citations/prefill conflict).
+- Prompt (Pass 2, "LAYER 1 — CHECK THE ASSEMBLY ON THE WEB"): search
+  once per work area whose assembly she doesn't know cold, and for a
+  supplier price when an item is not in the catalog; capped; never
+  overrides THIS COMPANY'S kits/rates/catalog. The search query shape is
+  the SKILL's ("<work type> complete materials list contractor estimate").
+- The stream now runs in LEGS (runLeg): pause_turn (server search loop
+  hit its iteration cap) is resumed by re-sending the assistant content,
+  up to 3 continuations. Usage is SUMMED across legs into one invocation
+  row; estimateCostUsd adds web_search_requests × $0.01
+  (WEB_SEARCH_USD_EACH) from usage.server_tool_use.
+- A pass's JSON is taken from the LAST text block of the final leg
+  (passText), not the concatenated stream — the final message is the
+  authority once a turn can span legs.
+- Heartbeat: a server_tool_use block starting sends jamie_progress with
+  stage 'searching'; the workspace shows "Jamie is checking the assembly
+  and current pricing on the web…" instead of a frozen counter.
+
+PRICING IN CONTEXT AT GATE 2:
+- The bug class was the same as "merge mobilization": after Pass 2 Jamie
+  says "tell me what you pay and I'll save them", and typing a price in
+  the chat changed NOTHING. Now a chat turn at awaiting_line_approval
+  carries a client tool, set_line_prices (strict schema: updates[] of
+  line_id / unit_cost / quantity|null). The prompt lists every pending
+  staged line by work area with its id, qty, unit, cost and a NEEDS
+  PRICE flag, and tells her that calling the tool is the ONLY way a
+  number reaches the card.
+- applyLinePrices (server, service role) applies only to PENDING lines
+  whose staged work area belongs to THIS run; zero costs and unknown ids
+  are refused and named in the tool_result. needs_pricing flips false.
+  Jamie then gets the tool_result and confirms in prose on a second leg;
+  her text before the call and after it are joined with a newline in
+  both the bubble and the transcript.
+- The catalog flywheel (commitLineGate) saves the price she wrote on
+  approve — so "shell mix is 48 a ton" in chat ends up in the catalog.
+- JamieWorkspace keys <LineGate> on the staged ids/qty/cost so the card
+  REMOUNTS when a chat turn reprices lines (its qty/cost are local string
+  state per 1A/A and would otherwise ignore the prop change), and ONLY
+  then — an ordinary chat turn keeps in-progress edits.
+- Also folded in: the Gate 1 chat line now says the contractor can
+  rename, edit scope, or ADD a work area on the card (the clause held
+  back from the previous commit).
+
+NOT VERIFIED LIVE (no .env, no credits spent this session): the tool
+call round-trip, pause_turn resumption, and the web_search tool type on
+the beta messages endpoint have not executed once. FIRST THING next
+session with credits: npm run verify:jamie-loop (Pass 2 now searches —
+expect it slower and a few cents dearer), then a Gate 2 chat "X is $N a
+ton" and check jamie_proposed_lines changed. If the web_search type is
+rejected on this SDK/endpoint, the fallback is web_search_20250305.
+DEPLOY: jamie-chat needs redeploying for any of this to exist; the
+frontend half (stage text, LineGate key) is harmless without it.
+
+## GATE 1 INLINE ADD + EDITABLE SCOPE (2026-09-02) — SHIPPED (master 8582791)
 Ian picked this from the candidate list right after the Gate 1 fix
 shipped. JAMIE-FLOW §2 has said "add, edit, and delete — not just
 approve/reject" since 2026-08-24; until now the card did approve/reject

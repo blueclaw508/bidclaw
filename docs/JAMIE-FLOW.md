@@ -149,11 +149,12 @@ Once the user approves, the estimate goes to a proposal.
 | **Scope written FROM the line items** | BUILT — Pass 2 writes it from the takeoff and overwrites Gate 1's |
 | **Bullet scope format (summary + steps)** | BUILT — summary line, step bullets, qualifiers, exclusions |
 | **Questions on the fly** | NOT BUILT — `gap_questions` arrive as text at the end |
+| **Price catalog misses in context** | BUILT — at Gate 2, tell Jamie a price in the chat ("shell mix is 48 a ton") and she writes it onto the staged line through `set_line_prices`; the card refreshes; commit saves it to the catalog |
 | **Gate 2: edit verbiage** | BUILT — editable scope per work area |
 | **Gate 2: add lines, change markup/price** | NOT BUILT — qty + cost only |
 | **User's own kits instead of BCA's** | BUILT — hardcoded library DELETED; jamie-chat reads the user's `kits`. jamie-ingest still holds an inline copy (founder-gated, and unverifiable while API credits are out) |
 | **Learning from the user's edits** | NOT BUILT — the deltas ARE recorded (`jamie_proposed_lines` vs `inserted_work_area_line_id`); nothing reads them |
-| **Web search for unfamiliar trades** | NOT BUILT |
+| **Web search for unfamiliar trades** | BUILT — Layer 1: Pass 2 carries Anthropic's server-side `web_search` tool (max 6 per takeoff) to check an assembly she doesn't know cold and to price a catalog miss from a real supplier; metered at $0.01/search on the invocation |
 
 ---
 
