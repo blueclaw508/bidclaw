@@ -288,7 +288,9 @@ export interface ProposedLineInput {
 
 export async function stageProposedLines(
   pwaId: string,
-  lines: ProposedLineInput[]
+  lines: ProposedLineInput[],
+  /** First sort_order to use — contractor-added lines sit after Jamie's. */
+  sortOrderStart = 0
 ): Promise<JamieProposedLine[]> {
   if (lines.length === 0) return []
   const rows = lines.map((l, i) => ({
@@ -302,7 +304,7 @@ export async function stageProposedLines(
     catalog_item_id: l.catalog_item_id ?? null,
     reasoning: l.reasoning?.trim() || null,
     needs_pricing: l.needs_pricing ?? false,
-    sort_order: i,
+    sort_order: sortOrderStart + i,
   }))
   const { data, error } = await supabase
     .from('jamie_proposed_lines')
@@ -683,6 +685,67 @@ export interface LineDecision {
   /** Contractor's edits — Gate 2 is where catalog misses get priced. */
   quantity: number | null
   unitCost: number | null
+  /** Per-line markup % the contractor set on the card; null = follow My
+   *  Numbers. Ignored on labor/equipment (KYN: those rates carry no
+   *  markup). Jamie never sets this — it is the contractor's number. */
+  markupOverride?: number | null
+  /** A billed price the contractor typed over the computed one; null =
+   *  computed. Same QC-style override the estimate editor has. */
+  priceOverride?: number | null
+}
+
+/** A line the contractor typed onto the Gate 2 card themselves. */
+export interface AddedLine {
+  category: JamieLineCategory
+  label: string
+  unit: string
+  quantity: number
+  unitCost: number
+  markupOverride?: number | null
+  priceOverride?: number | null
+}
+
+/**
+ * Gate 2 inline add (Ian's spec §6: add / edit / delete line items). The
+ * contractor typed a line Jamie missed under one of her work areas. It is
+ * staged on that work area exactly like hers — audit trail intact, same
+ * commit path, same catalog flywheel — and returned as an approved
+ * decision carrying the contractor's own numbers.
+ */
+export async function stageContractorLines(
+  added: Record<string, AddedLine[]>
+): Promise<LineDecision[]> {
+  const out: LineDecision[] = []
+  for (const [pwaId, lines] of Object.entries(added)) {
+    const clean = lines.filter((l) => l.label.trim() && l.quantity > 0 && l.unitCost > 0)
+    if (clean.length === 0) continue
+    // Contractor-added rows sort after Jamie's on the same work area
+    // (hers are 0..n; the scope check's additions sit at 900+).
+    const staged = await stageProposedLines(
+      pwaId,
+      clean.map((l) => ({
+        category: l.category,
+        label: l.label,
+        unit: l.unit || 'EA',
+        quantity: l.quantity,
+        unit_cost: l.unitCost,
+        reasoning: 'Added by the contractor at Gate 2.',
+        needs_pricing: false,
+      })),
+      1000
+    )
+    staged.forEach((s, i) => {
+      out.push({
+        id: s.id,
+        approved: true,
+        quantity: clean[i].quantity,
+        unitCost: clean[i].unitCost,
+        markupOverride: clean[i].markupOverride ?? null,
+        priceOverride: clean[i].priceOverride ?? null,
+      })
+    })
+  }
+  return out
 }
 
 /**
@@ -802,6 +865,16 @@ export async function commitLineGate(
       }
     }
 
+    // The contractor's own overrides from the card. Markup only where the
+    // category bears one (KYN: labor and equipment rates already carry
+    // margin); a price override wins over everything, as in the editor.
+    const bearsMarkup = category === 'material' || category === 'subcontractor' || category === 'other'
+    const markupOverride =
+      bearsMarkup && d?.markupOverride !== null && d?.markupOverride !== undefined
+        ? d.markupOverride
+        : null
+    const priceOverride =
+      d?.priceOverride !== null && d?.priceOverride !== undefined ? d.priceOverride : null
     const { data: lineRow, error: lineErr } = await supabase
       .from('work_area_lines')
       .insert({
@@ -811,7 +884,8 @@ export async function commitLineGate(
         unit: (row.unit as string) ?? '',
         quantity: d?.quantity ?? (row.quantity as number) ?? 0,
         unit_cost: cost,
-        price_override: null,
+        price_override: priceOverride,
+        markup_override: markupOverride,
         catalog_item_id: catalogItemId,
         source_kit_id: (row.kit_id as string) ?? null,
         sort_order: (row.sort_order as number) ?? 0,
