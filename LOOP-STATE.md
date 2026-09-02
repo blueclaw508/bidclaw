@@ -46,7 +46,13 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
-## JAMIE P2 — WEB-SEARCH LAYER 1 + PRICING IN CONTEXT (2026-09-02) — BUILT, ON BRANCH
+## JAMIE P2 — WEB-SEARCH LAYER 1 + PRICING IN CONTEXT (2026-09-02) — SHIPPED, LIVE
+SHIPPED on Ian's "deploy it": jamie-chat VERSION 17 through the Supabase
+MCP (deployed files fetched back and diffed against source — identical);
+PR #3 merged to master as 1c2c8cf; Netlify production deploy
+6a98b517bc74bc0008c8b295 published to bluebidclaw.app ~23:47 UTC.
+Still NOT exercised live (see below) — Ian's first Gate 2 "X is $N a
+ton" is the real test; on failure read the function logs first.
 Ian picked "jamie p2" from the Phase 1 note's candidate list. Of its
 three items, whole-project mode shipped as J3; these are the other two.
 
