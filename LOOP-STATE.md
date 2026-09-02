@@ -46,6 +46,82 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
+## GATE 1 HAS NO WAY BACK + DELETED WORK AREAS HAUNT GATE 2 (2026-09-02) — FIXED ON BRANCH, NOT DEPLOYED
+Ian, on the Scheu driveway (Truro, 4,000 SF shell + cobble apron + steel
+edging): "When I click Build with Jamie they come back but even the 2 work
+areas I deleted are there. But in the Work Areas there is just the three I
+want but no data."
+
+WHAT ACTUALLY HAPPENED (read straight off jamie_loop_runs / _proposed_* /
+work_areas for run 75a0975b, all UTC):
+  20:28  Pass 1 staged 5 work areas -> Gate 1.
+  20:32  Ian: "merge mobilization into each of the other areas". Jamie:
+         "Done. Four work areas instead of five." NOTHING MOVED — a chat
+         turn cannot restage. Ian: "you still have mobilization as a
+         separate work area". Jamie: "Re-run it. Hit Propose work areas."
+         THAT BUTTON WAS HIDDEN — canPropose required status in_progress,
+         and the run sat at awaiting_wa_approval. Only exits: approve, or
+         Start over.
+  20:34  Gate 1: all 5 approved (the Skip control was an unlabelled Undo2
+         icon). Pass 2 priced all 5 — 39 lines.
+  20:37- Ian deleted "Site Strip" and "Mobilization" on the Work Areas
+  21:20  tab. FK ON DELETE SET NULL nulled inserted_work_area_id but the
+         staged rows stayed status='approved', so Gate 2 still listed all
+         5 ("even the 2 I deleted are there"). The 3 survivors had Gate 1
+         descriptions and zero lines ("no data") — Gate 2 was not yet
+         approved.
+  21:20  Gate 2 committed: 26 lines landed on the 3 real work areas; the
+         13 lines for the deleted areas were skipped by `if (!waId)
+         continue` and left PENDING forever. Run -> committed. The three
+         work areas have 7 / 12 / 7 lines now — the "no data" was the
+         window before this commit.
+
+THE FIX (this branch, claude/bidclaw-reverse-ingestion-3w374e):
+1. "Propose again" at Gate 1. JamieWorkspace shows the Pass 1 button while
+   a proposal is in review (label flips to "Propose again"); before the
+   call, jamieLoop.supersedePendingWorkAreas marks the pending proposal
+   rejected (retained, never deleted) and steps the run back to
+   in_progress. jamie-chat does the same supersede server-side before it
+   inserts, so no caller can stack two pending sets. A gateNonce re-runs
+   the gate loader after every turn — status alone doesn't change on a
+   re-propose, so the old effect deps would never have refreshed the card.
+2. Jamie KNOWS she is at Gate 1. Chat action at awaiting_wa_approval loads
+   the pending names into the prompt with: you cannot change this list by
+   talking; take the correction and tell them to hit "Propose again"; never
+   say the change is done.
+3. Gate 1 card: Skip/Keep is a labelled button, plus a footer line saying
+   talking alone doesn't change what's on screen.
+4. Deleting a work area retires Jamie's copy. WorkAreasTab.handleDelete
+   calls jamieLoop.retireStagedWorkArea BEFORE the delete (the FK nulls the
+   link after): staged WA + its pending lines -> rejected. Best-effort, and
+   the read side no longer depends on it:
+   - listProposedLines only groups approved WAs WITH an
+     inserted_work_area_id (a deleted one has none).
+   - jamie-chat Pass 2 adds .not('inserted_work_area_id','is',null).
+   - commitLineGate marks orphaned lines rejected instead of leaving them
+     pending. verify-jamie-loop's replay mirrors it (the two-copies rule).
+
+VERIFIED: tsc -b --noEmit exit 0; vite build OK; eslint on the touched
+files adds nothing (WorkAreasTab:124 set-state-in-effect is pre-existing
+on master); esbuild parses the edge function.
+NOT VERIFIED: no browser walk and no live harness — this session had no
+.env (no service key, no founder session), so nothing here has executed
+once. jamie-chat is NOT deployed; the frontend is on the branch behind a
+draft PR. Deploy order when Ian says go: `supabase functions deploy
+jamie-chat`, then merge to master (Netlify builds it). The client-side
+supersede + read filters work without the function deploy; the function
+changes only make the same guarantees hold for any other caller and stop
+Pass 2 spending tokens on deleted areas.
+Data note: the Scheu run still carries 13 pending lines under its two
+deleted work areas. Harmless (run is committed) — left alone.
+
+STALE-PROMPT WARNING for whoever resumes next: the "resume from Aug 21"
+kickoff says master is at e9520f6 and RI is unmerged. FALSE since
+2026-08-24 — master is 5d47624, feature/reverse-ingestion and
+fix/ri-cost-markup are both ancestors of it, prod is git-built from
+master, and the RI/J3/J4 entries below are already written. Don't
+re-merge, don't re-record.
+
 ## J4 — JAMIE READS THE PROJECT'S FILES + FULL-PAGE WORKSPACE (2026-08-24) — SHIPPED
 Ian tried to start a real proposal (Levinson / McPhee Builders), uploaded
 3 plan sheets + the bid form, and Jamie said "I don't see anything attached

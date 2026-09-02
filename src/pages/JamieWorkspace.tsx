@@ -33,6 +33,7 @@ import {
   listJamieMessages,
   listProposedLines,
   listProposedWorkAreas,
+  supersedePendingWorkAreas,
   type JamieLoopRun,
   type JamieProposedLine,
   type JamieProposedWorkArea,
@@ -95,6 +96,10 @@ export default function JamieWorkspace() {
   >([])
   const [existingNameById, setExistingNameById] = useState<Record<string, string>>({})
   const [gateBusy, setGateBusy] = useState(false)
+  // Bumped after every turn so the gate reloads even when the run's status
+  // did not change — "Propose again" leaves the run at awaiting_wa_approval
+  // with a brand-new set of staged rows behind it.
+  const [gateNonce, setGateNonce] = useState(0)
   // My Numbers markups — Gate 2 shows BILLED prices, so it needs these.
   const [markups, setMarkups] = useState<LiveMarkupSettings>({
     markup_materials_percent: 0,
@@ -186,7 +191,7 @@ export default function JamieWorkspace() {
     return () => {
       cancelled = true
     }
-  }, [runId, runStatus, projectId])
+  }, [runId, runStatus, projectId, gateNonce])
 
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight })
@@ -203,6 +208,14 @@ export default function JamieWorkspace() {
         if (!activeRun) {
           activeRun = (await getActiveJamieRun(projectId)) ?? (await createJamieRun(projectId))
           setRun(activeRun)
+        }
+        // "Propose again" from Gate 1: retire the proposal on screen first so
+        // the re-run replaces it instead of stacking a second set under it.
+        if (action === 'propose_work_areas' && activeRun.status === 'awaiting_wa_approval') {
+          await supersedePendingWorkAreas(activeRun.id)
+          activeRun = { ...activeRun, status: 'in_progress' }
+          setRun(activeRun)
+          setStagedWas([])
         }
         const userMsgId = crypto.randomUUID()
         const asstMsgId = crypto.randomUUID()
@@ -225,7 +238,12 @@ export default function JamieWorkspace() {
               setMessages((prev) =>
                 prev.map((m) => (m.id === asstMsgId ? { ...m, streaming: false } : m))
               )
-              getActiveJamieRun(projectId).then((r) => r && setRun(r)).catch(() => {})
+              getActiveJamieRun(projectId)
+                .then((r) => {
+                  if (r) setRun(r)
+                  setGateNonce((n) => n + 1)
+                })
+                .catch(() => {})
               // A pass syncs files server-side; refresh so any newly
               // unreadable file surfaces in the rail.
               supabase
@@ -331,8 +349,18 @@ export default function JamieWorkspace() {
   const readable = files.filter((f) => !f.anthropic_sync_error)
   const unreadable = files.filter((f) => f.anthropic_sync_error)
   const atGate = stagedWas.length > 0 || stagedGroups.length > 0
+  // Pass 1 can run from a fresh conversation OR over a proposal already in
+  // review. Jamie tells the contractor to "hit Propose again" when they ask
+  // her to change the split — for a while that button did not exist at
+  // Gate 1, and the only way forward was approving everything and deleting
+  // the extras afterwards.
+  const atWorkAreaGate = !!run && run.status === 'awaiting_wa_approval' && stagedWas.length > 0
   const canPropose =
-    !!run && run.status === 'in_progress' && messages.length > 0 && !atGate && !streaming
+    !!run &&
+    messages.length > 0 &&
+    !streaming &&
+    !gateBusy &&
+    ((run.status === 'in_progress' && !atGate) || atWorkAreaGate)
 
   if (!user) return null
 
@@ -552,7 +580,7 @@ export default function JamieWorkspace() {
                   onClick={() => void send('propose_work_areas', '')}
                   className="mb-2 w-full rounded-lg border border-brand-gold/40 bg-brand-gold/10 py-2.5 text-sm font-semibold text-brand-gold-dark transition-colors hover:bg-brand-gold/20"
                 >
-                  Propose work areas
+                  {atWorkAreaGate ? 'Propose again' : 'Propose work areas'}
                 </button>
               )}
               <div className="flex items-end gap-2">

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
+import { retireStagedWorkArea } from '@/lib/jamieLoop'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewWorkAreaModal } from '@/components/project/NewWorkAreaModal'
@@ -224,6 +225,15 @@ export default function WorkAreasTab({
 
   const handleDelete = async () => {
     if (!deleteTarget) return
+    // If Jamie created this work area at Gate 1, retire her staged copy
+    // first — otherwise Gate 2 keeps offering lines for a work area that is
+    // gone. Must run BEFORE the delete: the FK nulls the link afterwards.
+    // Not fatal: the gate also ignores staged areas with no real row.
+    try {
+      await retireStagedWorkArea(deleteTarget.id)
+    } catch (err) {
+      console.warn('Jamie staging not updated for deleted work area:', err)
+    }
     const { error } = await supabase
       .from('work_areas')
       .delete()

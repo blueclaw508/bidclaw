@@ -395,9 +395,15 @@ async function main() {
     )
     void pwaToWa
     let written = 0
+    // Mirrors commitLineGate: a line whose work area no longer exists is
+    // marked rejected, never left pending.
+    const orphaned = []
     for (const l of linesWithParent ?? []) {
       const waId = parentById[l.jamie_proposed_work_area_id]
-      if (!waId) continue
+      if (!waId) {
+        orphaned.push(l.id)
+        continue
+      }
       const { data: row, error: lineErr } = await admin
         .from('work_area_lines')
         .insert({
@@ -418,6 +424,9 @@ async function main() {
         .from('jamie_proposed_lines')
         .update({ status: 'approved', inserted_work_area_line_id: row.id })
         .eq('id', l.id)
+    }
+    if (orphaned.length > 0) {
+      await admin.from('jamie_proposed_lines').update({ status: 'rejected' }).in('id', orphaned)
     }
     await admin.from('jamie_loop_runs').update({ status: 'committed' }).eq('id', runId)
 
