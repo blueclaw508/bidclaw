@@ -264,6 +264,8 @@ interface BrainContext {
   projectAddress: string
   existingWorkAreas: Array<{ id: string; name: string; description: string }>
   stagedWorkAreas: Array<{ id: string; name: string; description: string }>
+  /** Names of the Pass 1 proposal currently waiting at Gate 1 (chat only). */
+  reviewingWorkAreas: string[]
   /** THIS company's own kits. The product ships blank — there is no
    *  built-in kit library, and no other company's factors are ever put
    *  in front of a user. An empty list is a valid, expected state. */
@@ -413,9 +415,17 @@ ${kyn}
 Return ONLY the JSON object. No preamble, no markdown.`
   }
 
+  const reviewing = ctx.reviewingWorkAreas.length
+    ? `
+
+THE CONTRACTOR IS REVIEWING YOUR PROPOSAL RIGHT NOW. On screen, waiting for their approval: ${ctx.reviewingWorkAreas
+        .map((n) => `"${n}"`)
+        .join(', ')}. You CANNOT change that list by talking — nothing you say here restages it. If they ask you to merge, split, drop, add or rename work areas: take the correction on board in one or two sentences, and tell them to hit "Propose again" so you can redo the split with it. Never say the change is done. They can also Skip any work area on the card, or approve the list as it stands.`
+    : ''
+
   return `${identity}
 
-TASK — SCOPE CONVERSATION. You are gathering what you need to estimate this project. Ask about what changes the price and nothing else. When you have enough to break the job into work areas, say so plainly — the contractor then hits "Propose work areas" and you run Pass 1.
+TASK — SCOPE CONVERSATION. You are gathering what you need to estimate this project. Ask about what changes the price and nothing else. When you have enough to break the job into work areas, say so plainly — the contractor then hits "Propose work areas" and you run Pass 1.${reviewing}
 
 ${kyn}
 
@@ -789,8 +799,11 @@ Deno.serve(async (req: Request) => {
       .eq('user_id', user.id),
   ])
 
-  // Pass 2 works from the work areas approved at Gate 1. Staged rows the
-  // contractor rejected are retained for audit but never priced.
+  // Pass 2 works from the work areas approved at Gate 1 that STILL EXIST.
+  // Staged rows the contractor rejected are retained for audit but never
+  // priced; a work area they deleted on the Work Areas tab after Gate 1 has
+  // inserted_work_area_id nulled by the FK and must not be priced either —
+  // its lines would have nowhere to land.
   let stagedWorkAreas: Array<{ id: string; name: string; description: string }> = []
   if (action === 'propose_lines') {
     const { data: staged } = await service
@@ -798,6 +811,7 @@ Deno.serve(async (req: Request) => {
       .select('id, proposed_name, proposed_description')
       .eq('jamie_run_id', run.id)
       .eq('status', 'approved')
+      .not('inserted_work_area_id', 'is', null)
       .order('sort_order')
     stagedWorkAreas = (staged ?? []).map((s: Record<string, unknown>) => ({
       id: s.id as string,
@@ -810,6 +824,22 @@ Deno.serve(async (req: Request) => {
         409
       )
     }
+  }
+
+  // A chat turn while a proposal sits at Gate 1: Jamie needs to know what is
+  // on screen, and that talking does not change it. Without this she said
+  // "Done, four work areas" to a merge request and nothing moved.
+  let reviewingWorkAreas: string[] = []
+  if (action === 'chat' && run.status === 'awaiting_wa_approval') {
+    const { data: pending } = await service
+      .from('jamie_proposed_work_areas')
+      .select('proposed_name')
+      .eq('jamie_run_id', run.id)
+      .eq('status', 'pending')
+      .order('sort_order')
+    reviewingWorkAreas = (pending ?? []).map(
+      (p: Record<string, unknown>) => p.proposed_name as string
+    )
   }
 
   const catalog = (catalogRows ?? []) as Array<Record<string, unknown>>
@@ -847,6 +877,7 @@ Deno.serve(async (req: Request) => {
       description: (w.description as string) ?? '',
     })),
     stagedWorkAreas,
+    reviewingWorkAreas,
     kits: ((kitRows ?? []) as Array<Record<string, unknown>>)
       .filter((k) => (k.status ?? 'active') !== 'archived')
       .map((k) => ({
@@ -1081,6 +1112,14 @@ Deno.serve(async (req: Request) => {
           }
           const was = parsed.work_areas ?? []
           if (was.length === 0) throw new Error('Jamie found no work areas to propose')
+          // "Propose again": a proposal still pending on this run is
+          // superseded, not stacked under. The workspace retires it before
+          // calling; this is the server-side guarantee for any other caller.
+          await service
+            .from('jamie_proposed_work_areas')
+            .update({ status: 'rejected' })
+            .eq('jamie_run_id', run.id)
+            .eq('status', 'pending')
           // Only trust a match id that is genuinely one of this project's
           // work areas — a hallucinated id would violate the FK and kill
           // the whole insert.

@@ -576,6 +576,62 @@ export async function commitWorkAreaGate(
   return createdIds
 }
 
+/**
+ * "Propose again" at Gate 1. The contractor talked to Jamie about what was
+ * wrong with the proposal on screen — but a chat turn cannot change staged
+ * rows, and until now the Propose button was hidden while a proposal sat
+ * in review, so the only way out was to approve everything and delete the
+ * extras from the Work Areas tab afterwards (Scheu, 2026-09-02).
+ *
+ * The pending proposal is marked rejected (superseded — retained for the
+ * audit trail, never deleted) and the run steps back to in_progress so
+ * Pass 1 can run again over the conversation, which now carries the
+ * correction.
+ */
+export async function supersedePendingWorkAreas(runId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('jamie_proposed_work_areas')
+    .update({ status: 'rejected' })
+    .eq('jamie_run_id', runId)
+    .eq('status', 'pending')
+    .select('id')
+  if (error) throw new Error(`Couldn't clear the previous proposal: ${error.message}`)
+  await setRunStatus(runId, 'in_progress')
+  return data?.length ?? 0
+}
+
+/**
+ * The contractor deleted a work area on the Work Areas tab. If Jamie
+ * created it at Gate 1, the staged row still says "approved" and Pass 2 /
+ * Gate 2 would keep pricing and showing a work area that no longer exists
+ * (the FK only nulls inserted_work_area_id — it does not change status).
+ * Retire the staged row and any of its unreviewed lines BEFORE the delete,
+ * while the link is still there to find them by.
+ *
+ * Best-effort by design: the read side also ignores staged work areas with
+ * no real row behind them, so a failure here cannot resurface the area.
+ */
+export async function retireStagedWorkArea(workAreaId: string): Promise<void> {
+  const { data: staged, error } = await supabase
+    .from('jamie_proposed_work_areas')
+    .select('id')
+    .eq('inserted_work_area_id', workAreaId)
+  if (error) throw new Error(`Couldn't update Jamie's records: ${error.message}`)
+  const ids = (staged ?? []).map((s) => s.id as string)
+  if (ids.length === 0) return
+  const { error: linesErr } = await supabase
+    .from('jamie_proposed_lines')
+    .update({ status: 'rejected' })
+    .in('jamie_proposed_work_area_id', ids)
+    .eq('status', 'pending')
+  if (linesErr) throw new Error(`Couldn't update Jamie's records: ${linesErr.message}`)
+  const { error: waErr } = await supabase
+    .from('jamie_proposed_work_areas')
+    .update({ status: 'rejected' })
+    .in('id', ids)
+  if (waErr) throw new Error(`Couldn't update Jamie's records: ${waErr.message}`)
+}
+
 /** Gate 2 review payload: one entry per staged line. */
 export interface LineDecision {
   id: string
@@ -638,13 +694,20 @@ export async function commitLineGate(
   if (loadErr) throw new Error(`Couldn't load the staged lines: ${loadErr.message}`)
 
   let written = 0
+  // Lines whose work area was never approved — or was deleted on the Work
+  // Areas tab after Gate 1 — have nowhere to land. They are marked rejected
+  // below rather than left pending forever, so the staging trail says what
+  // actually happened to them.
+  const orphanedIds: string[] = []
   for (const row of (staged ?? []) as unknown as Array<Record<string, unknown>>) {
     const parent = row.jamie_proposed_work_areas as {
       inserted_work_area_id: string | null
     } | null
     const waId = parent?.inserted_work_area_id
-    // A line whose work area was never approved has nowhere to land.
-    if (!waId) continue
+    if (!waId) {
+      orphanedIds.push(row.id as string)
+      continue
+    }
     const d = byId.get(row.id as string)
     const label = String(row.label ?? '').trim()
     const category = row.category as string
@@ -722,11 +785,12 @@ export async function commitLineGate(
     if (stampErr) throw new Error(`Couldn't record the approval: ${stampErr.message}`)
   }
 
-  if (rejectedIds.length > 0) {
+  const toReject = [...rejectedIds, ...orphanedIds]
+  if (toReject.length > 0) {
     const { error: rejErr } = await supabase
       .from('jamie_proposed_lines')
       .update({ status: 'rejected' })
-      .in('id', rejectedIds)
+      .in('id', toReject)
     if (rejErr) throw new Error(`Couldn't record the rejections: ${rejErr.message}`)
   }
 
@@ -769,14 +833,18 @@ export async function listProposedWorkAreas(
 
 /**
  * Staged lines for a run, grouped under their staged work area. Only the
- * work areas that survived Gate 1 carry lines, so this drives the Gate 2 UI
- * directly.
+ * work areas that survived Gate 1 AND still exist carry lines, so this
+ * drives the Gate 2 UI directly. A work area the contractor deleted after
+ * Gate 1 has inserted_work_area_id nulled by the FK — its lines have
+ * nowhere to land and must not be offered for approval.
  */
 export async function listProposedLines(
   runId: string
 ): Promise<Array<JamieProposedWorkArea & { lines: JamieProposedLine[] }>> {
   const was = await listProposedWorkAreas(runId)
-  const approved = was.filter((w) => w.status === 'approved')
+  const approved = was.filter(
+    (w) => w.status === 'approved' && w.inserted_work_area_id !== null
+  )
   if (approved.length === 0) return []
   const { data, error } = await supabase
     .from('jamie_proposed_lines')

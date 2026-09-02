@@ -144,7 +144,8 @@ Once the user approves, the estimate goes to a proposal.
 | Quantities + costs, nothing zero | BUILT |
 | Catalog builds itself from priced items | BUILT |
 | **"Enter or detect?" explicit fork** | NOT BUILT — no prompt, user must infer |
-| **Gate 1: add / delete work areas** | NOT BUILT — approve/reject + rename only |
+| **Gate 1: add / delete work areas** | PARTIAL — Skip/Keep + rename on the card, and **Propose again** re-runs Pass 1 over the corrected conversation (supersedes the pending proposal). No inline add. |
+| **Deleting a Jamie work area after Gate 1** | BUILT — retires the staged row; Pass 2 and Gate 2 only price/show work areas that still exist |
 | **Scope written FROM the line items** | BUILT — Pass 2 writes it from the takeoff and overwrites Gate 1's |
 | **Bullet scope format (summary + steps)** | BUILT — summary line, step bullets, qualifiers, exclusions |
 | **Questions on the fly** | NOT BUILT — `gap_questions` arrive as text at the end |

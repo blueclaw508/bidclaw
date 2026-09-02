@@ -74,6 +74,9 @@ export function WorkAreaGate({
                   disabled={!s.approved || busy}
                   className="min-w-0 flex-1 rounded-md border border-transparent px-1.5 py-1 text-sm font-semibold text-gray-900 outline-none transition-colors hover:border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-transparent"
                 />
+                {/* Labelled, not icon-only: an unlabelled undo arrow read as
+                    nothing, and the contractor approved every work area then
+                    deleted the extras from the Work Areas tab instead. */}
                 <button
                   type="button"
                   onClick={() =>
@@ -81,9 +84,15 @@ export function WorkAreaGate({
                   }
                   disabled={busy}
                   aria-label={s.approved ? `Skip ${item.proposed_name}` : `Keep ${item.proposed_name}`}
-                  className="shrink-0 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors',
+                    s.approved
+                      ? 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800'
+                      : 'border-brand-gold/40 bg-brand-gold/10 text-brand-gold-dark hover:bg-brand-gold/20'
+                  )}
                 >
-                  {s.approved ? <Undo2 className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+                  {s.approved ? <Undo2 className="h-3 w-3" /> : <Check className="h-3 w-3" />}
+                  {s.approved ? 'Skip' : 'Keep'}
                 </button>
               </div>
               {item.proposed_description && (
@@ -124,6 +133,11 @@ export function WorkAreaGate({
           ? 'Keep at least one'
           : `Add ${approvedCount} work area${approvedCount === 1 ? '' : 's'}`}
       </button>
+      <p className="mt-2 text-[11px] leading-relaxed text-amber-900/80">
+        Not the right split? Skip what you don&apos;t want, or tell Jamie what to
+        change in the box below and hit <strong>Propose again</strong> — talking
+        alone doesn&apos;t change what&apos;s on screen.
+      </p>
     </div>
   )
 }
