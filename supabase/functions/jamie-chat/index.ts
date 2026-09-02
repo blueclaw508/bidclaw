@@ -76,6 +76,110 @@ const MAX_TOKENS: Record<JamieAction, number> = {
   propose_lines: 32_000,
 }
 
+// ── Layer 1 of the three-layer brain: web search (Jamie P2) ────────────
+// Before Jamie builds a takeoff she can check the complete assembly for a
+// kind of work she does not know cold, and look up a current supplier
+// price for an item that is not in the catalog — the safety net against
+// the missing mortar / lath / fasteners that a generalist skips. Server-
+// side tool: Anthropic runs the search, the results land in her context.
+// Capped per takeoff; $10 per 1,000 searches on top of tokens.
+const WEB_SEARCH_MAX_USES = 6
+const WEB_SEARCH_USD_EACH = 0.01
+const PASS2_TOOLS = [
+  { type: 'web_search_20260209', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES },
+]
+
+// ── Pricing in context (Jamie P2) ──────────────────────────────────────
+// At Gate 2 Jamie says "tell me what you pay and I'll save them" — and
+// until now a reply in the chat changed nothing, exactly like "merge
+// mobilization" at Gate 1. This tool is the only way a number agreed in
+// conversation reaches the staged line. The contractor still approves on
+// the card, and the catalog flywheel saves the confirmed price on commit.
+const SET_LINE_PRICES_TOOL = {
+  name: 'set_line_prices',
+  description:
+    'Write a unit cost (and optionally a quantity) the contractor just gave you onto staged takeoff lines. This is the ONLY way a number agreed in conversation reaches the review card. line_id must be one of the ids listed in your instructions. unit_cost is the BASE cost for materials and subcontractors (what the contractor pays, before markup) or the $/hr rate for labor and equipment. quantity null leaves the quantity unchanged.',
+  strict: true,
+  input_schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['updates'],
+    properties: {
+      updates: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['line_id', 'unit_cost', 'quantity'],
+          properties: {
+            line_id: { type: 'string' },
+            unit_cost: { type: 'number' },
+            quantity: { type: ['number', 'null'] },
+          },
+        },
+      },
+    },
+  },
+} as const
+
+interface PriceUpdate {
+  line_id: string
+  unit_cost: number
+  quantity: number | null
+}
+
+/**
+ * Apply set_line_prices to the run's PENDING staged lines. Ids outside this
+ * run, already-decided lines, and zero costs are refused — the contractor
+ * is telling Jamie a real number, and the run is the isolation boundary.
+ * Returns the tool_result text Jamie reads back.
+ */
+async function applyLinePrices(
+  // deno-lint-ignore no-explicit-any
+  service: any,
+  runId: string,
+  updates: PriceUpdate[]
+): Promise<string> {
+  if (!Array.isArray(updates) || updates.length === 0) return 'No updates given.'
+  const ids = updates.map((u) => String(u.line_id))
+  const { data: rows } = await service
+    .from('jamie_proposed_lines')
+    .select('id, label, unit, status, jamie_proposed_work_areas!inner(jamie_run_id)')
+    .in('id', ids)
+  const own = new Map<string, { label: string; unit: string | null }>()
+  for (const r of (rows ?? []) as Array<Record<string, unknown>>) {
+    const parent = r.jamie_proposed_work_areas as { jamie_run_id?: string } | null
+    if (parent?.jamie_run_id === runId && r.status === 'pending') {
+      own.set(r.id as string, { label: String(r.label ?? ''), unit: (r.unit as string) ?? null })
+    }
+  }
+  const done: string[] = []
+  const missed: string[] = []
+  for (const u of updates) {
+    const row = own.get(String(u.line_id))
+    const cost = Number(u.unit_cost)
+    if (!row || !(cost > 0)) {
+      missed.push(String(u.line_id))
+      continue
+    }
+    const patch: Record<string, unknown> = { unit_cost: cost, needs_pricing: false }
+    const qty = u.quantity === null || u.quantity === undefined ? null : Number(u.quantity)
+    if (qty !== null && qty > 0) patch.quantity = qty
+    const { error } = await service.from('jamie_proposed_lines').update(patch).eq('id', u.line_id)
+    if (error) {
+      missed.push(String(u.line_id))
+      continue
+    }
+    done.push(`${row.label} → $${cost}/${row.unit || 'EA'}${qty !== null && qty > 0 ? ` × ${qty}` : ''}`)
+  }
+  return (
+    `Updated ${done.length} line${done.length === 1 ? '' : 's'}${done.length ? ': ' + done.join('; ') : ''}.` +
+    (missed.length
+      ? ` Not applied (unknown line_id, already decided, or zero cost): ${missed.join(', ')}.`
+      : '')
+  )
+}
+
 // ── Structured output schemas ─────────────────────────────────────────
 // Pass 1 mirrors jamie_proposed_work_areas; Pass 2 mirrors
 // jamie_proposed_lines (qty → quantity on insert).
@@ -266,6 +370,18 @@ interface BrainContext {
   stagedWorkAreas: Array<{ id: string; name: string; description: string }>
   /** Names of the Pass 1 proposal currently waiting at Gate 1 (chat only). */
   reviewingWorkAreas: string[]
+  /** The Pass 2 takeoff waiting at Gate 2 (chat only) — so a price the
+   *  contractor gives in conversation can be written to the right line. */
+  reviewingLines: Array<{
+    id: string
+    workArea: string
+    label: string
+    category: string
+    unit: string
+    quantity: number | null
+    unitCost: number | null
+    needsPricing: boolean
+  }>
   /** THIS company's own kits. The product ships blank — there is no
    *  built-in kit library, and no other company's factors are ever put
    *  in front of a user. An empty list is a valid, expected state. */
@@ -398,6 +514,8 @@ ${staged}
 
 For each work area, work in this order: material takeoff → equipment → labor hours → general conditions. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is stone, mortar, lath, water-resistive barrier, fasteners, weep screed, corner pieces. Use the kit factors above against the quantities in the scope text, then apply the contractor's rates.
 
+LAYER 1 — CHECK THE ASSEMBLY ON THE WEB. You have a web_search tool. Before you build a work area's takeoff, if the complete assembly for that kind of work is not something you know cold — or it is a trade you see less often — search once for "<work type> complete materials list contractor estimate" and use what comes back to make sure no physical component is missing. Use it the same way for a current supplier price when an item is not in the catalog and you would otherwise be guessing. At most ${WEB_SEARCH_MAX_USES} searches for the whole takeoff: it is a safety net against a missing component, not a research project. Nothing you find on the web overrides THIS COMPANY'S kits, rates or catalog.
+
 THEN WRITE THE SCOPE — LAST, FROM THE LINES YOU JUST BUILT. scope_description replaces whatever was written at Gate 1, because that was written before a single line item existed. Now that the takeoff is real, the scope must describe exactly it: EVERY component you billed appears in the scope, and NOTHING appears in the scope that you did not bill. That is the prime directive and this is the step where it is actually enforced.
 
 Format, exactly:
@@ -420,12 +538,31 @@ Return ONLY the JSON object. No preamble, no markdown.`
 
 THE CONTRACTOR IS REVIEWING YOUR PROPOSAL RIGHT NOW. On screen, waiting for their approval: ${ctx.reviewingWorkAreas
         .map((n) => `"${n}"`)
-        .join(', ')}. You CANNOT change that list by talking — nothing you say here restages it. If they ask you to merge, split, drop, add or rename work areas: take the correction on board in one or two sentences, and tell them to hit "Propose again" so you can redo the split with it. Never say the change is done. They can also Skip any work area on the card, or approve the list as it stands.`
+        .join(', ')}. You CANNOT change that list by talking — nothing you say here restages it. If they ask you to merge, split, drop, add or rename work areas: take the correction on board in one or two sentences, and tell them to hit "Propose again" so you can redo the split with it. Never say the change is done. On the card they can also Skip any work area, rename it, edit its scope text, or add one you missed themselves — then approve the list.`
+    : ''
+
+  // Gate 2: the takeoff is on screen. A price the contractor gives here goes
+  // onto the line through set_line_prices — the only channel that works.
+  const byWa = new Map<string, string[]>()
+  for (const l of ctx.reviewingLines) {
+    const qty = l.quantity === null ? '?' : String(l.quantity)
+    const cost = l.unitCost === null ? '?' : String(l.unitCost)
+    ;(byWa.get(l.workArea) ?? byWa.set(l.workArea, []).get(l.workArea)!).push(
+      `    ${l.id} · ${l.label} (${l.category}) · ${qty} ${l.unit || 'EA'} × $${cost}${l.needsPricing ? ' · NEEDS PRICE' : ''}`
+    )
+  }
+  const reviewingTakeoff = ctx.reviewingLines.length
+    ? `
+
+THE CONTRACTOR IS REVIEWING YOUR TAKEOFF RIGHT NOW. The staged lines, by work area — line_id · label (category) · qty unit × $unit_cost:
+${[...byWa.entries()].map(([wa, lines]) => `  ${wa}${NEWLINE}${lines.join(NEWLINE)}`).join(NEWLINE)}
+
+When they give you a price or a quantity for a line — "shell mix is 48 a ton", "make the dense grade 60 tons", "mason is 95 an hour" — call set_line_prices with the matching line_id(s). That is the ONLY way a number agreed here reaches the card; saying "updated" on its own does nothing. Match on the label, put every line they mentioned in ONE call, then confirm in one short line what changed. Materials and subs take the BASE cost — what they pay — and BidClaw adds the markup. Lines marked NEEDS PRICE carry your own figure; those are the ones to ask about first. You cannot add, remove or rename lines by talking — they Skip or approve each line on the card, and can edit qty and cost there too if they would rather.`
     : ''
 
   return `${identity}
 
-TASK — SCOPE CONVERSATION. You are gathering what you need to estimate this project. Ask about what changes the price and nothing else. When you have enough to break the job into work areas, say so plainly — the contractor then hits "Propose work areas" and you run Pass 1.${reviewing}
+TASK — SCOPE CONVERSATION. You are gathering what you need to estimate this project. Ask about what changes the price and nothing else. When you have enough to break the job into work areas, say so plainly — the contractor then hits "Propose work areas" and you run Pass 1.${reviewing}${reviewingTakeoff}
 
 ${kyn}
 
@@ -453,6 +590,8 @@ function estimateCostUsd(
     output_tokens?: number | null
     cache_creation_input_tokens?: number | null
     cache_read_input_tokens?: number | null
+    /** Layer 1 web searches this turn — billed per search on top of tokens. */
+    web_search_requests?: number | null
   }
 ): number | null {
   const p = MODEL_PRICING[model]
@@ -462,7 +601,8 @@ function estimateCostUsd(
       (usage.cache_creation_input_tokens ?? 0) * 1.25 * p.input +
       (usage.cache_read_input_tokens ?? 0) * 0.1 * p.input +
       (usage.output_tokens ?? 0) * p.output) /
-    1_000_000
+      1_000_000 +
+    (usage.web_search_requests ?? 0) * WEB_SEARCH_USD_EACH
   return Math.round(usd * 10_000) / 10_000
 }
 
@@ -842,6 +982,39 @@ Deno.serve(async (req: Request) => {
     )
   }
 
+  // A chat turn while the takeoff sits at Gate 2: hand Jamie the staged
+  // lines with their ids so a price the contractor gives her can be
+  // written to the right line through set_line_prices.
+  let reviewingLines: BrainContext['reviewingLines'] = []
+  if (action === 'chat' && run.status === 'awaiting_line_approval') {
+    const { data: pendingLines } = await service
+      .from('jamie_proposed_lines')
+      .select(
+        'id, label, category, unit, quantity, unit_cost, needs_pricing, sort_order, jamie_proposed_work_areas!inner(jamie_run_id, proposed_name, sort_order, status)'
+      )
+      .eq('status', 'pending')
+      .eq('jamie_proposed_work_areas.jamie_run_id', run.id)
+      .eq('jamie_proposed_work_areas.status', 'approved')
+    reviewingLines = ((pendingLines ?? []) as Array<Record<string, unknown>>)
+      .map((l) => {
+        const wa = l.jamie_proposed_work_areas as { proposed_name?: string; sort_order?: number }
+        return {
+          id: l.id as string,
+          workArea: wa?.proposed_name ?? '',
+          waOrder: Number(wa?.sort_order ?? 0),
+          order: Number(l.sort_order ?? 0),
+          label: String(l.label ?? ''),
+          category: String(l.category ?? ''),
+          unit: (l.unit as string) ?? '',
+          quantity: l.quantity === null ? null : Number(l.quantity),
+          unitCost: l.unit_cost === null ? null : Number(l.unit_cost),
+          needsPricing: !!l.needs_pricing,
+        }
+      })
+      .sort((a, b) => a.waOrder - b.waOrder || a.order - b.order)
+      .map(({ waOrder: _w, order: _o, ...rest }) => rest)
+  }
+
   const catalog = (catalogRows ?? []) as Array<Record<string, unknown>>
   const brainCtx: BrainContext = {
     companyName: (settings?.company_legal_name as string) ?? '',
@@ -878,6 +1051,7 @@ Deno.serve(async (req: Request) => {
     })),
     stagedWorkAreas,
     reviewingWorkAreas,
+    reviewingLines,
     kits: ((kitRows ?? []) as Array<Record<string, unknown>>)
       .filter((k) => (k.status ?? 'active') !== 'archived')
       .map((k) => ({
@@ -1041,6 +1215,16 @@ Deno.serve(async (req: Request) => {
           },
         }
 
+  // Tools by situation. Pass 2 gets web search (Layer 1); a chat turn at
+  // Gate 2 gets the pricing tool. Tools render FIRST in the cached prefix,
+  // so they are constant per action, never per turn.
+  const toolsParam: Record<string, unknown> =
+    action === 'propose_lines'
+      ? { tools: PASS2_TOOLS }
+      : action === 'chat' && run.status === 'awaiting_line_approval'
+        ? { tools: [SET_LINE_PRICES_TOOL] }
+        : {}
+
   // 6 — Stream: SSE pass-through of Anthropic events, then a jamie_done
   // sentinel. Finalize (tokens + cost) and assistant-message persistence
   // happen inside the stream so nothing races the response lifecycle.
@@ -1050,48 +1234,134 @@ Deno.serve(async (req: Request) => {
       const send = (obj: unknown) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`))
       try {
-        // beta.messages — referencing a Files-API file_id needs the same
-        // beta flag the upload used, on the message request too.
-        const msgStream = anthropic.beta.messages.stream({
-          betas: [FILES_BETA],
-          model,
-          max_tokens: MAX_TOKENS[action],
-          thinking: { type: 'adaptive' },
-          // Structured output on the two passes; free text for chat. effort
-          // "high" matches jamie-ingest — a takeoff is not the place to skimp
-          // on reasoning. Spread from a typed const rather than casting: the
-          // vendored SDK types predate output_config, and an `as any` on the
-          // whole params object would silence real errors in every field
-          // beside it.
-          ...structuredOutput,
-          system: [
-            {
-              type: 'text',
-              text: systemPrompt,
-              cache_control: { type: 'ephemeral' },
-            },
-          ],
-          messages: [...priorMessages, { role: 'user', content }],
-        })
+        // One turn can take several API legs: a web search that hits the
+        // server-side iteration cap comes back as pause_turn and is resumed
+        // by re-sending the assistant content; a set_line_prices call at
+        // Gate 2 is applied here and answered with a tool_result so Jamie
+        // can confirm in prose. Token usage is summed across legs and
+        // metered as one invocation.
+        const convo: Anthropic.MessageParam[] = [...priorMessages, { role: 'user', content }]
         let assistantText = ''
-        for await (const event of msgStream) {
-          if (
-            event.type === 'content_block_delta' &&
-            event.delta.type === 'text_delta'
-          ) {
-            assistantText += event.delta.text
-          }
-          // A pass streams raw JSON — forwarding it would paint the chat
-          // bubble with the schema. Swallow the deltas and send a heartbeat
-          // instead; the readable summary goes out once staging succeeds.
-          if (action === 'chat') {
-            send(event)
-          } else if (event.type === 'content_block_delta') {
-            send({ type: 'jamie_progress', chars: assistantText.length })
-          }
+        const u = {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          web_search_requests: 0,
         }
-        const final = await msgStream.finalMessage()
-        const u = final.usage
+        const runLeg = async () => {
+          // beta.messages — referencing a Files-API file_id needs the same
+          // beta flag the upload used, on the message request too.
+          const msgStream = anthropic.beta.messages.stream({
+            betas: [FILES_BETA],
+            model,
+            max_tokens: MAX_TOKENS[action],
+            thinking: { type: 'adaptive' },
+            // Structured output on the two passes; free text for chat. effort
+            // "high" matches jamie-ingest — a takeoff is not the place to skimp
+            // on reasoning. Spread from typed consts rather than casting: the
+            // vendored SDK types predate output_config and the newest tool
+            // types, and an `as any` on the whole params object would silence
+            // real errors in every field beside it.
+            ...structuredOutput,
+            ...toolsParam,
+            system: [
+              {
+                type: 'text',
+                text: systemPrompt,
+                cache_control: { type: 'ephemeral' },
+              },
+            ],
+            messages: convo,
+          })
+          for await (const event of msgStream) {
+            if (
+              event.type === 'content_block_delta' &&
+              event.delta.type === 'text_delta'
+            ) {
+              assistantText += event.delta.text
+            }
+            // A pass streams raw JSON — forwarding it would paint the chat
+            // bubble with the schema. Swallow the deltas and send a heartbeat
+            // instead; the readable summary goes out once staging succeeds.
+            // A web search shows up as a server_tool_use block starting —
+            // tell the workspace, so the wait reads as work, not a hang.
+            if (action === 'chat') {
+              send(event)
+            } else if (
+              event.type === 'content_block_start' &&
+              (event.content_block as { type?: string }).type === 'server_tool_use'
+            ) {
+              send({ type: 'jamie_progress', chars: assistantText.length, stage: 'searching' })
+            } else if (event.type === 'content_block_delta') {
+              send({ type: 'jamie_progress', chars: assistantText.length, stage: 'writing' })
+            }
+          }
+          const m = await msgStream.finalMessage()
+          const mu = m.usage as unknown as Record<string, unknown> & {
+            server_tool_use?: { web_search_requests?: number | null } | null
+          }
+          u.input_tokens += Number(mu.input_tokens ?? 0)
+          u.output_tokens += Number(mu.output_tokens ?? 0)
+          u.cache_creation_input_tokens += Number(mu.cache_creation_input_tokens ?? 0)
+          u.cache_read_input_tokens += Number(mu.cache_read_input_tokens ?? 0)
+          u.web_search_requests += Number(mu.server_tool_use?.web_search_requests ?? 0)
+          return m
+        }
+
+        let final = await runLeg()
+        for (let leg = 0; leg < 3; leg++) {
+          if (final.stop_reason === 'pause_turn') {
+            // Server-side search loop paused; re-send as-is and it resumes.
+            convo.push({
+              role: 'assistant',
+              content: final.content as unknown as Anthropic.ContentBlockParam[],
+            })
+            final = await runLeg()
+            continue
+          }
+          if (final.stop_reason === 'tool_use' && action === 'chat') {
+            const uses = final.content.filter((b) => b.type === 'tool_use') as unknown as Array<{
+              id: string
+              name: string
+              input: unknown
+            }>
+            if (uses.length === 0) break
+            convo.push({
+              role: 'assistant',
+              content: final.content as unknown as Anthropic.ContentBlockParam[],
+            })
+            const results: Anthropic.ToolResultBlockParam[] = []
+            for (const use of uses) {
+              let text = `Unknown tool ${use.name}.`
+              if (use.name === 'set_line_prices') {
+                text = await applyLinePrices(
+                  service,
+                  run.id,
+                  ((use.input as { updates?: PriceUpdate[] })?.updates ?? []) as PriceUpdate[]
+                )
+              }
+              results.push({ type: 'tool_result', tool_use_id: use.id, content: text })
+            }
+            convo.push({ role: 'user', content: results })
+            // Jamie may have said a few words before the call; keep her
+            // confirmation on its own line in the bubble and the transcript.
+            if (assistantText && !assistantText.endsWith('\n')) {
+              assistantText += '\n'
+              send({ type: 'content_block_delta', delta: { type: 'text_delta', text: '\n' } })
+            }
+            final = await runLeg()
+            continue
+          }
+          break
+        }
+        // A pass's JSON is the LAST text block of the final leg. Search
+        // legs never add prose under structured output, but the final
+        // message is the authority, not the concatenated stream.
+        const lastText = [...final.content].reverse().find((b) => b.type === 'text') as
+          | { text?: string }
+          | undefined
+        const passText = lastText?.text ?? assistantText
 
         // ── Staging (J3) ────────────────────────────────────────────────
         // A pass returns JSON, not prose. Parse it, write the staging rows,
@@ -1100,7 +1370,7 @@ Deno.serve(async (req: Request) => {
         // staged, because each pass writes in one shot.
         let spokenText = assistantText
         if (action === 'propose_work_areas') {
-          const parsed = JSON.parse(assistantText) as {
+          const parsed = JSON.parse(passText) as {
             summary?: string
             gap_questions?: string[]
             work_areas?: Array<{
@@ -1154,7 +1424,7 @@ Deno.serve(async (req: Request) => {
             .join('\n')
           send({ type: 'jamie_staged', gate: 'work_areas', count: was.length })
         } else if (action === 'propose_lines') {
-          const parsed = JSON.parse(assistantText) as {
+          const parsed = JSON.parse(passText) as {
             gap_questions?: string[]
             new_catalog_items?: string[]
             work_areas?: Array<{

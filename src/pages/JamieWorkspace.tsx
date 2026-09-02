@@ -91,6 +91,9 @@ export default function JamieWorkspace() {
   const [loading, setLoading] = useState(true)
   const [streaming, setStreaming] = useState(false)
   const [passChars, setPassChars] = useState<number | null>(null)
+  // Pass 2 can go to the web to check an assembly or a price (Layer 1).
+  // Say so while it happens — a silent 20-second gap reads as a hang.
+  const [passStage, setPassStage] = useState<'searching' | 'writing' | null>(null)
   const [stagedWas, setStagedWas] = useState<JamieProposedWorkArea[]>([])
   const [stagedGroups, setStagedGroups] = useState<
     Array<JamieProposedWorkArea & { lines: JamieProposedLine[] }>
@@ -233,8 +236,14 @@ export default function JamieWorkspace() {
               setMessages((prev) =>
                 prev.map((m) => (m.id === asstMsgId ? { ...m, text: m.text + t } : m))
               ),
-            onProgress: (chars) => setPassChars(chars),
-            onStaged: () => setPassChars(null),
+            onProgress: (chars, stage) => {
+              setPassChars(chars)
+              if (stage) setPassStage(stage)
+            },
+            onStaged: () => {
+              setPassChars(null)
+              setPassStage(null)
+            },
             onDone: () => {
               setMessages((prev) =>
                 prev.map((m) => (m.id === asstMsgId ? { ...m, streaming: false } : m))
@@ -265,6 +274,7 @@ export default function JamieWorkspace() {
       } finally {
         setStreaming(false)
         setPassChars(null)
+        setPassStage(null)
       }
     },
     [run, streaming, loading, projectId]
@@ -533,7 +543,9 @@ export default function JamieWorkspace() {
                         {m.streaming && !m.text && (
                           <span className="text-gray-500">
                             {passChars !== null
-                              ? `Jamie is working through the job${passChars > 0 ? ` — ${passChars.toLocaleString()} characters in` : '…'}`
+                              ? passStage === 'searching' && passChars === 0
+                                ? 'Jamie is checking the assembly and current pricing on the web…'
+                                : `Jamie is working through the job${passChars > 0 ? ` — ${passChars.toLocaleString()} characters in` : '…'}`
                               : 'Jamie is reading…'}
                           </span>
                         )}
@@ -554,6 +566,16 @@ export default function JamieWorkspace() {
               )}
               {stagedGroups.length > 0 && !streaming && (
                 <LineGate
+                  // The card holds qty/cost as local string state (session-
+                  // discipline 1A/A), so it does not follow prop changes. When
+                  // a chat turn at Gate 2 reprices lines through Jamie's
+                  // set_line_prices tool, the staged numbers change server-
+                  // side; keying on them remounts the card with the new
+                  // figures — and ONLY then, so in-progress edits survive an
+                  // ordinary chat turn.
+                  key={stagedGroups
+                    .map((g) => g.lines.map((l) => `${l.id}:${l.quantity}:${l.unit_cost}`).join(','))
+                    .join('|')}
                   groups={stagedGroups}
                   markups={markups}
                   busy={gateBusy}
