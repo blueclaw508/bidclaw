@@ -33,6 +33,7 @@ import {
   listJamieMessages,
   listProposedLines,
   listProposedWorkAreas,
+  stageContractorWorkAreas,
   supersedePendingWorkAreas,
   type JamieLoopRun,
   type JamieProposedLine,
@@ -46,7 +47,7 @@ import { supabase } from '@/lib/supabase'
 import type { LiveMarkupSettings } from '@/lib/money'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
-import { LineGate, WorkAreaGate } from '@/components/jamie/GateReview'
+import { LineGate, WorkAreaGate, type AddedWorkArea } from '@/components/jamie/GateReview'
 
 interface ThreadMessage {
   id: string
@@ -270,11 +271,16 @@ export default function JamieWorkspace() {
   )
 
   const handleWorkAreaGate = useCallback(
-    async (decisions: WorkAreaDecision[]) => {
+    async (decisions: WorkAreaDecision[], added: AddedWorkArea[]) => {
       if (!run) return
       setGateBusy(true)
       try {
-        const created = await commitWorkAreaGate(run.id, decisions)
+        // Work areas the contractor added on the card are staged like
+        // Jamie's own, so they land on the estimate now AND get priced at
+        // Pass 2. They sort after everything already staged on the run.
+        const staged = await listProposedWorkAreas(run.id)
+        const mine = await stageContractorWorkAreas(run.id, added, staged.length)
+        const created = await commitWorkAreaGate(run.id, [...decisions, ...mine])
         toast.success(`${created.length} work area${created.length === 1 ? '' : 's'} added.`)
         const fresh = await getActiveJamieRun(projectId)
         if (fresh) setRun(fresh)
@@ -543,7 +549,7 @@ export default function JamieWorkspace() {
                   items={stagedWas}
                   existingNameById={existingNameById}
                   busy={gateBusy}
-                  onCommit={(d) => void handleWorkAreaGate(d)}
+                  onCommit={(d, added) => void handleWorkAreaGate(d, added)}
                 />
               )}
               {stagedGroups.length > 0 && !streaming && (
