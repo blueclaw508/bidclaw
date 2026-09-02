@@ -10,7 +10,7 @@
 // boxes to accept work they asked for.
 
 import { useMemo, useState } from 'react'
-import { Check, Loader2, Undo2 } from 'lucide-react'
+import { Check, Loader2, Plus, Undo2, X } from 'lucide-react'
 import type {
   JamieProposedLine,
   JamieProposedWorkArea,
@@ -24,6 +24,12 @@ import { cn } from '@/lib/utils'
 // Gate 1 — work areas
 // ──────────────────────────────────────────────────────────────────────
 
+/** A work area the contractor typed onto the Gate 1 card themselves. */
+export interface AddedWorkArea {
+  name: string
+  description: string
+}
+
 export function WorkAreaGate({
   items,
   existingNameById,
@@ -34,16 +40,28 @@ export function WorkAreaGate({
   /** id → name for the contractor's own work areas, for the overlap flag. */
   existingNameById: Record<string, string>
   busy: boolean
-  onCommit: (decisions: WorkAreaDecision[]) => void
+  /** Jamie's proposals with the contractor's decisions, plus any work areas
+   *  the contractor ADDED on the card (Ian's spec: add, edit and delete at
+   *  Gate 1, not just approve/reject). */
+  onCommit: (decisions: WorkAreaDecision[], added: AddedWorkArea[]) => void
 }) {
-  const [state, setState] = useState<Record<string, { approved: boolean; name: string }>>(
-    () =>
-      Object.fromEntries(
-        items.map((i) => [i.id, { approved: true, name: i.proposed_name }])
-      )
+  const [state, setState] = useState<
+    Record<string, { approved: boolean; name: string; description: string }>
+  >(() =>
+    Object.fromEntries(
+      items.map((i) => [
+        i.id,
+        { approved: true, name: i.proposed_name, description: i.proposed_description ?? '' },
+      ])
+    )
   )
+  // Rows the contractor added. Keyed locally; they have no staged id until
+  // the workspace stages them at commit.
+  const [added, setAdded] = useState<Array<AddedWorkArea & { key: string }>>([])
 
-  const approvedCount = items.filter((i) => state[i.id]?.approved).length
+  const approvedCount =
+    items.filter((i) => state[i.id]?.approved).length +
+    added.filter((a) => a.name.trim()).length
 
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
@@ -52,7 +70,11 @@ export function WorkAreaGate({
       </p>
       <div className="space-y-2">
         {items.map((item) => {
-          const s = state[item.id] ?? { approved: true, name: item.proposed_name }
+          const s = state[item.id] ?? {
+            approved: true,
+            name: item.proposed_name,
+            description: item.proposed_description ?? '',
+          }
           const overlap = item.source_work_area_id
             ? existingNameById[item.source_work_area_id]
             : null
@@ -95,11 +117,19 @@ export function WorkAreaGate({
                   {s.approved ? 'Skip' : 'Keep'}
                 </button>
               </div>
-              {item.proposed_description && (
-                <p className="mt-1 whitespace-pre-wrap px-1.5 text-[12px] leading-relaxed text-gray-600">
-                  {item.proposed_description}
-                </p>
-              )}
+              {/* The scope Jamie proposed — editable, because Pass 2 builds
+                  the takeoff FROM this text and the contractor may know a
+                  quantity or method she got wrong. */}
+              <textarea
+                value={s.description}
+                onChange={(e) =>
+                  setState((p) => ({ ...p, [item.id]: { ...s, description: e.target.value } }))
+                }
+                disabled={!s.approved || busy}
+                rows={4}
+                aria-label={`Scope for ${item.proposed_name}`}
+                className="mt-1 w-full resize-y rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[12px] leading-relaxed text-gray-600 outline-none transition-colors hover:border-gray-200 focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 disabled:bg-transparent"
+              />
               {overlap && (
                 <p className="mt-1.5 rounded-md bg-amber-100 px-2 py-1 text-[11px] text-amber-900">
                   Looks like your existing &ldquo;{overlap}&rdquo;. Skip this one if
@@ -109,6 +139,65 @@ export function WorkAreaGate({
             </div>
           )
         })}
+
+        {added.map((a, idx) => (
+          <div
+            key={a.key}
+            className="rounded-lg border border-dashed border-brand-gold/50 bg-white p-2.5"
+          >
+            <div className="flex items-start gap-2">
+              <input
+                value={a.name}
+                autoFocus
+                onChange={(e) =>
+                  setAdded((p) => p.map((x) => (x.key === a.key ? { ...x, name: e.target.value } : x)))
+                }
+                placeholder={`Work area ${items.length + idx + 1} — e.g. "Mobilization & Travel"`}
+                aria-label="Name for the work area you are adding"
+                disabled={busy}
+                className="min-w-0 flex-1 rounded-md border border-gray-200 px-1.5 py-1 text-sm font-semibold text-gray-900 outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => setAdded((p) => p.filter((x) => x.key !== a.key))}
+                disabled={busy}
+                aria-label="Remove this added work area"
+                className="flex shrink-0 items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-500 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800"
+              >
+                <X className="h-3 w-3" />
+                Remove
+              </button>
+            </div>
+            <textarea
+              value={a.description}
+              onChange={(e) =>
+                setAdded((p) =>
+                  p.map((x) => (x.key === a.key ? { ...x, description: e.target.value } : x))
+                )
+              }
+              disabled={busy}
+              rows={3}
+              placeholder="What's in it, with quantities if you have them. Leave blank and Jamie scopes it from the name and the conversation."
+              aria-label="Scope for the work area you are adding"
+              className="mt-1 w-full resize-y rounded-md border border-gray-200 px-1.5 py-1 text-[12px] leading-relaxed text-gray-700 outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              Yours — Jamie prices it in the takeoff with the rest.
+            </p>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={() =>
+            setAdded((p) => [...p, { key: crypto.randomUUID(), name: '', description: '' }])
+          }
+          disabled={busy}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 py-2 text-[12px] font-semibold text-gray-600 transition-colors hover:border-brand-gold/60 hover:bg-brand-gold/5 hover:text-brand-gold-dark disabled:opacity-40"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add a work area Jamie missed
+        </button>
       </div>
       <button
         type="button"
@@ -116,14 +205,21 @@ export function WorkAreaGate({
         onClick={() =>
           onCommit(
             items.map((i) => {
-              const s = state[i.id] ?? { approved: true, name: i.proposed_name }
+              const s = state[i.id] ?? {
+                approved: true,
+                name: i.proposed_name,
+                description: i.proposed_description ?? '',
+              }
               return {
                 id: i.id,
                 approved: s.approved,
                 name: s.name,
-                description: i.proposed_description,
+                description: s.description.trim() || null,
               }
-            })
+            }),
+            added
+              .filter((a) => a.name.trim())
+              .map((a) => ({ name: a.name.trim(), description: a.description.trim() }))
           )
         }
         className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-brand-gold py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark disabled:cursor-not-allowed disabled:opacity-40"
@@ -134,9 +230,10 @@ export function WorkAreaGate({
           : `Add ${approvedCount} work area${approvedCount === 1 ? '' : 's'}`}
       </button>
       <p className="mt-2 text-[11px] leading-relaxed text-amber-900/80">
-        Not the right split? Skip what you don&apos;t want, or tell Jamie what to
-        change in the box below and hit <strong>Propose again</strong> — talking
-        alone doesn&apos;t change what&apos;s on screen.
+        Not the right split? Skip what you don&apos;t want, add what she missed,
+        or tell Jamie what to change in the box below and hit{' '}
+        <strong>Propose again</strong> — talking alone doesn&apos;t change
+        what&apos;s on screen.
       </p>
     </div>
   )

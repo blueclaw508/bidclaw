@@ -46,6 +46,33 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
+## GATE 1 INLINE ADD + EDITABLE SCOPE (2026-09-02) — BUILT, ON BRANCH
+Ian picked this from the candidate list right after the Gate 1 fix
+shipped. JAMIE-FLOW §2 has said "add, edit, and delete — not just
+approve/reject" since 2026-08-24; until now the card did approve/reject
++ rename only.
+- GateReview.WorkAreaGate: "Add a work area Jamie missed" appends a
+  dashed row (name + optional scope). Jamie's own proposals now have an
+  EDITABLE scope textarea, because Pass 2 builds the takeoff FROM that
+  text and the contractor may know a quantity she got wrong. onCommit
+  now hands up (decisions, added).
+- jamieLoop.stageContractorWorkAreas: an added area is staged on the run
+  exactly like one of Jamie's (stageProposedWorkAreas finally has a
+  caller), sorted after hers, and committed approved — so it becomes a
+  real work area at Gate 1 AND GETS PRICED at Pass 2 with the rest. If
+  the contractor gave no scope, the STAGED row carries a placeholder
+  telling Jamie to build it from the name + conversation; the REAL
+  work_areas row gets only what they typed (or nothing) until Pass 2
+  writes the scope from the takeoff.
+- commitWorkAreaGate now receives the edited description, not Jamie's
+  original.
+NOT DONE: Jamie's own Gate-1 chat line still says "Skip any work area on
+the card, or approve the list" — it should also say "or add one". That
+is a jamie-chat prompt edit + redeploy; batch it with the next function
+change rather than a 65KB deploy for one clause.
+VERIFIED: tsc / eslint (touched files) / vite build — see the commit.
+NOT VERIFIED in a browser (no .env this session).
+
 ## GATE 1 HAS NO WAY BACK + DELETED WORK AREAS HAUNT GATE 2 (2026-09-02) — SHIPPED, LIVE
 Ian, on the Scheu driveway (Truro, 4,000 SF shell + cobble apron + steel
 edging): "When I click Build with Jamie they come back but even the 2 work

@@ -252,7 +252,9 @@ export interface ProposedWorkAreaInput {
 
 export async function stageProposedWorkAreas(
   runId: string,
-  proposals: ProposedWorkAreaInput[]
+  proposals: ProposedWorkAreaInput[],
+  /** First sort_order to use — rows added after Jamie's own sit after them. */
+  sortOrderStart = 0
 ): Promise<JamieProposedWorkArea[]> {
   if (proposals.length === 0) return []
   const rows = proposals.map((p, i) => ({
@@ -260,7 +262,7 @@ export async function stageProposedWorkAreas(
     proposed_name: p.proposed_name.trim(),
     proposed_description: p.proposed_description?.trim() || null,
     source_work_area_id: p.source_work_area_id ?? null,
-    sort_order: i,
+    sort_order: sortOrderStart + i,
   }))
   const { data, error } = await supabase
     .from('jamie_proposed_work_areas')
@@ -574,6 +576,48 @@ export async function commitWorkAreaGate(
   // Back to in_progress: Pass 2 needs a run it is allowed to write to.
   await setRunStatus(runId, 'in_progress')
   return createdIds
+}
+
+/**
+ * What Pass 2 reads as the scope of a work area the contractor added at
+ * Gate 1 without describing it. The staged row needs SOME scope text or the
+ * prompt shows "(none)" and Jamie has nothing to build from; the real
+ * work_areas row stays blank until Pass 2 writes the scope from the takeoff.
+ */
+const CONTRACTOR_ADDED_SCOPE =
+  'Added by the contractor at Gate 1 with no scope text. Build this work area from its name and everything in the conversation.'
+
+/**
+ * Gate 1 inline add (Ian's spec: add, edit, delete — not just approve).
+ * The contractor typed a work area Jamie missed. It is staged on the run
+ * exactly like one of hers so the commit path and Pass 2 treat it the
+ * same: it becomes a real work area now and gets PRICED in the takeoff.
+ * Returns ready-to-commit decisions, all approved.
+ */
+export async function stageContractorWorkAreas(
+  runId: string,
+  added: Array<{ name: string; description: string }>,
+  /** How many staged rows the run already carries — added ones sort after. */
+  afterCount: number
+): Promise<WorkAreaDecision[]> {
+  const clean = added.filter((a) => a.name.trim())
+  if (clean.length === 0) return []
+  const staged = await stageProposedWorkAreas(
+    runId,
+    clean.map((a) => ({
+      proposed_name: a.name,
+      proposed_description: a.description.trim() || CONTRACTOR_ADDED_SCOPE,
+    })),
+    afterCount
+  )
+  return staged.map((s, i) => ({
+    id: s.id,
+    approved: true,
+    name: clean[i].name.trim(),
+    // The REAL work area gets only what the contractor wrote (or nothing) —
+    // the placeholder is for Jamie's eyes, not the client's.
+    description: clean[i].description.trim() || null,
+  }))
 }
 
 /**
