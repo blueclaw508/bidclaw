@@ -46,7 +46,7 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
-## GATE 1 HAS NO WAY BACK + DELETED WORK AREAS HAUNT GATE 2 (2026-09-02) — FIXED ON BRANCH, NOT DEPLOYED
+## GATE 1 HAS NO WAY BACK + DELETED WORK AREAS HAUNT GATE 2 (2026-09-02) — SHIPPED, LIVE
 Ian, on the Scheu driveway (Truro, 4,000 SF shell + cobble apron + steel
 edging): "When I click Build with Jamie they come back but even the 2 work
 areas I deleted are there. But in the Work Areas there is just the three I
@@ -104,14 +104,18 @@ THE FIX (this branch, claude/bidclaw-reverse-ingestion-3w374e):
 VERIFIED: tsc -b --noEmit exit 0; vite build OK; eslint on the touched
 files adds nothing (WorkAreasTab:124 set-state-in-effect is pre-existing
 on master); esbuild parses the edge function.
-NOT VERIFIED: no browser walk and no live harness — this session had no
-.env (no service key, no founder session), so nothing here has executed
-once. jamie-chat is NOT deployed; the frontend is on the branch behind a
-draft PR. Deploy order when Ian says go: `supabase functions deploy
-jamie-chat`, then merge to master (Netlify builds it). The client-side
-supersede + read filters work without the function deploy; the function
-changes only make the same guarantees hold for any other caller and stop
-Pass 2 spending tokens on deleted areas.
+SHIPPED 2026-09-02 ~23:00 UTC on Ian's go: jamie-chat deployed as
+VERSION 16 through the Supabase MCP (v15 was byte-identical to master, so
+the deploy changed exactly this diff and nothing else; the deployed files
+were fetched back and diffed against source — identical). PR #1 merged
+to master as fc1379e; Netlify production deploy 6a98aa2941e5490008ed4b4e
+built that commit and published to bluebidclaw.app at 22:59 UTC.
+NOT VERIFIED IN USE: no browser walk and no live harness — the session
+had no .env (no service key, no founder session). First real exercise is
+Ian's. What to watch on the next Jamie session: at Gate 1, "Propose
+again" appears under the card and replaces the proposal after a chat
+correction; Skip/Keep is a labelled button; deleting a Jamie work area
+on the Work Areas tab makes it vanish from the takeoff review.
 Data note: the Scheu run still carries 13 pending lines under its two
 deleted work areas. Harmless (run is committed) — left alone.
 
