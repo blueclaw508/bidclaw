@@ -46,7 +46,10 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
-## GATE 2 — ADD LINES, PER-LINE MARKUP, PRICE OVERRIDE (2026-09-02) — BUILT, ON BRANCH
+## GATE 2 — ADD LINES, PER-LINE MARKUP, PRICE OVERRIDE (2026-09-02) — SHIPPED, LIVE
+SHIPPED on Ian's "merge it": PR #5 merged to master as 14fbd18; Netlify
+production deploy 6a98ba38bcf2590008af1569 published to bluebidclaw.app
+~00:08 UTC 2026-09-03. No function change. Not walked in a browser.
 Ian: "go to next". JAMIE-FLOW §6 (his spec): at Gate 2 the user can
 add / edit / delete line items and change quantity, cost, markup, price.
 Skip, qty, cost and verbiage were built; this is the rest. No function
