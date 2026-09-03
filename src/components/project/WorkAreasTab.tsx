@@ -66,6 +66,13 @@ interface WorkAreasTabProps {
    * without racing the instant-save writes.
    */
   onEstimateTotalChange?: (total: number) => void
+  /**
+   * Open the add-work-area dialog straight away. Set when Jamie's
+   * "enter or detect?" fork sent the contractor here to lay the work areas
+   * out themselves (`?add=1`) — read as INITIAL state, never synced, so
+   * closing the dialog closes it for good.
+   */
+  openAddOnMount?: boolean
 }
 
 export default function WorkAreasTab({
@@ -73,12 +80,13 @@ export default function WorkAreasTab({
   projectName,
   onChange,
   onEstimateTotalChange,
+  openAddOnMount = false,
 }: WorkAreasTabProps) {
   const navigate = useNavigate()
   const [rows, setRows] = useState<WorkArea[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [newOpen, setNewOpen] = useState(false)
+  const [newOpen, setNewOpen] = useState(openAddOnMount)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkArea | null>(null)
 
@@ -311,28 +319,30 @@ export default function WorkAreasTab({
           <h3 className="text-base font-semibold text-gray-900">No work areas yet</h3>
           <p className="mt-1 max-w-sm text-sm text-gray-500">
             Work areas break the project into discrete scopes, each with its own
-            measurements and line items. Jamie can read your plans and propose
-            them, or you can add them yourself.
+            measurements and line items. Have Jamie detect them from your plans,
+            or enter them yourself.
           </p>
-          {/* Jamie first: on a new project with plans uploaded, letting her
-              propose the breakdown is the faster path, and the empty tab is
-              exactly where a contractor gets stuck wondering what to click. */}
-          <button
-            type="button"
-            onClick={() => navigate(`/app/projects/${projectId}/jamie`)}
-            className="mt-5 inline-flex items-center gap-1.5 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
-          >
-            <Sparkles className="h-4 w-4" />
-            Build with Jamie
-          </button>
-          <button
-            type="button"
-            onClick={() => setNewOpen(true)}
-            className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-100"
-          >
-            <Plus className="h-4 w-4" />
-            Add work area myself
-          </button>
+          {/* Both paths are first-class (flow doc §1), so neither one is a
+              ghost link under the other. Jamie's workspace asks the same
+              question; this is the other door into it. */}
+          <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => navigate(`/app/projects/${projectId}/jamie`)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
+            >
+              <Sparkles className="h-4 w-4" />
+              Have Jamie detect them
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewOpen(true)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+            >
+              <Plus className="h-4 w-4" />
+              Enter them myself
+            </button>
+          </div>
         </div>
       )}
 

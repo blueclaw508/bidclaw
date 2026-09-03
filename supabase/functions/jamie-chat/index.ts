@@ -1145,10 +1145,23 @@ Deno.serve(async (req: Request) => {
 
   // The two passes are button-driven, so when the contractor typed nothing
   // we still need a user turn to hang the request on.
+  //
+  // Pass 1 can now be the FIRST thing that happens on a project: the
+  // "enter or detect?" fork lets the contractor pick "detect them from my
+  // plans" before typing a word. "Everything I have told you above" is a
+  // lie in that case, and following it left her hedging about a
+  // conversation that never happened — so with no conversation the ask
+  // points at the file repository instead, and anything the plans do not
+  // answer goes into gap_questions rather than dropping a work area.
+  const hasConversation = ((history ?? []) as Array<Record<string, unknown>>).some((m) => {
+    const c = (m.content ?? {}) as { text?: string }
+    return (c.text ?? '').trim().length > 0
+  })
   const PASS_PROMPT: Record<JamieAction, string> = {
     chat: '',
-    propose_work_areas:
-      'Break this project into work areas now, using everything I have told you above.',
+    propose_work_areas: hasConversation
+      ? 'Break this project into work areas now, using everything I have told you above.'
+      : "Break this project into work areas now. I haven't told you anything about this job yet — work from the project files above: the plans, the bid form, the spec, the site photos. Where the files don't say, use normal practice for this kind of work, set the work area's confidence honestly, and put what you need from me in gap_questions. Do not leave a work area out because you had to ask about it.",
     propose_lines:
       'Build the full priced takeoff for every work area I approved.',
   }

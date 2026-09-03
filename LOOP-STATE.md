@@ -46,6 +46,37 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
+## "ENTER OR DETECT?" — THE FORK JAMIE NEVER ASKED (2026-09-03) — BUILT
+Flow doc §1 has said since 2026-08-24 that Jamie asks up front: "Do you
+want to enter the work areas yourself, or have me detect them?" She never
+asked. A fresh workspace said "Tell me about the job", the Propose button
+only appeared AFTER a message, and the manual path was a ghost link under
+a gold button on the Work Areas tab. The contractor had to infer the fork.
+
+What changed:
+- The workspace opens on the question itself, with both answers as equal
+  buttons. **Detect them from my plans** runs Pass 1 with nothing typed.
+  **I'll enter them myself** goes to the Work Areas tab with the add
+  dialog already open (`?add=1`, stripped after mount so a refresh does
+  not re-pop it).
+- With no readable files the detect half becomes "Add plans for me to
+  read" pointing at the Files tab — no dead button, and no Pass 1 burned
+  on an empty project.
+- The empty Work Areas tab asks the same question with two equal-weight
+  buttons instead of a gold button over a ghost link.
+- jamie-chat: Pass 1's user turn was hardcoded to "using everything I have
+  told you above", which is a lie when the fork fires before a word is
+  typed. With no conversation it now points at the file repository and
+  sends what she needs into gap_questions instead of dropping a work area.
+  The server already tolerated a zero-message Pass 1; only the wording was
+  wrong.
+
+Talking first still works — the composer never goes away.
+
+NOT WALKED IN A BROWSER. Ian's side: click Build with Jamie on a project
+with plans and hit Detect; then the same on a project with no files; then
+the manual half and confirm the add dialog opens.
+
 ## GATE 2 — ADD LINES, PER-LINE MARKUP, PRICE OVERRIDE (2026-09-02) — SHIPPED, LIVE
 SHIPPED on Ian's "merge it": PR #5 merged to master as 14fbd18; Netlify
 production deploy 6a98ba38bcf2590008af1569 published to bluebidclaw.app

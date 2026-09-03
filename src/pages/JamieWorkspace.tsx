@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   CircleCheck,
   CircleX,
+  ClipboardList,
   FileText,
   Image as ImageIcon,
   Loader2,
@@ -506,31 +507,93 @@ export default function JamieWorkspace() {
                   <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
               ) : messages.length === 0 ? (
+                /* The fork (flow doc §1). Jamie asks up front instead of
+                   leaving the contractor to infer it from a composer: enter
+                   the work areas yourself, or have her detect them. Both are
+                   first-class — the manual path hands off to the Work Areas
+                   tab with the add dialog already open, and detection runs
+                   Pass 1 straight off the plans with nothing typed. Talking
+                   first still works; the composer never goes away. */
                 <div className="rounded-xl border border-gray-200 bg-white p-6">
                   <h2 className="text-base font-bold text-gray-900">
-                    Tell me about the job.
+                    Do you want to enter the work areas yourself, or have me
+                    detect them?
                   </h2>
                   <p className="mt-1.5 text-sm leading-relaxed text-gray-600">
                     {files.length > 0 ? (
                       <>
                         I&apos;ve got {readable.length} file
                         {readable.length === 1 ? '' : 's'} open for this project
-                        already — plans, specs, whatever you uploaded. Tell me what
-                        the client wants and anything the drawings don&apos;t say,
-                        and I&apos;ll break it into work areas and price it.
+                        already — plans, specs, whatever you uploaded. I can read
+                        them and propose the breakdown, or you can lay the work
+                        areas out yourself and I&apos;ll price what you give me.
                       </>
                     ) : (
                       <>
-                        Nothing is uploaded to this project yet. Drop the plans and
-                        the bid form on the Files tab and I&apos;ll read them — or
-                        just describe the job here and we&apos;ll start from that.
+                        Nothing is uploaded to this project yet. Add the plans and
+                        the bid form on the Files tab and I&apos;ll read them, lay
+                        the work areas out yourself, or just describe the job below
+                        and we&apos;ll start from that.
                       </>
                     )}
                   </p>
+
+                  <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
+                    {readable.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => void send('propose_work_areas', '')}
+                        disabled={streaming || gateBusy}
+                        className="flex flex-col items-start gap-1 rounded-lg border border-brand-gold/40 bg-brand-gold/10 px-4 py-3 text-left transition-colors hover:bg-brand-gold/20 disabled:opacity-40"
+                      >
+                        <span className="flex items-center gap-1.5 text-sm font-semibold text-brand-gold-dark">
+                          <Sparkles className="h-4 w-4" />
+                          Detect them from my plans
+                        </span>
+                        <span className="text-[12px] leading-snug text-gray-500">
+                          I read the {readable.length} file
+                          {readable.length === 1 ? '' : 's'} on this project and
+                          propose the breakdown for you to approve.
+                        </span>
+                      </button>
+                    ) : (
+                      <Link
+                        to={`/app/projects/${projectId}?tab=files`}
+                        className="flex flex-col items-start gap-1 rounded-lg border border-brand-gold/40 bg-brand-gold/10 px-4 py-3 text-left transition-colors hover:bg-brand-gold/20"
+                      >
+                        <span className="flex items-center gap-1.5 text-sm font-semibold text-brand-gold-dark">
+                          <Sparkles className="h-4 w-4" />
+                          Add plans for me to read
+                        </span>
+                        <span className="text-[12px] leading-snug text-gray-500">
+                          Detecting the work areas needs something to read. Drop
+                          the plans on the Files tab and come back.
+                        </span>
+                      </Link>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(`/app/projects/${projectId}?tab=work_areas&add=1`)
+                      }
+                      className="flex flex-col items-start gap-1 rounded-lg border border-gray-300 bg-white px-4 py-3 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-800">
+                        <ClipboardList className="h-4 w-4" />
+                        I&apos;ll enter them myself
+                      </span>
+                      <span className="text-[12px] leading-snug text-gray-500">
+                        You name the work areas and pull in your kits. Come back
+                        here any time and I&apos;ll price them.
+                      </span>
+                    </button>
+                  </div>
+
                   <p className="mt-3 text-[12px] text-gray-400">
-                    How it goes: we talk → I propose the work areas → you approve
-                    them → I build the priced takeoff → you approve that → it lands
-                    on the estimate.
+                    Or just tell me about the job below. However it starts: I
+                    propose the work areas → you approve them → I build the priced
+                    takeoff → you approve that → it lands on the estimate.
                   </p>
                 </div>
               ) : (

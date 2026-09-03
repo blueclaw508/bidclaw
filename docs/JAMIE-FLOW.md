@@ -143,7 +143,7 @@ Once the user approves, the estimate goes to a proposal.
 | L&B: organic lead → convert | BUILT (`convertLeadToProject`) |
 | Quantities + costs, nothing zero | BUILT |
 | Catalog builds itself from priced items | BUILT |
-| **"Enter or detect?" explicit fork** | NOT BUILT — no prompt, user must infer |
+| **"Enter or detect?" explicit fork** | BUILT — Jamie opens a fresh session by asking it outright, with both answers as buttons: **Detect them from my plans** runs Pass 1 straight off the file repository with nothing typed, **I'll enter them myself** hands off to the Work Areas tab with the add dialog already open (`?add=1`). The empty Work Areas tab asks the same question the same way. Talking first still works — the composer never goes away |
 | **Gate 1: add / edit / delete work areas** | BUILT — Skip/Keep, rename, editable scope text, and **Add a work area Jamie missed** (staged like hers, so Pass 2 prices it). **Propose again** re-runs Pass 1 over the corrected conversation. |
 | **Deleting a Jamie work area after Gate 1** | BUILT — retires the staged row; Pass 2 and Gate 2 only price/show work areas that still exist |
 | **Scope written FROM the line items** | BUILT — Pass 2 writes it from the takeoff and overwrites Gate 1's |
