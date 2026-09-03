@@ -46,6 +46,38 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
+## GATE 2 — ADD LINES, PER-LINE MARKUP, PRICE OVERRIDE (2026-09-02) — BUILT, ON BRANCH
+Ian: "go to next". JAMIE-FLOW §6 (his spec): at Gate 2 the user can
+add / edit / delete line items and change quantity, cost, markup, price.
+Skip, qty, cost and verbiage were built; this is the rest. No function
+change — client + data layer only.
+- GateReview.LineGate: every markup-bearing line (material / sub /
+  other) gets a MARKUP % cell — blank = follow My Numbers (placeholder
+  shows the live %), a number pins this line (amber). Every line gets a
+  PRICE cell — blank = computed (placeholder shows it), a number is a
+  billed-price override (amber, × to clear), exactly the estimate
+  editor's two overrides. Line and estimate totals honour both.
+- "Add a line Jamie missed" under each work area: category / label /
+  qty / unit / cost (+ markup, price). The commit button reads "Finish
+  the line you added" until name, qty and cost are all in — a half-typed
+  row is never silently dropped.
+- jamieLoop: LineDecision carries markupOverride / priceOverride;
+  commitLineGate writes them to work_area_lines.markup_override /
+  price_override (markup only where the category bears one — KYN).
+  stageContractorLines stages added rows under the staged work area
+  (stageProposedLines finally has a caller; sort_order 1000+, after
+  Jamie's 0..n and the scope check's 900+), reasoning "Added by the
+  contractor at Gate 2", needs_pricing false, then returns approved
+  decisions — so added lines go through the same commit, the same
+  audit trail, and the same catalog flywheel.
+- KYN NOTE on the pinned rule above ("markup_override stays NULL on a
+  forward estimate"): that rule is about JAMIE — she never pins a
+  markup. A markup the CONTRACTOR sets on the card is their number and
+  writes through, same as it always has in the estimate editor.
+VERIFIED: tsc / eslint / vite build. NOT walked in a browser.
+Harness note: verify-jamie-loop's Gate 2 replay does not exercise
+overrides or added lines; add assertions when a live run is next spent.
+
 ## JAMIE P2 — WEB-SEARCH LAYER 1 + PRICING IN CONTEXT (2026-09-02) — SHIPPED, LIVE
 SHIPPED on Ian's "deploy it": jamie-chat VERSION 17 through the Supabase
 MCP (deployed files fetched back and diffed against source — identical);

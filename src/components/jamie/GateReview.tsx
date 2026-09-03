@@ -12,12 +12,19 @@
 import { useMemo, useState } from 'react'
 import { Check, Loader2, Plus, Undo2, X } from 'lucide-react'
 import type {
+  AddedLine,
+  JamieLineCategory,
   JamieProposedLine,
   JamieProposedWorkArea,
   LineDecision,
   WorkAreaDecision,
 } from '@/lib/jamieLoop'
-import { formatUSD, liveMarkupPercent, type LiveMarkupSettings } from '@/lib/money'
+import {
+  categoryBearsMarkup,
+  formatUSD,
+  liveMarkupPercent,
+  type LiveMarkupSettings,
+} from '@/lib/money'
 import { cn } from '@/lib/utils'
 
 // ──────────────────────────────────────────────────────────────────────
@@ -262,7 +269,15 @@ export function LineGate({
    *  BILLED price — not the cost basis dressed up as a price. */
   markups: LiveMarkupSettings
   busy: boolean
-  onCommit: (decisions: LineDecision[], descriptions: Record<string, string>) => void
+  /** Decisions on Jamie's lines, the final scope text per work area, and
+   *  the lines the contractor ADDED on the card, keyed by staged work
+   *  area id (Ian's spec §6: add / edit / delete line items; change
+   *  quantity, cost, markup, price). */
+  onCommit: (
+    decisions: LineDecision[],
+    descriptions: Record<string, string>,
+    added: Record<string, AddedLine[]>
+  ) => void
 }) {
   const allLines = useMemo(() => groups.flatMap((g) => g.lines), [groups])
   // The scope Pass 2 wrote FROM the takeoff. Editable here — it is what
@@ -273,8 +288,10 @@ export function LineGate({
   )
   // Local string state per editable cell — parse on commit, not per
   // keystroke, so "0." and "5.2" survive typing (session-discipline 1A/A).
+  // markup: '' = follow My Numbers; price: '' = computed. Both mirror the
+  // estimate editor's per-line overrides.
   const [state, setState] = useState<
-    Record<string, { approved: boolean; qty: string; cost: string }>
+    Record<string, { approved: boolean; qty: string; cost: string; markup: string; price: string }>
   >(() =>
     Object.fromEntries(
       allLines.map((l) => [
@@ -283,22 +300,70 @@ export function LineGate({
           approved: true,
           qty: l.quantity === null ? '' : String(l.quantity),
           cost: l.unit_cost === null ? '' : String(l.unit_cost),
+          markup: '',
+          price: '',
         },
       ])
     )
   )
+  // Lines the contractor typed under a work area. No staged id until the
+  // workspace stages them at commit.
+  type AddedRow = {
+    key: string
+    category: JamieLineCategory
+    label: string
+    unit: string
+    qty: string
+    cost: string
+    markup: string
+    price: string
+  }
+  const [added, setAdded] = useState<Record<string, AddedRow[]>>({})
+  const patchAdded = (pwaId: string, key: string, patch: Partial<AddedRow>) =>
+    setAdded((p) => ({
+      ...p,
+      [pwaId]: (p[pwaId] ?? []).map((r) => (r.key === key ? { ...r, ...patch } : r)),
+    }))
 
-  const approved = allLines.filter((l) => state[l.id]?.approved)
-  /** Billed price of one staged line at the contractor's live markup. */
+  const num = (s: string) => {
+    const n = parseFloat(s)
+    return Number.isFinite(n) ? n : null
+  }
+  /** Billed price for a set of cells at the contractor's markup rules:
+   *  a typed price wins; else qty × cost × (1 + markup), where markup is
+   *  the per-line override when typed, else My Numbers for the category. */
+  const billedFor = (
+    category: JamieLineCategory,
+    cells: { qty: string; cost: string; markup: string; price: string }
+  ) => {
+    const p = num(cells.price)
+    if (p !== null) return p
+    const q = num(cells.qty)
+    const c = num(cells.cost)
+    if (q === null || c === null) return 0
+    return q * c * (1 + markupFor(category, cells.markup) / 100)
+  }
+  const markupFor = (category: JamieLineCategory, typed: string) => {
+    if (!categoryBearsMarkup(category)) return 0
+    const m = num(typed)
+    return m !== null ? m : liveMarkupPercent(category, markups)
+  }
   const billedOf = (l: JamieProposedLine) => {
     const st = state[l.id]
     if (!st?.approved) return 0
-    const q = parseFloat(st.qty)
-    const c = parseFloat(st.cost)
-    if (!Number.isFinite(q) || !Number.isFinite(c)) return 0
-    return q * c * (1 + liveMarkupPercent(l.category, markups) / 100)
+    return billedFor(l.category, st)
   }
-  const grandTotal = allLines.reduce((a, l) => a + billedOf(l), 0)
+  const addedRows = (pwaId: string) => added[pwaId] ?? []
+  const addedIsComplete = (r: AddedRow) =>
+    r.label.trim() !== '' && (num(r.qty) ?? 0) > 0 && (num(r.cost) ?? 0) > 0
+  const allAdded = Object.values(added).flat()
+  const incompleteAdded = allAdded.filter((r) => !addedIsComplete(r)).length
+
+  const approved = allLines.filter((l) => state[l.id]?.approved)
+  const groupTotal = (g: JamieProposedWorkArea & { lines: JamieProposedLine[] }) =>
+    g.lines.reduce((a, l) => a + billedOf(l), 0) +
+    addedRows(g.id).reduce((a, r) => a + (addedIsComplete(r) ? billedFor(r.category, r) : 0), 0)
+  const grandTotal = groups.reduce((a, g) => a + groupTotal(g), 0)
   // Jamie's own figures, flagged for confirmation. NOT zeros — a $0 line
   // is an unfinished estimate and the schema no longer permits one.
   const toConfirm = approved.filter((l) => l.needs_pricing).length
@@ -306,6 +371,10 @@ export function LineGate({
     const raw = state[l.id]?.cost ?? ''
     return raw.trim() === '' || parseFloat(raw) === 0
   }).length
+  const commitCount = approved.length + allAdded.filter(addedIsComplete).length
+
+  const cellCls =
+    'rounded border border-gray-200 px-1.5 py-0.5 text-right text-[12px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
 
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
@@ -318,7 +387,7 @@ export function LineGate({
             <div className="mb-1.5 flex items-baseline justify-between gap-2">
               <p className="text-sm font-bold text-gray-900">{g.proposed_name}</p>
               <span className="shrink-0 text-[12px] font-semibold text-gray-500">
-                {formatUSD(g.lines.reduce((a, l) => a + billedOf(l), 0))}
+                {formatUSD(groupTotal(g))}
               </span>
             </div>
             <textarea
@@ -331,16 +400,17 @@ export function LineGate({
             />
             <div className="space-y-1">
               {g.lines.map((l) => {
-                const s = state[l.id] ?? { approved: true, qty: '', cost: '' }
-                const qty = parseFloat(s.qty)
-                const cost = parseFloat(s.cost)
-                const base = Number.isFinite(qty) && Number.isFinite(cost) ? qty * cost : 0
+                const s = state[l.id] ?? { approved: true, qty: '', cost: '', markup: '', price: '' }
+                const base = (num(s.qty) ?? 0) * (num(s.cost) ?? 0)
+                const bears = categoryBearsMarkup(l.category)
                 // KYN: material/sub/other carry the contractor's markup;
                 // labor and equipment are already fully burdened at their
                 // retail rate. unit_cost here is the COST — showing base as
                 // the line price would understate every material line.
-                const mk = liveMarkupPercent(l.category, markups)
-                const total = base * (1 + mk / 100)
+                const mk = markupFor(l.category, s.markup)
+                const computed = base * (1 + mk / 100)
+                const priceOverridden = num(s.price) !== null
+                const total = billedFor(l.category, s)
                 return (
                   <div
                     key={l.id}
@@ -373,7 +443,7 @@ export function LineGate({
                         {CATEGORY_LABEL[l.category] ?? l.category}
                       </span>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-1.5 pl-5.5">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 pl-5.5">
                       <input
                         value={s.qty}
                         onChange={(e) =>
@@ -382,7 +452,7 @@ export function LineGate({
                         inputMode="decimal"
                         disabled={!s.approved || busy}
                         aria-label={`Quantity for ${l.label}`}
-                        className="w-16 rounded border border-gray-200 px-1.5 py-0.5 text-right text-[12px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        className={cn('w-16', cellCls)}
                       />
                       <span className="text-[11px] text-gray-400">{l.unit || 'EA'} ×</span>
                       <input
@@ -394,29 +464,232 @@ export function LineGate({
                         disabled={!s.approved || busy}
                         aria-label={`Unit cost for ${l.label}`}
                         className={cn(
-                          'w-20 rounded border px-1.5 py-0.5 text-right text-[12px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500',
+                          'w-20',
+                          cellCls,
                           l.needs_pricing && (s.cost.trim() === '' || parseFloat(s.cost) === 0)
                             ? 'border-rose-300 bg-rose-50'
-                            : 'border-gray-200'
+                            : ''
                         )}
                       />
-                      <span className="ml-auto shrink-0 text-right text-[12px] font-semibold text-gray-700">
-                        {formatUSD(total)}
-                        {mk > 0 && (
-                          <span className="block text-[10px] font-normal text-gray-400">
-                            {formatUSD(base)} cost + {mk}%
-                          </span>
+                      {/* Markup — per line, like the estimate editor. Blank
+                          follows My Numbers; a number pins this line. */}
+                      {bears && (
+                        <>
+                          <span className="text-[11px] text-gray-400">+</span>
+                          <input
+                            value={s.markup}
+                            onChange={(e) =>
+                              setState((p) => ({ ...p, [l.id]: { ...s, markup: e.target.value } }))
+                            }
+                            inputMode="decimal"
+                            disabled={!s.approved || busy}
+                            placeholder={String(liveMarkupPercent(l.category, markups))}
+                            aria-label={`Markup percent for ${l.label} (blank follows My Numbers)`}
+                            title="Markup % for this line — blank follows your My Numbers markup"
+                            className={cn(
+                              'w-12',
+                              cellCls,
+                              num(s.markup) !== null ? 'border-amber-300 bg-amber-50' : ''
+                            )}
+                          />
+                          <span className="text-[11px] text-gray-400">%</span>
+                        </>
+                      )}
+                      {/* Price — the billed total. Typing sets an override
+                          (amber); blank means computed. */}
+                      <span className="ml-auto flex shrink-0 items-center gap-1">
+                        <input
+                          value={s.price}
+                          onChange={(e) =>
+                            setState((p) => ({ ...p, [l.id]: { ...s, price: e.target.value } }))
+                          }
+                          inputMode="decimal"
+                          disabled={!s.approved || busy}
+                          placeholder={formatUSD(computed)}
+                          aria-label={`Billed price for ${l.label} (blank is computed)`}
+                          title="Billed price — type to override the computed price"
+                          className={cn(
+                            'w-24 font-semibold',
+                            cellCls,
+                            priceOverridden ? 'border-amber-300 bg-amber-50 text-amber-900' : 'text-gray-700'
+                          )}
+                        />
+                        {priceOverridden && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setState((p) => ({ ...p, [l.id]: { ...s, price: '' } }))
+                            }
+                            disabled={busy}
+                            aria-label={`Clear price override for ${l.label}`}
+                            title="Back to the computed price"
+                            className="rounded p-0.5 text-amber-700 hover:bg-amber-100"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
                         )}
                       </span>
                     </div>
-                    {l.reasoning && (
-                      <p className="pl-5.5 text-[11px] leading-snug text-gray-400">
-                        {l.reasoning}
-                      </p>
-                    )}
+                    <p className="pl-5.5 text-[11px] leading-snug text-gray-400">
+                      {mk > 0 && !priceOverridden && (
+                        <span>
+                          {formatUSD(base)} cost + {mk}%{num(s.markup) !== null ? ' (custom)' : ''} ={' '}
+                          {formatUSD(total)}.{' '}
+                        </span>
+                      )}
+                      {priceOverridden && (
+                        <span className="text-amber-700">
+                          Overridden to {formatUSD(total)} (computed {formatUSD(computed)}).{' '}
+                        </span>
+                      )}
+                      {l.reasoning}
+                    </p>
                   </div>
                 )
               })}
+
+              {addedRows(g.id).map((r) => {
+                const complete = addedIsComplete(r)
+                const bears = categoryBearsMarkup(r.category)
+                return (
+                  <div
+                    key={r.key}
+                    className="rounded-md border border-dashed border-brand-gold/50 px-1.5 py-1"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={r.category}
+                        onChange={(e) =>
+                          patchAdded(g.id, r.key, { category: e.target.value as JamieLineCategory })
+                        }
+                        disabled={busy}
+                        aria-label="Category for the line you are adding"
+                        className="rounded border border-gray-200 px-1 py-0.5 text-[11px] uppercase tracking-wide text-gray-600 outline-none focus:border-blue-500"
+                      >
+                        {(Object.keys(CATEGORY_LABEL) as JamieLineCategory[]).map((c) => (
+                          <option key={c} value={c}>
+                            {CATEGORY_LABEL[c]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={r.label}
+                        autoFocus
+                        onChange={(e) => patchAdded(g.id, r.key, { label: e.target.value })}
+                        disabled={busy}
+                        placeholder="Item name, the way your supplier calls it"
+                        aria-label="Name for the line you are adding"
+                        className="min-w-0 flex-1 rounded border border-gray-200 px-1.5 py-0.5 text-[12px] text-gray-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAdded((p) => ({
+                            ...p,
+                            [g.id]: (p[g.id] ?? []).filter((x) => x.key !== r.key),
+                          }))
+                        }
+                        disabled={busy}
+                        aria-label="Remove this added line"
+                        className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 pl-5.5">
+                      <input
+                        value={r.qty}
+                        onChange={(e) => patchAdded(g.id, r.key, { qty: e.target.value })}
+                        inputMode="decimal"
+                        disabled={busy}
+                        placeholder="qty"
+                        aria-label="Quantity for the line you are adding"
+                        className={cn('w-16', cellCls)}
+                      />
+                      <input
+                        value={r.unit}
+                        onChange={(e) => patchAdded(g.id, r.key, { unit: e.target.value })}
+                        disabled={busy}
+                        placeholder="EA"
+                        aria-label="Unit for the line you are adding"
+                        className="w-12 rounded border border-gray-200 px-1.5 py-0.5 text-[11px] uppercase outline-none focus:border-blue-500"
+                      />
+                      <span className="text-[11px] text-gray-400">×</span>
+                      <input
+                        value={r.cost}
+                        onChange={(e) => patchAdded(g.id, r.key, { cost: e.target.value })}
+                        inputMode="decimal"
+                        disabled={busy}
+                        placeholder={bears ? 'base cost' : '$/hr'}
+                        aria-label="Unit cost for the line you are adding"
+                        className={cn('w-20', cellCls)}
+                      />
+                      {bears && (
+                        <>
+                          <span className="text-[11px] text-gray-400">+</span>
+                          <input
+                            value={r.markup}
+                            onChange={(e) => patchAdded(g.id, r.key, { markup: e.target.value })}
+                            inputMode="decimal"
+                            disabled={busy}
+                            placeholder={String(liveMarkupPercent(r.category, markups))}
+                            aria-label="Markup percent for the line you are adding (blank follows My Numbers)"
+                            className={cn('w-12', cellCls, num(r.markup) !== null ? 'border-amber-300 bg-amber-50' : '')}
+                          />
+                          <span className="text-[11px] text-gray-400">%</span>
+                        </>
+                      )}
+                      <span className="ml-auto flex shrink-0 items-center gap-1">
+                        <input
+                          value={r.price}
+                          onChange={(e) => patchAdded(g.id, r.key, { price: e.target.value })}
+                          inputMode="decimal"
+                          disabled={busy}
+                          placeholder={complete ? formatUSD(billedFor(r.category, { ...r, price: '' })) : '$'}
+                          aria-label="Billed price for the line you are adding (blank is computed)"
+                          className={cn(
+                            'w-24 font-semibold',
+                            cellCls,
+                            num(r.price) !== null ? 'border-amber-300 bg-amber-50 text-amber-900' : 'text-gray-700'
+                          )}
+                        />
+                      </span>
+                    </div>
+                    <p className="pl-5.5 text-[11px] text-gray-400">
+                      {complete
+                        ? 'Yours — priced with the rest and saved to your catalog on approve.'
+                        : 'Needs a name, a quantity and a cost.'}
+                    </p>
+                  </div>
+                )
+              })}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setAdded((p) => ({
+                    ...p,
+                    [g.id]: [
+                      ...(p[g.id] ?? []),
+                      {
+                        key: crypto.randomUUID(),
+                        category: 'material',
+                        label: '',
+                        unit: 'EA',
+                        qty: '',
+                        cost: '',
+                        markup: '',
+                        price: '',
+                      },
+                    ],
+                  }))
+                }
+                disabled={busy}
+                className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-gray-300 py-1.5 text-[11px] font-semibold text-gray-600 transition-colors hover:border-brand-gold/60 hover:bg-brand-gold/5 hover:text-brand-gold-dark disabled:opacity-40"
+              >
+                <Plus className="h-3 w-3" />
+                Add a line Jamie missed
+              </button>
             </div>
           </div>
         ))}
@@ -429,7 +702,7 @@ export function LineGate({
         <p className="mt-1.5 rounded-md bg-amber-100/70 px-2 py-1.5 text-[11px] text-amber-900">
           {toConfirm} line{toConfirm === 1 ? ' uses' : 's use'} Jamie&apos;s own price
           rather than one from your catalog. Worth a look — change anything that
-          isn&apos;t what you actually pay.
+          isn&apos;t what you actually pay, or tell Jamie the price in the chat.
         </p>
       )}
       {stillBlank > 0 && (
@@ -443,31 +716,47 @@ export function LineGate({
         // A zero-cost line under-bids the job, so it cannot be committed.
         // KYN is enforced here because structured output has no numeric
         // bounds — see the schema note in jamie-chat.
-        disabled={busy || approved.length === 0 || stillBlank > 0}
+        disabled={busy || commitCount === 0 || stillBlank > 0 || incompleteAdded > 0}
         onClick={() =>
           onCommit(
             allLines.map((l) => {
-              const s = state[l.id] ?? { approved: true, qty: '', cost: '' }
-              const qty = parseFloat(s.qty)
-              const cost = parseFloat(s.cost)
+              const s = state[l.id] ?? { approved: true, qty: '', cost: '', markup: '', price: '' }
               return {
                 id: l.id,
                 approved: s.approved,
-                quantity: Number.isFinite(qty) ? qty : 0,
-                unitCost: Number.isFinite(cost) ? cost : 0,
+                quantity: num(s.qty) ?? 0,
+                unitCost: num(s.cost) ?? 0,
+                markupOverride: categoryBearsMarkup(l.category) ? num(s.markup) : null,
+                priceOverride: num(s.price),
               }
             }),
-            scopes
+            scopes,
+            Object.fromEntries(
+              Object.entries(added).map(([pwaId, rows]) => [
+                pwaId,
+                rows.filter(addedIsComplete).map((r) => ({
+                  category: r.category,
+                  label: r.label.trim(),
+                  unit: r.unit.trim() || 'EA',
+                  quantity: num(r.qty) ?? 0,
+                  unitCost: num(r.cost) ?? 0,
+                  markupOverride: categoryBearsMarkup(r.category) ? num(r.markup) : null,
+                  priceOverride: num(r.price),
+                })),
+              ])
+            )
           )
         }
         className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-brand-gold py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark disabled:cursor-not-allowed disabled:opacity-40"
       >
         {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-        {approved.length === 0
+        {commitCount === 0
           ? 'Keep at least one'
-          : stillBlank > 0
-            ? `Price ${stillBlank} line${stillBlank === 1 ? '' : 's'} first`
-            : `Add ${approved.length} line${approved.length === 1 ? '' : 's'} · ${formatUSD(grandTotal)}`}
+          : incompleteAdded > 0
+            ? `Finish the line${incompleteAdded === 1 ? '' : 's'} you added`
+            : stillBlank > 0
+              ? `Price ${stillBlank} line${stillBlank === 1 ? '' : 's'} first`
+              : `Add ${commitCount} line${commitCount === 1 ? '' : 's'} · ${formatUSD(grandTotal)}`}
       </button>
     </div>
   )

@@ -33,8 +33,10 @@ import {
   listJamieMessages,
   listProposedLines,
   listProposedWorkAreas,
+  stageContractorLines,
   stageContractorWorkAreas,
   supersedePendingWorkAreas,
+  type AddedLine,
   type JamieLoopRun,
   type JamieProposedLine,
   type JamieProposedWorkArea,
@@ -305,13 +307,20 @@ export default function JamieWorkspace() {
   )
 
   const handleLineGate = useCallback(
-    async (decisions: LineDecision[], descriptions: Record<string, string>) => {
+    async (
+      decisions: LineDecision[],
+      descriptions: Record<string, string>,
+      added: Record<string, AddedLine[]>
+    ) => {
       if (!run) return
       setGateBusy(true)
       try {
+        // Lines the contractor added on the card are staged under Jamie's
+        // work area like hers, then committed with the rest.
+        const mine = await stageContractorLines(added)
         const { written, catalogAdded } = await commitLineGate(
           run.id,
-          decisions,
+          [...decisions, ...mine],
           descriptions
         )
         toast.success(
@@ -579,7 +588,7 @@ export default function JamieWorkspace() {
                   groups={stagedGroups}
                   markups={markups}
                   busy={gateBusy}
-                  onCommit={(d, desc) => void handleLineGate(d, desc)}
+                  onCommit={(d, desc, added) => void handleLineGate(d, desc, added)}
                 />
               )}
 
