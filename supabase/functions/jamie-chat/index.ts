@@ -1070,8 +1070,21 @@ Deno.serve(async (req: Request) => {
     // correcting Jamie's quantities. Both are scoped to this user inside the
     // function; a blank company gets empty arrays and Jamie falls through to
     // trade knowledge + the web exactly as before.
-    service.rpc('jamie_price_book', { p_user_id: user.id, p_limit: 60 }),
-    service.rpc('jamie_quantity_bias', { p_user_id: user.id, p_limit: 20 }),
+    //
+    // Swallowed deliberately. These two are the ONLY calls in this batch that
+    // reach for something optional — everything else is required to price at
+    // all. If the migration has not run in this environment, or the RPC is
+    // unreachable, a rejection here would take the whole estimate down with
+    // it via Promise.all. Degrading to "no learned history" costs quality;
+    // failing costs the contractor their takeoff.
+    service
+      .rpc('jamie_price_book', { p_user_id: user.id, p_limit: 60 })
+      .then((r) => r)
+      .catch(() => ({ data: null })),
+    service
+      .rpc('jamie_quantity_bias', { p_user_id: user.id, p_limit: 20 })
+      .then((r) => r)
+      .catch(() => ({ data: null })),
   ])
 
   // Pass 2 works from the work areas approved at Gate 1 that STILL EXIST.
