@@ -46,7 +46,7 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
-## ⚑ PASS 2 TIMED OUT AND THERE WAS NO WAY BACK (2026-09-04) — FIXED
+## ⚑ PASS 2 TIMED OUT AND THERE WAS NO WAY BACK (2026-09-04) — SHIPPED, LIVE
 Found live on Ian's Justin Helferich proposal: 30 work areas, 6 copies of
 the same 5, ZERO line items on any of them.
 
@@ -90,9 +90,20 @@ Fixed:
 Data cleanup done on the project: 25 duplicate work areas deleted (all had
 0 lines, no measurements, not on any proposal), survivors renumbered 0-4.
 
+SHIPPED, LIVE: PR #7 merged to master as aae42c4; jamie-chat deployed as
+**v18** and verified byte-identical to the repo source (index.ts 81,136
+chars, jamieGate.ts 6,501 — both IDENTICAL via get_edge_function diff);
+Netlify production deploy 6a9ab71b02e5500008d089ea published to
+bluebidclaw.app 12:18:58 UTC 2026-09-04.
+
+Justin Helferich left ready to finish: 5 work areas, 5 approved staged
+rows still linked, the 25 orphaned staged rows nulled by the FK, and the
+7th pending Gate 1 proposal rejected so the workspace shows "Build the
+takeoff" instead of a card that would insert a 7th copy.
+
 NOT WALKED IN A BROWSER.
 
-## "ENTER OR DETECT?" — THE FORK JAMIE NEVER ASKED (2026-09-03) — BUILT
+## "ENTER OR DETECT?" — THE FORK JAMIE NEVER ASKED (2026-09-03) — SHIPPED, LIVE (master aae42c4)
 Flow doc §1 has said since 2026-08-24 that Jamie asks up front: "Do you
 want to enter the work areas yourself, or have me detect them?" She never
 asked. A fresh workspace said "Tell me about the job", the Propose button
