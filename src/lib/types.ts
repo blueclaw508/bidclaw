@@ -87,7 +87,17 @@ export interface WorkArea {
   id: string
   project_id: string
   name: string
+  /**
+   * The WORK ORDER scope (JAMIE-FLOW 4b): step-by-step for the crew, full
+   * quantities, lifts, spec, machines, disposal. Crew + Detailed prints.
+   */
   description: string | null
+  /**
+   * The CLIENT scope (JAMIE-FLOW 4a): proposal verbiage — plain language,
+   * headline dimensions only, never a cost or a fee. Summary print only.
+   * NULL means it was never written; readers fall back to `description`.
+   */
+  client_description: string | null
   sequence_order: number
   /** Legacy generic status — UI picker removed in R3; column dormant. */
   status: WorkAreaStatus
@@ -580,11 +590,19 @@ export interface ProposalWorkArea {
  */
 export interface ProposalWorkAreaResolved extends ProposalWorkArea {
   resolved_name: string
+  /** WORK ORDER scope — Crew and Detailed prints (JAMIE-FLOW 4b). */
   resolved_description: string | null
+  /**
+   * CLIENT scope for the Summary print (JAMIE-FLOW 4a). Falls back to
+   * resolved_description when the work area predates the split, so an old
+   * proposal still prints something rather than a blank scope.
+   */
+  resolved_client_description: string | null
   source_work_area: {
     id: string
     name: string
     description: string | null
+    client_description: string | null
   } | null
   lines: ProposalLine[]
 }

@@ -808,7 +808,25 @@ function SortableRow({
               className={inputClasses}
             />
           </Field>
-          <Field label="Description">
+          {/* Two scopes (JAMIE-FLOW §4a/4b). The client one is what goes on
+              the proposal; the work order is what the crew builds from and
+              what the estimator's copy prints. They are separate because one
+              text cannot do both: a client holding lift counts and load
+              counts can demand a redo when the crew builds it a different,
+              equally good way. */}
+          <Field label="Client scope — goes on the proposal">
+            <BlurSaveTextarea
+              value={workArea.client_description ?? ''}
+              onSave={(v) => onPatch({ client_description: v.trim() || null })}
+              rows={3}
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              What the client is buying. Headline sizes only — no costs, no
+              fees, no lift or load counts. Blank falls back to the work order
+              below.
+            </p>
+          </Field>
+          <Field label="Work order — crew and your copy">
             <BlurSaveTextarea
               value={workArea.description ?? ''}
               onSave={(v) => onPatch({ description: v.trim() || null })}

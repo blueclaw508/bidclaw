@@ -75,6 +75,8 @@ export interface JamieProposedWorkArea {
   status: JamieStagedStatus
   proposed_name: string
   proposed_description: string | null
+  /** CLIENT scope from Pass 2 (JAMIE-FLOW 4a). Null on Gate 1 rows. */
+  proposed_client_description: string | null
   source_work_area_id: string | null
   inserted_work_area_id: string | null
   sort_order: number
@@ -797,10 +799,13 @@ export async function stageContractorLines(
 export async function commitLineGate(
   runId: string,
   decisions: LineDecision[],
-  /** Final scope text per STAGED work area id, as edited at Gate 2. Pass 2
-   *  rewrites the scope from the takeoff; this carries the contractor's
-   *  edits of that text onto the real work area. */
-  descriptions: Record<string, string> = {}
+  /** Final WORK ORDER scope per STAGED work area id, as edited at Gate 2
+   *  (JAMIE-FLOW 4b). Pass 2 rewrites it from the takeoff; this carries
+   *  the contractor's edits of that text onto the real work area. */
+  descriptions: Record<string, string> = {},
+  /** Final CLIENT scope per STAGED work area id (JAMIE-FLOW 4a) — the only
+   *  scope text that reaches the client. Empty leaves Jamie's version. */
+  clientScopes: Record<string, string> = {}
 ): Promise<{ written: number; catalogAdded: number }> {
   const byId = new Map(decisions.map((d) => [d.id, d]))
   const approvedIds = decisions.filter((d) => d.approved).map((d) => d.id)
@@ -958,15 +963,27 @@ export async function commitLineGate(
   // actually exists. Scope and line items match by construction.
   const { data: approvedWas } = await supabase
     .from('jamie_proposed_work_areas')
-    .select('id, inserted_work_area_id, proposed_description')
+    .select('id, inserted_work_area_id, proposed_description, proposed_client_description')
     .eq('jamie_run_id', runId)
     .eq('status', 'approved')
   for (const wa of (approvedWas ?? []) as Array<Record<string, unknown>>) {
     const waId = wa.inserted_work_area_id as string | null
     if (!waId) continue
+    // Two scopes land here (JAMIE-FLOW §4a/4b): the work order the crew
+    // builds from, and the proposal verbiage the client reads. Gate 2 can
+    // edit either; `descriptions` carries the work order, `clientScopes`
+    // the client text.
+    const patch: Record<string, string> = {}
     const text = (descriptions[wa.id as string] ?? (wa.proposed_description as string) ?? '').trim()
-    if (!text) continue
-    await supabase.from('work_areas').update({ description: text }).eq('id', waId)
+    if (text) patch.description = text
+    const clientText = (
+      clientScopes[wa.id as string] ??
+      (wa.proposed_client_description as string) ??
+      ''
+    ).trim()
+    if (clientText) patch.client_description = clientText
+    if (Object.keys(patch).length === 0) continue
+    await supabase.from('work_areas').update(patch).eq('id', waId)
   }
 
   await setRunStatus(runId, 'committed')

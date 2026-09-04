@@ -241,7 +241,7 @@ export async function getProposal(
       `*,
        proposal_work_areas (
          *,
-         work_areas ( id, name, description ),
+         work_areas ( id, name, description, client_description ),
          proposal_lines ( * )
        )`
     )
@@ -253,7 +253,12 @@ export async function getProposal(
   if (!data) return null
 
   type RawWorkArea = ProposalWorkArea & {
-    work_areas: { id: string; name: string; description: string | null } | null
+    work_areas: {
+      id: string
+      name: string
+      description: string | null
+      client_description: string | null
+    } | null
     proposal_lines: ProposalLine[]
   }
   const raw = data as Proposal & { proposal_work_areas: RawWorkArea[] }
@@ -268,6 +273,13 @@ export async function getProposal(
         wa.name_override?.trim() || source?.name || 'Untitled work area'
       const resolved_description =
         wa.description_override ?? source?.description ?? null
+      // The CLIENT scope for the Summary print (JAMIE-FLOW 4a). Falls back
+      // to the work order text for work areas written before the split, so
+      // an older proposal prints its scope rather than a blank — those will
+      // read crew-grade until Jamie rewrites them, which is the honest
+      // state, not a silent blank.
+      const resolved_client_description =
+        wa.description_override ?? source?.client_description ?? resolved_description
       const lines = (wa.proposal_lines ?? [])
         .slice()
         .sort((a, b) => a.sort_order - b.sort_order)
@@ -279,6 +291,7 @@ export async function getProposal(
         ...waCore,
         resolved_name,
         resolved_description,
+        resolved_client_description,
         source_work_area: source,
         lines,
       } satisfies ProposalWorkAreaResolved

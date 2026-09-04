@@ -701,7 +701,10 @@ function SummaryBody({
 
       <div className="mt-6 space-y-5">
         {enabledWorkAreas.map((wa) => {
-          const descLines = (wa.resolved_description ?? '')
+          // The client proposal prints the CLIENT scope (JAMIE-FLOW 4a) —
+          // never the work order, which names fees and the lift/load counts a
+          // client could police the crew with.
+          const descLines = (wa.resolved_client_description ?? '')
             .split('\n')
             .map((l) => l.trim())
             .filter(Boolean)

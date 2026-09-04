@@ -392,6 +392,7 @@ export default function JamieWorkspace() {
     async (
       decisions: LineDecision[],
       descriptions: Record<string, string>,
+      clientScopes: Record<string, string>,
       added: Record<string, AddedLine[]>
     ) => {
       if (!run) return
@@ -403,7 +404,8 @@ export default function JamieWorkspace() {
         const { written, catalogAdded } = await commitLineGate(
           run.id,
           [...decisions, ...mine],
-          descriptions
+          descriptions,
+          clientScopes
         )
         toast.success(
           `${written} line${written === 1 ? '' : 's'} added to the estimate.` +
@@ -732,7 +734,9 @@ export default function JamieWorkspace() {
                   groups={stagedGroups}
                   markups={markups}
                   busy={gateBusy}
-                  onCommit={(d, desc, added) => void handleLineGate(d, desc, added)}
+                  onCommit={(d, desc, client, added) =>
+                    void handleLineGate(d, desc, client, added)
+                  }
                 />
               )}
 

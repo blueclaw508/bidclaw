@@ -46,6 +46,52 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
+## ⚑ ONE SCOPE TEXT CANNOT SERVE CLIENT AND CREW (2026-09-04) — BUILT
+Ian's teaching point, off the live Justin Helferich takeoff. JAMIE-FLOW §4
+said the scope was "doing two jobs at once: it is what the client is buying
+and what the crew is instructed to do." That is a liability on a real job,
+and the doc is now revised (§4a client / §4b work order).
+
+Two failures, one root cause — one description printed to all three
+formats:
+1. **Method-policing detail.** Ian: *"if too many qualifying quantities etc
+   a client could stand over a crew that does the same job with modified
+   and demand it be redone or a partial."* Her text carried "6 in in two
+   lifts, and plate compact each lift", "two continuous #4 bars", "12 in
+   CMU core ... 22 LF at 20 in height".
+2. **Cost in the client's hands.** *"Jamie mentions the cost of the
+   material in a line ... this should NEVER happen. Only the description
+   and flat price to the client facing side."* Her text said "six trailer
+   loads with disposal fees"; the takeoff also carried a "Concrete Short
+   Load Fee" line.
+
+What was ALREADY right and did not change: the three print formats already
+differ correctly on pricing — Summary is narrative + one flat work-area
+total with no line costs, Crew has no pricing, Detailed is the estimator's
+copy. The leak was that all three printed the same crew-grade description.
+
+Built:
+- Migration 0026: `work_areas.client_description`,
+  `jamie_proposed_work_areas.proposed_client_description`. NULL falls back
+  to `description` everywhere, so nothing written before this breaks.
+- Pass 2 returns `client_scope_description` alongside `scope_description`
+  (one extra field in the same structured output — no second call), with
+  the 4a rules in the prompt: headline dimensions the client is buying stay
+  (400 SF, 22 LF, 8 ft), and lift/bag/load counts, rebar schedules,
+  compaction passes, machine choices and man-hours are cut. Never a cost or
+  a fee.
+- Gate 2 shows both, client scope first in green, work order below.
+- The Work Areas tab edits both.
+- Summary print reads the client scope; Crew and Detailed keep the work
+  order; the scope-vs-lines fail-safe still reconciles against the work
+  order, since that is the text that must account for every billed line.
+
+STILL OPEN: **Detailed prints every line with cost and markup and is only
+labelled the estimator's copy — nothing stops it being sent to a client.**
+Asked Ian whether that has ever happened.
+
+NOT WALKED IN A BROWSER.
+
 ## ⚑ PASS 2 TIMED OUT AND THERE WAS NO WAY BACK (2026-09-04) — SHIPPED, LIVE
 Found live on Ian's Justin Helferich proposal: 30 work areas, 6 copies of
 the same 5, ZERO line items on any of them.

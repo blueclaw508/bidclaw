@@ -276,6 +276,7 @@ export function LineGate({
   onCommit: (
     decisions: LineDecision[],
     descriptions: Record<string, string>,
+    clientScopes: Record<string, string>,
     added: Record<string, AddedLine[]>
   ) => void
 }) {
@@ -285,6 +286,14 @@ export function LineGate({
   // the last word on the wording.
   const [scopes, setScopes] = useState<Record<string, string>>(() =>
     Object.fromEntries(groups.map((g) => [g.id, g.proposed_description ?? '']))
+  )
+  // The CLIENT scope (JAMIE-FLOW 4a) — the only scope text that reaches the
+  // client. Kept separate from the work order above because one text cannot
+  // serve both: the crew needs lift counts and load counts, and a client
+  // holding those can demand a redo when the crew builds it a different,
+  // equally good way.
+  const [clientScopes, setClientScopes] = useState<Record<string, string>>(() =>
+    Object.fromEntries(groups.map((g) => [g.id, g.proposed_client_description ?? '']))
   )
   // Local string state per editable cell — parse on commit, not per
   // keystroke, so "0." and "5.2" survive typing (session-discipline 1A/A).
@@ -390,12 +399,27 @@ export function LineGate({
                 {formatUSD(groupTotal(g))}
               </span>
             </div>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+              Client scope · goes on the proposal
+            </p>
+            <textarea
+              value={clientScopes[g.id] ?? ''}
+              onChange={(e) => setClientScopes((p) => ({ ...p, [g.id]: e.target.value }))}
+              disabled={busy}
+              rows={4}
+              aria-label={`Client scope for ${g.proposed_name}`}
+              placeholder="What the client is buying. Headline sizes only — no costs, no fees, no lift or load counts."
+              className="mb-2 w-full resize-y rounded-md border border-emerald-200 bg-emerald-50/40 px-2 py-1.5 text-[12px] leading-relaxed text-gray-700 outline-none transition-colors focus:border-emerald-500 focus:bg-white focus:ring-1 focus:ring-emerald-500"
+            />
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+              Work order · crew + your copy, never sent to the client
+            </p>
             <textarea
               value={scopes[g.id] ?? ''}
               onChange={(e) => setScopes((p) => ({ ...p, [g.id]: e.target.value }))}
               disabled={busy}
               rows={8}
-              aria-label={`Scope description for ${g.proposed_name}`}
+              aria-label={`Work order scope for ${g.proposed_name}`}
               className="mb-2 w-full resize-y rounded-md border border-gray-200 bg-gray-50/60 px-2 py-1.5 text-[12px] leading-relaxed text-gray-700 outline-none transition-colors focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500"
             />
             <div className="space-y-1">
@@ -731,6 +755,7 @@ export function LineGate({
               }
             }),
             scopes,
+            clientScopes,
             Object.fromEntries(
               Object.entries(added).map(([pwaId, rows]) => [
                 pwaId,
