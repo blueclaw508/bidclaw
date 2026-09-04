@@ -70,6 +70,12 @@ export default function ProjectDetailPage() {
   const activeTab = (searchParams.get('tab') ?? 'details') as TabId
   const setActiveTab = (id: TabId) =>
     setSearchParams({ tab: id }, { replace: true })
+  // `?add=1` is the manual half of Jamie's "enter or detect?" fork: she sends
+  // the contractor here with the add-work-area dialog already open, so
+  // choosing to lay the work areas out yourself lands on the form and not on
+  // an empty tab. Read once on mount — WorkAreasTab takes it as its initial
+  // state — then stripped below so a refresh doesn't pop the dialog again.
+  const [openAddOnMount] = useState(() => searchParams.get('add') === '1')
 
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -82,6 +88,16 @@ export default function ProjectDetailPage() {
   // pre-check allows (founder-only pre-Stripe). Denied users see nothing —
   // no disabled button, no upsell (that surface is J7's).
   const [jamieChatAllowed, setJamieChatAllowed] = useState(false)
+
+  // Drop `add=1` off the URL once it has been read. The dialog is already
+  // open from initial state, so this only stops a refresh or a shared link
+  // from re-opening it later.
+  useEffect(() => {
+    if (searchParams.get('add') !== '1') return
+    const next = new URLSearchParams(searchParams)
+    next.delete('add')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   useEffect(() => {
     if (!user) return
@@ -309,6 +325,7 @@ export default function ProjectDetailPage() {
             <Suspense fallback={<TabLoading />}>
               <WorkAreasTab
                 projectId={project.id}
+                openAddOnMount={openAddOnMount}
                 projectName={project.name}
                 onChange={refreshCounts}
                 onEstimateTotalChange={setEstimatedValue}

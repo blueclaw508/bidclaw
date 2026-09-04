@@ -37,6 +37,9 @@ export async function sendJamieChatMessage(
     imageRefs?: string[]
     requestType?: 'vision_estimate' | 'validation' | 'summary'
     action?: JamieAction
+    /** Pass 2 only: price just these staged work areas, so one chunk of the
+     *  takeoff fits inside the edge function's 150s wall clock. */
+    proposedWorkAreaIds?: string[]
     signal?: AbortSignal
   },
   cb: JamieChatCallbacks
@@ -65,6 +68,9 @@ export async function sendJamieChatMessage(
           message: { text: input.text, image_refs: input.imageRefs ?? [] },
           request_type: input.requestType ?? 'vision_estimate',
           action: input.action ?? 'chat',
+          ...(input.proposedWorkAreaIds
+            ? { proposed_work_area_ids: input.proposedWorkAreaIds }
+            : {}),
         }),
         signal: input.signal,
       }

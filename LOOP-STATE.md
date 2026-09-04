@@ -46,6 +46,83 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
+## ⚑ PASS 2 TIMED OUT AND THERE WAS NO WAY BACK (2026-09-04) — FIXED
+Found live on Ian's Justin Helferich proposal: 30 work areas, 6 copies of
+the same 5, ZERO line items on any of them.
+
+Root cause, from the invocation rows + edge logs: the Pass 2 request ran
+**152,365 ms**. Supabase kills an edge function at **150,000 ms**. The kill
+lands mid-stream, AFTER the SSE headers are out, so:
+- the edge log says `POST | 200` (headers already sent),
+- the client sees the stream stop with no `jamie_staged` and no
+  `jamie_error`,
+- the invocation row keeps `ended_at = null` and no tokens — neither the
+  success finalize NOR the catch block ran,
+- nothing stages, and the run never leaves Gate 1.
+
+Every propose_lines attempt on that run (turns 6, 9, 12, 15, 20) has that
+exact signature. Why this project: 5 big hardscape areas in one 32k-token
+high-effort call, plus up to 6 web searches with their pause_turn
+continuations (shipped the day before), plus the Sonnet scope-check
+round-trip — all serialized inside one 150s budget.
+
+THE SECOND BUG, which is what turned a timeout into 30 work areas: **a dead
+Pass 2 had no retry.** The contractor lands back in chat, and the only
+button that does anything is "Propose again" — which re-proposes and, on
+approval, inserts a SECOND copy of every work area. Six rounds of that.
+
+Fixed:
+- **Pass 2 is chunked.** `proposed_work_area_ids` on the request prices just
+  those staged work areas; the workspace walks the approved list 2 at a
+  time, each chunk with its own 150s budget. Ids are re-checked against the
+  run server-side.
+- **Gate 2 opens only when every approved work area has lines** — a partial
+  takeoff never reaches the contractor as if it were the whole job, and each
+  chunk's reply says how many work areas are still to price.
+- **The search budget follows the chunk**, not the job: `2 × work areas`,
+  capped at 6.
+- **"Build the takeoff" resume card.** Any approved work area with no staged
+  lines shows up with its name and a button, and says outright not to
+  propose again. `listWorkAreasAwaitingLines()` is the query behind it.
+- The chunk walker stops the moment a chunk doesn't land, rather than
+  burning the next one the same way.
+
+Data cleanup done on the project: 25 duplicate work areas deleted (all had
+0 lines, no measurements, not on any proposal), survivors renumbered 0-4.
+
+NOT WALKED IN A BROWSER.
+
+## "ENTER OR DETECT?" — THE FORK JAMIE NEVER ASKED (2026-09-03) — BUILT
+Flow doc §1 has said since 2026-08-24 that Jamie asks up front: "Do you
+want to enter the work areas yourself, or have me detect them?" She never
+asked. A fresh workspace said "Tell me about the job", the Propose button
+only appeared AFTER a message, and the manual path was a ghost link under
+a gold button on the Work Areas tab. The contractor had to infer the fork.
+
+What changed:
+- The workspace opens on the question itself, with both answers as equal
+  buttons. **Detect them from my plans** runs Pass 1 with nothing typed.
+  **I'll enter them myself** goes to the Work Areas tab with the add
+  dialog already open (`?add=1`, stripped after mount so a refresh does
+  not re-pop it).
+- With no readable files the detect half becomes "Add plans for me to
+  read" pointing at the Files tab — no dead button, and no Pass 1 burned
+  on an empty project.
+- The empty Work Areas tab asks the same question with two equal-weight
+  buttons instead of a gold button over a ghost link.
+- jamie-chat: Pass 1's user turn was hardcoded to "using everything I have
+  told you above", which is a lie when the fork fires before a word is
+  typed. With no conversation it now points at the file repository and
+  sends what she needs into gap_questions instead of dropping a work area.
+  The server already tolerated a zero-message Pass 1; only the wording was
+  wrong.
+
+Talking first still works — the composer never goes away.
+
+NOT WALKED IN A BROWSER. Ian's side: click Build with Jamie on a project
+with plans and hit Detect; then the same on a project with no files; then
+the manual half and confirm the add dialog opens.
+
 ## GATE 2 — ADD LINES, PER-LINE MARKUP, PRICE OVERRIDE (2026-09-02) — SHIPPED, LIVE
 SHIPPED on Ian's "merge it": PR #5 merged to master as 14fbd18; Netlify
 production deploy 6a98ba38bcf2590008af1569 published to bluebidclaw.app

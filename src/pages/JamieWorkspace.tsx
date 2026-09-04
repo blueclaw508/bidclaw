@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   CircleCheck,
   CircleX,
+  ClipboardList,
   FileText,
   Image as ImageIcon,
   Loader2,
@@ -33,6 +34,7 @@ import {
   listJamieMessages,
   listProposedLines,
   listProposedWorkAreas,
+  listWorkAreasAwaitingLines,
   stageContractorLines,
   stageContractorWorkAreas,
   supersedePendingWorkAreas,
@@ -106,6 +108,14 @@ export default function JamieWorkspace() {
   // did not change — "Propose again" leaves the run at awaiting_wa_approval
   // with a brand-new set of staged rows behind it.
   const [gateNonce, setGateNonce] = useState(0)
+  // Pass 2 is built a couple of work areas at a time (each chunk gets its own
+  // 150s edge-function budget). This is what is still unpriced — non-empty
+  // with nothing streaming means a takeoff was left half-built and there is a
+  // "Build the takeoff" button waiting.
+  const [awaitingLines, setAwaitingLines] = useState<Array<{ id: string; name: string }>>([])
+  const [takeoffProgress, setTakeoffProgress] = useState<{ done: number; total: number } | null>(
+    null
+  )
   // My Numbers markups — Gate 2 shows BILLED prices, so it needs these.
   const [markups, setMarkups] = useState<LiveMarkupSettings>({
     markup_materials_percent: 0,
@@ -190,6 +200,10 @@ export default function JamieWorkspace() {
           setStagedWas([])
           setStagedGroups([])
         }
+        // Anything approved at Gate 1 that Pass 2 never priced. A killed
+        // Pass 2 leaves rows here and no gate on screen.
+        const unpriced = await listWorkAreasAwaitingLines(runId)
+        if (!cancelled) setAwaitingLines(unpriced)
       } catch (err) {
         if (!cancelled) toast.error(err instanceof Error ? err.message : "Couldn't load the review.")
       }
@@ -205,7 +219,11 @@ export default function JamieWorkspace() {
 
   // ── Sending ─────────────────────────────────────────────────────────
   const send = useCallback(
-    async (action: JamieAction, text: string) => {
+    async (
+      action: JamieAction,
+      text: string,
+      opts?: { proposedWorkAreaIds?: string[] }
+    ) => {
       if (streaming || loading) return
       setStreaming(true)
       if (action !== 'chat') setPassChars(0)
@@ -232,7 +250,12 @@ export default function JamieWorkspace() {
         ])
         setInput('')
         await sendJamieChatMessage(
-          { runId: activeRun.id, text, action },
+          {
+            runId: activeRun.id,
+            text,
+            action,
+            proposedWorkAreaIds: opts?.proposedWorkAreaIds,
+          },
           {
             onTextDelta: (t) =>
               setMessages((prev) =>
@@ -282,6 +305,61 @@ export default function JamieWorkspace() {
     [run, streaming, loading, projectId]
   )
 
+  /**
+   * Build the takeoff a couple of work areas at a time.
+   *
+   * Pass 2 used to price every approved work area in ONE request. Five
+   * hardscape areas took 152 seconds; Supabase kills an edge function at
+   * 150. The kill lands mid-stream, after the SSE headers are out, so there
+   * was no error to show — the takeoff just never arrived, the run stayed at
+   * Gate 1, and the only button that did anything was "Propose again". One
+   * project collected six copies of the same five work areas that way, none
+   * of them priced.
+   *
+   * Each chunk is its own request with its own budget, and the run only
+   * reaches Gate 2 once every approved work area has lines. Whatever is
+   * still unpriced when this stops is offered as "Build the takeoff" rather
+   * than dropping the contractor back into the chat.
+   */
+  const CHUNK = 2
+  const buildTakeoff = useCallback(
+    async (runId: string) => {
+      let pending: Array<{ id: string; name: string }>
+      try {
+        pending = await listWorkAreasAwaitingLines(runId)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Couldn't read the work areas.")
+        return
+      }
+      if (pending.length === 0) return
+      const total = pending.length
+      for (let i = 0; i < pending.length; i += CHUNK) {
+        const chunk = pending.slice(i, i + CHUNK)
+        setTakeoffProgress({ done: i, total })
+        await send('propose_lines', '', { proposedWorkAreaIds: chunk.map((c) => c.id) })
+        // Did this chunk actually land? A killed request stages nothing, and
+        // pushing on would just burn the next one the same way.
+        let left: Array<{ id: string; name: string }>
+        try {
+          left = await listWorkAreasAwaitingLines(runId)
+        } catch {
+          break
+        }
+        setAwaitingLines(left)
+        const landed = chunk.every((c) => !left.some((l) => l.id === c.id))
+        if (!landed) {
+          toast.error(
+            `Jamie ran out of time on ${chunk.map((c) => c.name).join(' and ')}. Hit "Build the takeoff" to pick up where she stopped.`
+          )
+          break
+        }
+        if (left.length === 0) break
+      }
+      setTakeoffProgress(null)
+    },
+    [send]
+  )
+
   const handleWorkAreaGate = useCallback(
     async (decisions: WorkAreaDecision[], added: AddedWorkArea[]) => {
       if (!run) return
@@ -296,14 +374,14 @@ export default function JamieWorkspace() {
         toast.success(`${created.length} work area${created.length === 1 ? '' : 's'} added.`)
         const fresh = await getActiveJamieRun(projectId)
         if (fresh) setRun(fresh)
-        await send('propose_lines', '')
+        await buildTakeoff(run.id)
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Couldn't add the work areas.")
       } finally {
         setGateBusy(false)
       }
     },
-    [run, projectId, send]
+    [run, projectId, buildTakeoff]
   )
 
   const handleLineGate = useCallback(
@@ -506,31 +584,93 @@ export default function JamieWorkspace() {
                   <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
               ) : messages.length === 0 ? (
+                /* The fork (flow doc §1). Jamie asks up front instead of
+                   leaving the contractor to infer it from a composer: enter
+                   the work areas yourself, or have her detect them. Both are
+                   first-class — the manual path hands off to the Work Areas
+                   tab with the add dialog already open, and detection runs
+                   Pass 1 straight off the plans with nothing typed. Talking
+                   first still works; the composer never goes away. */
                 <div className="rounded-xl border border-gray-200 bg-white p-6">
                   <h2 className="text-base font-bold text-gray-900">
-                    Tell me about the job.
+                    Do you want to enter the work areas yourself, or have me
+                    detect them?
                   </h2>
                   <p className="mt-1.5 text-sm leading-relaxed text-gray-600">
                     {files.length > 0 ? (
                       <>
                         I&apos;ve got {readable.length} file
                         {readable.length === 1 ? '' : 's'} open for this project
-                        already — plans, specs, whatever you uploaded. Tell me what
-                        the client wants and anything the drawings don&apos;t say,
-                        and I&apos;ll break it into work areas and price it.
+                        already — plans, specs, whatever you uploaded. I can read
+                        them and propose the breakdown, or you can lay the work
+                        areas out yourself and I&apos;ll price what you give me.
                       </>
                     ) : (
                       <>
-                        Nothing is uploaded to this project yet. Drop the plans and
-                        the bid form on the Files tab and I&apos;ll read them — or
-                        just describe the job here and we&apos;ll start from that.
+                        Nothing is uploaded to this project yet. Add the plans and
+                        the bid form on the Files tab and I&apos;ll read them, lay
+                        the work areas out yourself, or just describe the job below
+                        and we&apos;ll start from that.
                       </>
                     )}
                   </p>
+
+                  <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
+                    {readable.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => void send('propose_work_areas', '')}
+                        disabled={streaming || gateBusy}
+                        className="flex flex-col items-start gap-1 rounded-lg border border-brand-gold/40 bg-brand-gold/10 px-4 py-3 text-left transition-colors hover:bg-brand-gold/20 disabled:opacity-40"
+                      >
+                        <span className="flex items-center gap-1.5 text-sm font-semibold text-brand-gold-dark">
+                          <Sparkles className="h-4 w-4" />
+                          Detect them from my plans
+                        </span>
+                        <span className="text-[12px] leading-snug text-gray-500">
+                          I read the {readable.length} file
+                          {readable.length === 1 ? '' : 's'} on this project and
+                          propose the breakdown for you to approve.
+                        </span>
+                      </button>
+                    ) : (
+                      <Link
+                        to={`/app/projects/${projectId}?tab=files`}
+                        className="flex flex-col items-start gap-1 rounded-lg border border-brand-gold/40 bg-brand-gold/10 px-4 py-3 text-left transition-colors hover:bg-brand-gold/20"
+                      >
+                        <span className="flex items-center gap-1.5 text-sm font-semibold text-brand-gold-dark">
+                          <Sparkles className="h-4 w-4" />
+                          Add plans for me to read
+                        </span>
+                        <span className="text-[12px] leading-snug text-gray-500">
+                          Detecting the work areas needs something to read. Drop
+                          the plans on the Files tab and come back.
+                        </span>
+                      </Link>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(`/app/projects/${projectId}?tab=work_areas&add=1`)
+                      }
+                      className="flex flex-col items-start gap-1 rounded-lg border border-gray-300 bg-white px-4 py-3 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-800">
+                        <ClipboardList className="h-4 w-4" />
+                        I&apos;ll enter them myself
+                      </span>
+                      <span className="text-[12px] leading-snug text-gray-500">
+                        You name the work areas and pull in your kits. Come back
+                        here any time and I&apos;ll price them.
+                      </span>
+                    </button>
+                  </div>
+
                   <p className="mt-3 text-[12px] text-gray-400">
-                    How it goes: we talk → I propose the work areas → you approve
-                    them → I build the priced takeoff → you approve that → it lands
-                    on the estimate.
+                    Or just tell me about the job below. However it starts: I
+                    propose the work areas → you approve them → I build the priced
+                    takeoff → you approve that → it lands on the estimate.
                   </p>
                 </div>
               ) : (
@@ -554,7 +694,7 @@ export default function JamieWorkspace() {
                             {passChars !== null
                               ? passStage === 'searching' && passChars === 0
                                 ? 'Jamie is checking the assembly and current pricing on the web…'
-                                : `Jamie is working through the job${passChars > 0 ? ` — ${passChars.toLocaleString()} characters in` : '…'}`
+                                : `Jamie is working through the job${takeoffProgress ? ` — work area ${Math.min(takeoffProgress.done + 1, takeoffProgress.total)} of ${takeoffProgress.total}` : ''}${passChars > 0 ? ` — ${passChars.toLocaleString()} characters in` : '…'}`
                               : 'Jamie is reading…'}
                           </span>
                         )}
@@ -590,6 +730,31 @@ export default function JamieWorkspace() {
                   busy={gateBusy}
                   onCommit={(d, desc, added) => void handleLineGate(d, desc, added)}
                 />
+              )}
+
+              {/* A takeoff Pass 2 never finished. Without this the contractor
+                  is dropped back into chat with no way to resume, and
+                  "Propose again" — which re-creates every work area — is the
+                  only button that does anything. */}
+              {awaitingLines.length > 0 && !streaming && !gateBusy && stagedGroups.length === 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-semibold text-amber-900">
+                    {awaitingLines.length} work area
+                    {awaitingLines.length === 1 ? '' : 's'} still {awaitingLines.length === 1 ? 'has' : 'have'} no takeoff.
+                  </p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-amber-800">
+                    {awaitingLines.map((w) => w.name).join(', ')}. Your work areas
+                    are already on the estimate — this only prices them. Don&apos;t
+                    propose again; that would build a second copy of every one.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => run && void buildTakeoff(run.id)}
+                    className="mt-3 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
+                  >
+                    Build the takeoff
+                  </button>
+                </div>
               )}
 
               {run?.status === 'committed' && (

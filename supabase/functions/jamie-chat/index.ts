@@ -82,12 +82,12 @@ const MAX_TOKENS: Record<JamieAction, number> = {
 // price for an item that is not in the catalog — the safety net against
 // the missing mortar / lath / fasteners that a generalist skips. Server-
 // side tool: Anthropic runs the search, the results land in her context.
-// Capped per takeoff; $10 per 1,000 searches on top of tokens.
+// $10 per 1,000 searches on top of tokens. This is the CEILING for one Pass
+// 2 request; the live budget scales with how many work areas that request is
+// pricing (see searchBudget) — six searches spent on a single work area is
+// most of the wall-clock budget gone before a line is written.
 const WEB_SEARCH_MAX_USES = 6
 const WEB_SEARCH_USD_EACH = 0.01
-const PASS2_TOOLS = [
-  { type: 'web_search_20260209', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES },
-]
 
 // ── Pricing in context (Jamie P2) ──────────────────────────────────────
 // At Gate 2 Jamie says "tell me what you pay and I'll save them" — and
@@ -827,6 +827,8 @@ Deno.serve(async (req: Request) => {
     message?: { text?: string; image_refs?: string[] }
     request_type?: string
     action?: string
+    /** Pass 2 only: price just these staged work areas (see CHUNKING). */
+    proposed_work_area_ids?: string[]
   }
   try {
     body = await req.json()
@@ -837,6 +839,18 @@ Deno.serve(async (req: Request) => {
   const text = (body.message?.text ?? '').trim()
   const imageRefs = body.message?.image_refs ?? []
   const action = (body.action ?? 'chat') as JamieAction
+  // CHUNKING (2026-09-04). Pass 2 used to price EVERY approved work area in
+  // one request. Five hardscape areas on one job took 152s and Supabase
+  // kills an edge function at 150s — mid-stream, after the SSE headers are
+  // already out, so the client saw a silent truncation and the invocation
+  // row never got an ended_at. Nothing staged, the run stayed at Gate 1,
+  // and the only button that did anything was "Propose again" — which is
+  // how one project ended up with six copies of the same five work areas
+  // and no line items. The client now walks the approved work areas a
+  // couple at a time and each chunk gets its own 150s budget.
+  const chunkIds = Array.isArray(body.proposed_work_area_ids)
+    ? body.proposed_work_area_ids.filter((v) => typeof v === 'string')
+    : null
   if (!runId) return json({ error: 'jamie_run_id is required.' }, 400)
   if (action !== 'chat' && action !== 'propose_work_areas' && action !== 'propose_lines') {
     return json({ error: 'Unknown action.' }, 400)
@@ -946,13 +960,16 @@ Deno.serve(async (req: Request) => {
   // its lines would have nowhere to land.
   let stagedWorkAreas: Array<{ id: string; name: string; description: string }> = []
   if (action === 'propose_lines') {
-    const { data: staged } = await service
+    let stagedQuery = service
       .from('jamie_proposed_work_areas')
       .select('id, proposed_name, proposed_description')
       .eq('jamie_run_id', run.id)
       .eq('status', 'approved')
       .not('inserted_work_area_id', 'is', null)
-      .order('sort_order')
+    // A chunk is always re-checked against the run: an id from another run,
+    // a rejected row, or one whose work area was deleted is simply not here.
+    if (chunkIds && chunkIds.length > 0) stagedQuery = stagedQuery.in('id', chunkIds)
+    const { data: staged } = await stagedQuery.order('sort_order')
     stagedWorkAreas = (staged ?? []).map((s: Record<string, unknown>) => ({
       id: s.id as string,
       name: s.proposed_name as string,
@@ -1218,9 +1235,16 @@ Deno.serve(async (req: Request) => {
   // Tools by situation. Pass 2 gets web search (Layer 1); a chat turn at
   // Gate 2 gets the pricing tool. Tools render FIRST in the cached prefix,
   // so they are constant per action, never per turn.
+  // Search budget follows the CHUNK, not the job: 6 searches was sized for a
+  // whole takeoff, and spending all six on one work area is most of the
+  // wall-clock budget gone before a line is written.
+  const searchBudget = Math.min(
+    WEB_SEARCH_MAX_USES,
+    Math.max(2, stagedWorkAreas.length * 2)
+  )
   const toolsParam: Record<string, unknown> =
     action === 'propose_lines'
-      ? { tools: PASS2_TOOLS }
+      ? { tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: searchBudget }] }
       : action === 'chat' && run.status === 'awaiting_line_approval'
         ? { tools: [SET_LINE_PRICES_TOOL] }
         : {}
@@ -1599,10 +1623,32 @@ Deno.serve(async (req: Request) => {
 
           const { error: lineErr } = await service.from('jamie_proposed_lines').insert(rows)
           if (lineErr) throw new Error(`couldn't stage the line items (${lineErr.message})`)
-          await service
-            .from('jamie_loop_runs')
-            .update({ status: 'awaiting_line_approval' })
-            .eq('id', run.id)
+          // Gate 2 opens only when EVERY approved work area on the run has
+          // lines. Flipping the run on the first chunk would put a half
+          // takeoff in front of the contractor to approve.
+          const { data: allApproved } = await service
+            .from('jamie_proposed_work_areas')
+            .select('id')
+            .eq('jamie_run_id', run.id)
+            .eq('status', 'approved')
+            .not('inserted_work_area_id', 'is', null)
+          const approvedIds = ((allApproved ?? []) as Array<{ id: string }>).map((r) => r.id)
+          const { data: pricedRows } = await service
+            .from('jamie_proposed_lines')
+            .select('jamie_proposed_work_area_id')
+            .in('jamie_proposed_work_area_id', approvedIds)
+          const priced = new Set(
+            ((pricedRows ?? []) as Array<{ jamie_proposed_work_area_id: string }>).map(
+              (r) => r.jamie_proposed_work_area_id
+            )
+          )
+          const remaining = approvedIds.filter((id) => !priced.has(id))
+          if (remaining.length === 0) {
+            await service
+              .from('jamie_loop_runs')
+              .update({ status: 'awaiting_line_approval' })
+              .eq('id', run.id)
+          }
           const unpriced = rows.filter((r) => r.needs_pricing).length
           const reconLine =
             reconciled > 0
@@ -1614,6 +1660,11 @@ Deno.serve(async (req: Request) => {
               parsed.work_areas?.length ?? 0
             } work area${(parsed.work_areas?.length ?? 0) === 1 ? '' : 's'}.`,
             reconLine,
+            // Chunked Pass 2: say what is still coming, or the contractor
+            // reads a partial takeoff as the whole job.
+            remaining.length
+              ? `Still to price: ${remaining.length} more work area${remaining.length === 1 ? '' : 's'}.`
+              : '',
             unpriced
               ? `${unpriced} of them aren't in your catalog yet — tell me what you pay and I'll save them.`
               : '',
@@ -1621,7 +1672,12 @@ Deno.serve(async (req: Request) => {
           ]
             .filter(Boolean)
             .join('\n')
-          send({ type: 'jamie_staged', gate: 'lines', count: rows.length })
+          send({
+            type: 'jamie_staged',
+            gate: 'lines',
+            count: rows.length,
+            remaining: remaining.length,
+          })
         }
 
         await service.from('jamie_messages').insert({
