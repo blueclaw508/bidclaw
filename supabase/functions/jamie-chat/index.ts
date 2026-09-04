@@ -404,6 +404,30 @@ interface BrainContext {
     notes: string
     lines: Array<{ type: string; name: string; factor: number; factorUnit: string }>
   }>
+  /** THIS company's learned price book — the unit cost they have actually
+   *  used per item, most-used first (0031). Nothing is seeded and nothing
+   *  crosses accounts: a new company's list is empty and stays empty until
+   *  they price their own work. `corrections` counts how many times they
+   *  changed Jamie's number for that item, which the prompt weights higher
+   *  than a price they simply typed. */
+  priceBook: Array<{
+    category: string
+    label: string
+    unit: string
+    unitCost: number
+    timesUsed: number
+    corrections: number
+  }>
+  /** Where this company repeatedly corrects Jamie's QUANTITIES, as a ratio
+   *  of final/proposed. >1 = she under-calls, <1 = she pads. Only items
+   *  corrected more than once appear — one edit is a job-specific call, not
+   *  a pattern. */
+  quantityBias: Array<{
+    category: string
+    label: string
+    samples: number
+    ratio: number
+  }>
 }
 
 function buildSystemPrompt(
@@ -428,6 +452,47 @@ function buildSystemPrompt(
   // one company's production factors are never shown to another. With no
   // kits yet, Jamie estimates from general trade knowledge and the
   // company's own numbers, and the kits they build later take over.
+  // What this company has actually paid, learned from their own work. Items
+  // they CORRECTED Jamie on are marked, because a number they overrode is a
+  // stronger statement than one they typed once and never revisited.
+  const priceBookBlock = ctx.priceBook.length
+    ? `THIS COMPANY'S OWN PRICES — what they have actually used on their jobs.
+These are THEIR numbers, learned from THEIR work. Use them over anything you
+know generally and over anything on the web. A "corrected you Nx" mark means
+they overrode your figure that many times: treat those as settled.
+${ctx.priceBook
+  .map(
+    (p) =>
+      `  - ${p.label} (${p.unit}, ${p.category}): $${p.unitCost}` +
+      (p.corrections > 0
+        ? `  ← corrected you ${p.corrections}x`
+        : p.timesUsed > 1
+          ? `  (used ${p.timesUsed}x)`
+          : '')
+  )
+  .join('\n')}`
+    : `THIS COMPANY'S OWN PRICES: none yet — they have not priced any work in BidClaw.
+Price from current supplier pricing for this trade and region and flag needs_pricing.
+What they enter and correct becomes their price book for next time.`
+
+  // Quantity corrections do not port directly the way a price does — 8 mixer
+  // hours on a 600 SF patio says nothing about 2,000 SF. The RATIO carries.
+  const biasBlock = ctx.quantityBias.length
+    ? `WHERE YOUR QUANTITIES RUN WRONG FOR THIS COMPANY.
+Each line is how their final quantity compared to what you proposed, averaged
+over repeated corrections. Above 1.0 means you UNDER-called it; below 1.0
+means you PADDED it. These are this company's crews and methods, not a
+general truth — adjust toward them, and say in your reasoning when you have.
+${ctx.quantityBias
+  .map(
+    (b) =>
+      `  - ${b.label} (${b.category}): they land at ${b.ratio}x your figure` +
+      ` — ${b.ratio > 1 ? 'you under-call this' : 'you pad this'}` +
+      ` (${b.samples} corrections)`
+  )
+  .join('\n')}`
+    : ''
+
   const kitsBlock = ctx.kits.length
     ? `THIS COMPANY'S OWN KITS (their production factors — these OVERRIDE any general rule of thumb you have):` +
       NEWLINE +
@@ -488,8 +553,21 @@ means zero. There is no such thing as a line you cannot price.
 - MATERIALS and SUBCONTRACTORS: qty = the measured quantity from your takeoff, unit_cost = the BASE cost — what the contractor PAYS, before margin. Use the catalog cost when the item is in the catalog below. When it is not, use your own knowledge of current supplier pricing for this trade and region, and flag needs_pricing. BidClaw automatically applies the contractor's markups on top (materials ${ctx.materialsMarkup}%, subs ${ctx.subsMarkup}%) — so do NOT pre-mark-up, and do NOT put a retail/billed price in unit_cost. Name anything you priced yourself in new_catalog_items so it gets saved for next time.
 - GENERAL CONDITIONS: every work area ends with one "General Conditions & Rounding" line (category "other", qty 1, unit "EA") covering incidentals — a real dollar amount sized to the job, not zero.
 
+WHERE YOUR NUMBERS COME FROM — in this order, highest authority first.
+BidClaw ships blank and learns each company, so this order is the whole point:
+  1. THIS COMPANY'S CORRECTIONS — anything they have overridden you on. Settled.
+  2. THEIR KITS — assemblies they built themselves.
+  3. THEIR OWN PRICES + KYN RATES — what they have actually paid and set.
+  4. Standard trade practice for their trade and region.
+  5. The web — a last resort and a safety net, never an override.
+Never carry another company's factors or prices into this estimate. If they
+have nothing yet, estimate from trade practice, flag needs_pricing, and let
+their corrections teach you — that is how their profile gets built.
+
 ${kitsBlock}
 
+${priceBookBlock}
+${biasBlock ? `\n${biasBlock}\n` : ''}
 THE CONTRACTOR'S KYN NUMBERS:
 Labor rates ($/hr):
 ${lt}
@@ -945,6 +1023,8 @@ Deno.serve(async (req: Request) => {
     { data: existingWas },
     { data: history },
     { data: kitRows },
+    { data: priceBookRows },
+    { data: qtyBiasRows },
   ] = await Promise.all([
     service
       .from('company_settings')
@@ -986,6 +1066,12 @@ Deno.serve(async (req: Request) => {
       .from('kits')
       .select('name, category, input_unit, jamie_notes, status, kit_lines(type, display_name, factor, factor_unit, position)')
       .eq('user_id', user.id),
+    // 0031 — what this company has actually priced, and where they keep
+    // correcting Jamie's quantities. Both are scoped to this user inside the
+    // function; a blank company gets empty arrays and Jamie falls through to
+    // trade knowledge + the web exactly as before.
+    service.rpc('jamie_price_book', { p_user_id: user.id, p_limit: 60 }),
+    service.rpc('jamie_quantity_bias', { p_user_id: user.id, p_limit: 20 }),
   ])
 
   // Pass 2 works from the work areas approved at Gate 1 that STILL EXIST.
@@ -1122,6 +1208,23 @@ Deno.serve(async (req: Request) => {
           })),
       }))
       .filter((k) => k.lines.length > 0),
+    priceBook: ((priceBookRows ?? []) as Array<Record<string, unknown>>).map((r) => ({
+      category: (r.category as string) ?? '',
+      label: (r.label as string) ?? '',
+      unit: (r.unit as string) ?? '',
+      unitCost: Number(r.unit_cost ?? 0),
+      timesUsed: Number(r.times_used ?? 0),
+      corrections: Number(r.corrections ?? 0),
+    })),
+    quantityBias: ((qtyBiasRows ?? []) as Array<Record<string, unknown>>)
+      .map((r) => ({
+        category: (r.category as string) ?? '',
+        label: (r.label as string) ?? '',
+        samples: Number(r.samples ?? 0),
+        ratio: Number(r.avg_ratio ?? 1),
+      }))
+      // A ratio within 15% of 1.0 is noise, not a tendency worth prompting on.
+      .filter((r) => Number.isFinite(r.ratio) && Math.abs(1 - r.ratio) > 0.15),
   }
 
   // Name → catalog id, for stamping catalog_item_id on staged lines. Lower-
