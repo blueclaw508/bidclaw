@@ -58,8 +58,18 @@ import {
 import { TotalsBreakdown } from '@/components/proposals/TotalsBreakdown'
 import { getLinkedLeadForLostPrompt, updateLead } from '@/lib/leads'
 import { categoryBearsMarkup, lineTotal } from '@/lib/money'
+import { loadCompanySettings } from '@/lib/companySettings'
+import PaymentMilestonesEditor from '@/components/proposals/PaymentMilestonesEditor'
+import {
+  parsePaymentMilestones,
+  resolvePaymentMilestones,
+  resolveTerms,
+  sameMilestones,
+} from '@/lib/proposalDefaults'
 import type {
+  CompanySettings,
   Lead,
+  PaymentMilestone,
   Project,
   ProposalLine,
   ProposalWithWorkAreas,
@@ -103,9 +113,19 @@ export default function ProposalEditor() {
 
   // Notes draft state (Save+Reset bar pattern)
   const [notesDraft, setNotesDraft] = useState<string>('')
-  // Per-proposal Terms & Conditions. Blank inherits the company default
-  // from My Numbers, which is what every proposal did before this existed.
+  // Per-proposal Terms & Conditions. The box is PREFILLED with the My
+  // Numbers default rather than left blank — Ian, 2026-09-04: "should
+  // originate and autopopulate from My Numbers so it doesn't have to be
+  // remembered every time." Leaving it identical to the default still
+  // stores NULL, so the proposal keeps inheriting later edits; changing a
+  // word snapshots it for this job only.
   const [termsDraft, setTermsDraft] = useState<string>('')
+  // Company settings — the source of both inherited defaults above and the
+  // inherited payment schedule below.
+  const [settings, setSettings] = useState<CompanySettings | null>(null)
+  // Payment milestones for this proposal (QC's Terms card). Same inherit
+  // rule as the terms text: equal to the company default → store NULL.
+  const [milestones, setMilestones] = useState<PaymentMilestone[]>([])
 
   // Delete-proposal modal state — null when closed, true when the
   // contractor has clicked the toolbar Delete button + we're waiting
@@ -154,14 +174,22 @@ export default function ProposalEditor() {
     if (!proposalId) return
     setLoading(true)
     try {
-      const p = await getProposal(proposalId)
+      // Settings load alongside the proposal, not after it: both inherited
+      // fields below are primed from them, and priming in a later effect
+      // would flash a blank terms box then fill it.
+      const [p, cs] = await Promise.all([
+        getProposal(proposalId),
+        loadCompanySettings(),
+      ])
       if (!p) {
         setNotFound(true)
         return
       }
       setProposal(p)
+      setSettings(cs)
       setNotesDraft(p.notes ?? '')
-      setTermsDraft(p.terms_and_conditions ?? '')
+      setTermsDraft(p.terms_and_conditions ?? resolveTerms(null, cs))
+      setMilestones(resolvePaymentMilestones(p, cs))
       primeLineState(p, setLocalLines, setOriginalLines)
       setDeletedLineIds(new Set())
 
@@ -220,10 +248,26 @@ export default function ProposalEditor() {
     if (!proposal) return false
     return notesDraft !== (proposal.notes ?? '')
   }, [notesDraft, proposal])
+  /** What this proposal would print if it stored nothing of its own. */
+  const inheritedTerms = useMemo(() => resolveTerms(null, settings), [settings])
+  const inheritedMilestones = useMemo(
+    () => resolvePaymentMilestones(null, settings),
+    [settings]
+  )
+  // Dirty against the INHERITED value, not against empty — the box loads
+  // prefilled with the company default, and that state is not an edit.
   const termsDirty = useMemo(() => {
     if (!proposal) return false
-    return termsDraft !== (proposal.terms_and_conditions ?? '')
-  }, [termsDraft, proposal])
+    return termsDraft !== (proposal.terms_and_conditions ?? inheritedTerms)
+  }, [termsDraft, proposal, inheritedTerms])
+  const milestonesDirty = useMemo(() => {
+    if (!proposal) return false
+    const own = parsePaymentMilestones(proposal.payment_milestones)
+    return !sameMilestones(
+      milestones,
+      own.length > 0 ? own : inheritedMilestones
+    )
+  }, [milestones, proposal, inheritedMilestones])
 
   // A line is dirty when any of (name / quantity / cost / sort_order)
   // differs from the server snapshot, or when it's in deletedLineIds.
@@ -261,7 +305,8 @@ export default function ProposalEditor() {
   }, [localLines, deletedLineIds])
 
   const linesDirtyCount = dirtyLineIds.size + deletedLineIds.size
-  const anyDirty = notesDirty || termsDirty || linesDirtyCount > 0
+  const anyDirty =
+    notesDirty || termsDirty || milestonesDirty || linesDirtyCount > 0
   const canSave = anyDirty && linesWithErrors.size === 0 && !saving
 
   // Items-need-pricing count: lines whose customer-facing TOTAL is $0.
@@ -332,8 +377,8 @@ export default function ProposalEditor() {
       await assertProposalVersion(proposal.id, proposal.lock_version)
 
       const ops: Promise<unknown>[] = []
-      // Notes + per-proposal terms (one write when either changed)
-      if (notesDirty || termsDirty) {
+      // Notes + per-proposal terms + payment schedule (one write)
+      if (notesDirty || termsDirty || milestonesDirty) {
         ops.push(
           updateProposal(proposal.id, {
             ...(notesDirty
@@ -343,7 +388,30 @@ export default function ProposalEditor() {
               ? {
                   // Blank means "inherit the company default", not "print
                   // no terms" — NULL is what the resolver falls back on.
-                  terms_and_conditions: termsDraft.trim() ? termsDraft : null,
+                  // Text identical to the default is also stored as NULL:
+                  // the box is prefilled, so saving an untouched proposal
+                  // must not freeze a private copy that stops tracking My
+                  // Numbers.
+                  terms_and_conditions:
+                    !termsDraft.trim() || termsDraft === inheritedTerms
+                      ? null
+                      : termsDraft,
+                }
+              : {}),
+            ...(milestonesDirty
+              ? {
+                  // Same inherit rule. Descriptions are trimmed on the way
+                  // in so a stray space never counts as a divergence from
+                  // the default.
+                  payment_milestones: sameMilestones(
+                    milestones,
+                    inheritedMilestones
+                  )
+                    ? null
+                    : milestones.map((m) => ({
+                        description: m.description.trim(),
+                        percent: Number(m.percent) || 0,
+                      })),
                 }
               : {}),
           })
@@ -389,10 +457,12 @@ export default function ProposalEditor() {
         setProposal(p)
         primeLineState(p, setLocalLines, setOriginalLines)
         setNotesDraft(p.notes ?? '')
-        // Re-prime from server truth, not from the draft we just sent:
-        // a whitespace-only entry is stored as NULL, and without this
-        // the field would read dirty forever after saving it.
-        setTermsDraft(p.terms_and_conditions ?? '')
+        // Re-prime from server truth, not from the draft we just sent.
+        // Both fields normalise on write (text equal to the default, and a
+        // schedule equal to the default, both store NULL), so without this
+        // they would read dirty forever after saving.
+        setTermsDraft(p.terms_and_conditions ?? inheritedTerms)
+        setMilestones(resolvePaymentMilestones(p, settings))
       }
       setTotals(t)
       setDeletedLineIds(new Set())
@@ -408,6 +478,11 @@ export default function ProposalEditor() {
     notesDirty,
     termsDirty,
     termsDraft,
+    inheritedTerms,
+    milestonesDirty,
+    milestones,
+    inheritedMilestones,
+    settings,
     notesDraft,
     dirtyLineIds,
     localLines,
@@ -417,10 +492,11 @@ export default function ProposalEditor() {
   const handleResetAll = useCallback(() => {
     if (!proposal) return
     setNotesDraft(proposal.notes ?? '')
-    setTermsDraft(proposal.terms_and_conditions ?? '')
+    setTermsDraft(proposal.terms_and_conditions ?? inheritedTerms)
+    setMilestones(resolvePaymentMilestones(proposal, settings))
     setLocalLines({ ...originalLines })
     setDeletedLineIds(new Set())
-  }, [proposal, originalLines])
+  }, [proposal, originalLines, inheritedTerms, settings])
 
   /* ---------- status transition ---------- */
 
@@ -812,25 +888,60 @@ export default function ProposalEditor() {
               className={`${inputClasses} disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500`}
             />
           </label>
-          <label className="block sm:col-span-2">
-            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Terms &amp; Conditions — this proposal
-            </span>
+          <div className="block sm:col-span-2">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Terms &amp; Conditions — this proposal
+              </span>
+              {/* The box arrives prefilled from My Numbers, so there has to
+                  be a way back to it after an edit — otherwise the only
+                  route is retyping the whole document. */}
+              {!readOnly && termsDraft !== inheritedTerms && inheritedTerms ? (
+                <button
+                  type="button"
+                  onClick={() => setTermsDraft(inheritedTerms)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Reset to My Numbers default
+                </button>
+              ) : null}
+            </div>
             <textarea
               value={termsDraft}
               onChange={(e) => setTermsDraft(e.target.value)}
               disabled={readOnly}
-              rows={5}
-              placeholder="Leave blank to use your default terms from My Numbers. Anything here replaces them for this proposal only."
+              rows={8}
+              placeholder="Your default terms from My Numbers load here automatically. Edit them to change this proposal only."
               className={`${inputClasses} disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500`}
             />
             <span className="mt-1 block text-[11px] text-gray-400">
-              {termsDraft.trim()
-                ? 'This proposal prints these terms instead of your default.'
-                : 'Blank — this proposal prints your default terms from My Numbers.'}
+              {!termsDraft.trim()
+                ? 'Empty — and you have no default in My Numbers, so this proposal prints no terms.'
+                : termsDraft === inheritedTerms
+                  ? 'Loaded from My Numbers. Still linked — change your default there and this proposal follows.'
+                  : 'Edited for this proposal only. Your My Numbers default is unchanged.'}
             </span>
-          </label>
+          </div>
         </div>
+      </section>
+
+      {/* Payment schedule — QC's Terms card. Sits between the Details card
+          and the work areas because it is a term of the deal, not a line
+          item, and it prices off the grand total the work areas produce. */}
+      <section>
+        <PaymentMilestonesEditor
+          value={milestones}
+          onChange={setMilestones}
+          total={totals?.grandTotal ?? 0}
+          disabled={readOnly}
+          subtitle={
+            milestonesDirty ||
+            parsePaymentMilestones(proposal.payment_milestones).length > 0
+              ? 'This proposal\u2019s payment schedule'
+              : 'Loaded from My Numbers \u2014 edit to change this proposal only'
+          }
+        />
       </section>
 
       {/* Slate Work Areas card — rich per-work-area cards with dnd-kit reorder */}

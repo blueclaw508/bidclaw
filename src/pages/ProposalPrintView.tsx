@@ -6,6 +6,8 @@ import { loadCompanySettings } from '@/lib/companySettings'
 import { resolveAddress } from '@/lib/address'
 import { getProposal, updateProposal } from '@/lib/proposals'
 import {
+  milestoneAmounts,
+  resolvePaymentMilestones,
   resolvePaymentTerms,
   resolveTerms,
   showsGrandTotal,
@@ -626,14 +628,30 @@ function CustomerProjectBlock({
 function ClientClosing({
   settings,
   proposal,
+  grandTotal,
+  showTotal,
   accent,
 }: {
   settings: CompanySettings
   /** Carries this proposal's own terms, when it has any. */
   proposal: Proposal | null
+  /**
+   * Total the payment schedule divides. The percentages are what's stored;
+   * the dollars are derived here so a schedule can never quote a number the
+   * job no longer costs.
+   */
+  grandTotal: number
+  /**
+   * Whether this print is showing the project total. When it is withheld,
+   * the schedule prints percentages only — a client deliberately not given
+   * a total must not be handed one back as the sum of a payment column.
+   */
+  showTotal: boolean
   accent: string
 }) {
   const terms = resolveTerms(proposal, settings)
+  const milestones = resolvePaymentMilestones(proposal, settings)
+  const amounts = milestoneAmounts(milestones, grandTotal)
   return (
     <>
       {settings.pdf_show_terms_and_conditions && terms ? (
@@ -661,6 +679,41 @@ function ClientClosing({
           <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">
             {resolvePaymentTerms(settings)}
           </p>
+
+          {/* The schedule as a table the client can check against the
+              price. Amounts print only when the proposal shows its total —
+              a client who was deliberately not given a grand total must not
+              be handed one back as the sum of the payment column. */}
+          {milestones.length > 0 ? (
+            <table className="mt-3 w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-300 text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                  <th className="py-1.5 text-left">Payment</th>
+                  <th className="w-20 py-1.5 text-right">%</th>
+                  {showTotal ? (
+                    <th className="w-28 py-1.5 text-right">Amount</th>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody>
+                {milestones.map((m, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="py-1.5 pr-3 text-gray-700">
+                      {m.description.trim() || `Payment ${i + 1}`}
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums text-gray-700">
+                      {m.percent}%
+                    </td>
+                    {showTotal ? (
+                      <td className="py-1.5 text-right font-semibold tabular-nums text-gray-900">
+                        {formatUSD(amounts[i] ?? 0)}
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
         </section>
       ) : null}
 
@@ -707,7 +760,17 @@ function DetailedBody({
         <GrandTotalsCard workAreas={enabledWorkAreas} accent={accent} />
       </div>
 
-      <ClientClosing settings={settings} proposal={proposal} accent={accent} />
+      <ClientClosing
+        settings={settings}
+        proposal={proposal}
+        grandTotal={sumMoney(
+          enabledWorkAreas.map((wa) => sumMoney(wa.lines.map((l) => lineTotal(l))))
+        )}
+        // The Detailed print is the estimator's copy — it already shows
+        // every line and its cost, so there is no total to withhold.
+        showTotal
+        accent={accent}
+      />
     </>
   )
 }
@@ -845,7 +908,13 @@ function SummaryBody({
         </table>
       </div>
 
-      <ClientClosing settings={settings} proposal={proposal} accent={accent} />
+      <ClientClosing
+        settings={settings}
+        proposal={proposal}
+        grandTotal={grand}
+        showTotal={showTotal}
+        accent={accent}
+      />
     </>
   )
 }

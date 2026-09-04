@@ -13,7 +13,12 @@ import type {
   CompanyLaborType,
   CompanySettings,
 } from '@/lib/types'
-import { DEFAULT_PAYMENT_TERMS } from '@/lib/proposalDefaults'
+import {
+  DEFAULT_PAYMENT_TERMS,
+  MAX_PAYMENT_MILESTONES,
+  parsePaymentMilestones,
+} from '@/lib/proposalDefaults'
+import PaymentMilestonesEditor from '@/components/proposals/PaymentMilestonesEditor'
 
 /**
  * QC-aligned Enter My Numbers cards. Mirrors the QC component structure
@@ -600,6 +605,34 @@ function TermsCard({
         <p className="mt-2 flex items-center gap-1 text-xs text-gray-400">
           <CreditCard className="h-3 w-3" />
           Leave blank to use: &ldquo;{DEFAULT_PAYMENT_TERMS}&rdquo;
+        </p>
+
+        {/* The payment SCHEDULE (QC's Terms card). The paragraph above says
+            how the client pays in prose; this says it as a table the client
+            can check against the price. Both print — the table is what a
+            contractor actually collects against. */}
+        <div className="mt-6">
+          <PaymentMilestonesEditor
+            value={parsePaymentMilestones(value.default_payment_milestones)}
+            onChange={(next) =>
+              onChange({
+                default_payment_milestones: next.length > 0 ? next : null,
+                // Same trap as the two fields above: a schedule entered into
+                // a section whose visibility toggle is off looks broken.
+                ...(next.length > 0 ? { pdf_show_payment_terms: true } : {}),
+              })
+            }
+            // No job to price against here — the amount column appears on
+            // the proposal, where there is a real total.
+            total={null}
+            subtitle={`Default schedule inherited by every new proposal (up to ${MAX_PAYMENT_MILESTONES})`}
+          />
+        </div>
+        <p className="mt-2 flex items-center gap-1 text-xs text-gray-400">
+          <CreditCard className="h-3 w-3" />
+          Every proposal starts with this schedule. To bill one job
+          differently, open that proposal and edit its Terms card — your
+          default here is untouched.
         </p>
       </div>
     </div>
