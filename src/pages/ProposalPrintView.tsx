@@ -4,8 +4,21 @@ import { ArrowLeft, Printer, ScrollText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
 import { resolveAddress } from '@/lib/address'
-import { getProposal } from '@/lib/proposals'
-import { categoryBearsMarkup, formatUSD, lineBase, lineMarkup, lineTotal } from '@/lib/money'
+import { getProposal, updateProposal } from '@/lib/proposals'
+import {
+  resolvePaymentTerms,
+  resolveTerms,
+  showsGrandTotal,
+} from '@/lib/proposalDefaults'
+import { toast } from 'sonner'
+import {
+  categoryBearsMarkup,
+  formatUSD,
+  lineBase,
+  lineMarkup,
+  lineTotal,
+  sumMoney,
+} from '@/lib/money'
 import {
   PROPOSAL_LINE_CATEGORY_LABELS,
   PROPOSAL_LINE_CATEGORY_ORDER,
@@ -14,6 +27,7 @@ import type {
   CompanySettings,
   Customer,
   Project,
+  Proposal,
   ProposalLine,
   ProposalLineCategory,
   ProposalWithWorkAreas,
@@ -44,7 +58,6 @@ import type {
  *   • Email-from-app (Resend integration)
  *   • Accept/decline tracking links
  *   • E-sign integration
- *   • Custom per-proposal terms (uses default_terms_and_conditions only)
  *   • Server-side PDF generation (browser print is fine for v1)
  */
 
@@ -83,6 +96,11 @@ export default function ProposalPrintView() {
   const [notFound, setNotFound] = useState(false)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [format, setFormat] = useState<PrintFormat>('detailed')
+  // Whether this proposal prints a project total. Seeded from the proposal
+  // (or the company default) once loaded; toggling it saves to the proposal
+  // so the choice sticks for the next print rather than resetting.
+  const [showTotal, setShowTotal] = useState(true)
+  const [savingTotal, setSavingTotal] = useState(false)
 
   /* ---------- parallel load ---------- */
 
@@ -106,6 +124,7 @@ export default function ProposalPrintView() {
         }
         setProposal(p)
         setSettings(cs)
+        setShowTotal(showsGrandTotal(p, cs))
 
         // Project + embedded customer — second fetch after proposal so
         // we can use the proposal.project_id.
@@ -253,6 +272,34 @@ export default function ProposalPrintView() {
                   </button>
                 ))}
               </div>
+              {/* Total on/off, at print time. An options-priced job has no
+                  single true total until the client picks, so this is a
+                  per-proposal call, not just a company default. */}
+              <label className="flex shrink-0 items-center gap-1.5 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={showTotal}
+                  disabled={savingTotal || !proposal}
+                  onChange={(e) => {
+                    const next = e.target.checked
+                    setShowTotal(next)
+                    if (!proposal) return
+                    setSavingTotal(true)
+                    updateProposal(proposal.id, { show_grand_total: next })
+                      .catch((err) => {
+                        setShowTotal(!next) // put the box back
+                        toast.error(
+                          err instanceof Error
+                            ? err.message
+                            : "Couldn't save that."
+                        )
+                      })
+                      .finally(() => setSavingTotal(false))
+                  }}
+                  className="h-4 w-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy"
+                />
+                Show project total
+              </label>
               <span className="hidden text-xs text-gray-500 lg:inline">
                 {FORMAT_META[format].blurb} · Save as PDF via the print dialog.
               </span>
@@ -366,9 +413,11 @@ export default function ProposalPrintView() {
               {format === 'summary' && (
                 <SummaryBody
                   settings={settings}
+                  proposal={proposal}
                   project={projectWithCustomer}
                   enabledWorkAreas={enabledWorkAreas}
                   accent={accent}
+                  showTotal={showTotal}
                 />
               )}
               {format === 'crew' && (
@@ -576,15 +625,18 @@ function CustomerProjectBlock({
 /** Shared client closing: T&C + payment terms + signature block. */
 function ClientClosing({
   settings,
+  proposal,
   accent,
 }: {
   settings: CompanySettings
+  /** Carries this proposal's own terms, when it has any. */
+  proposal: Proposal | null
   accent: string
 }) {
+  const terms = resolveTerms(proposal, settings)
   return (
     <>
-      {settings.pdf_show_terms_and_conditions &&
-      settings.default_terms_and_conditions?.trim() ? (
+      {settings.pdf_show_terms_and_conditions && terms ? (
         <section className="pv-section pv-page-break-before mt-10">
           <h3
             className="pv-section-heading text-sm font-bold uppercase tracking-wider"
@@ -593,7 +645,7 @@ function ClientClosing({
             Terms &amp; Conditions
           </h3>
           <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">
-            {settings.default_terms_and_conditions}
+            {terms}
           </p>
         </section>
       ) : null}
@@ -606,8 +658,8 @@ function ClientClosing({
           >
             Payment Terms
           </h3>
-          <p className="mt-2 text-xs leading-relaxed text-gray-700">
-            50% deposit upon acceptance. Balance due upon project completion.
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">
+            {resolvePaymentTerms(settings)}
           </p>
         </section>
       ) : null}
@@ -655,7 +707,7 @@ function DetailedBody({
         <GrandTotalsCard workAreas={enabledWorkAreas} accent={accent} />
       </div>
 
-      <ClientClosing settings={settings} accent={accent} />
+      <ClientClosing settings={settings} proposal={proposal} accent={accent} />
     </>
   )
 }
@@ -668,14 +720,20 @@ function DetailedBody({
  */
 function SummaryBody({
   settings,
+  proposal,
   project,
   enabledWorkAreas,
   accent,
+  showTotal,
 }: {
   settings: CompanySettings
+  /** For this proposal's own Terms & Conditions, when it has any. */
+  proposal: Proposal | null
   project: Project
   enabledWorkAreas: ProposalWorkAreaResolved[]
   accent: string
+  /** Print a project total? Work-area prices print either way. */
+  showTotal: boolean
 }) {
   const jobAddress =
     resolveAddress(
@@ -688,8 +746,9 @@ function SummaryBody({
       project.site_address
     ) || 'the specified location'
   const waTotal = (wa: ProposalWorkAreaResolved) =>
-    wa.lines.reduce((s, l) => s + lineTotal(l), 0)
-  const grand = enabledWorkAreas.reduce((s, wa) => s + waTotal(wa), 0)
+    sumMoney(wa.lines.map((l) => lineTotal(l)))
+  // The client proposal's parts must add up to its total, to the cent.
+  const grand = sumMoney(enabledWorkAreas.map((wa) => waTotal(wa)))
 
   return (
     <>
@@ -701,7 +760,10 @@ function SummaryBody({
 
       <div className="mt-6 space-y-5">
         {enabledWorkAreas.map((wa) => {
-          const descLines = (wa.resolved_description ?? '')
+          // The client proposal prints the CLIENT scope (JAMIE-FLOW 4a) —
+          // never the work order, which names fees and the lift/load counts a
+          // client could police the crew with.
+          const descLines = (wa.resolved_client_description ?? '')
             .split('\n')
             .map((l) => l.trim())
             .filter(Boolean)
@@ -752,25 +814,38 @@ function SummaryBody({
                 </td>
               </tr>
             ))}
-            <tr>
-              <td
-                className="pt-3 text-base font-bold uppercase tracking-wide"
-                style={{ color: accent }}
-              >
-                Total Project Price
-              </td>
-              <td
-                className="pt-3 text-right text-lg font-bold tabular-nums"
-                style={{ color: accent }}
-              >
-                {formatUSD(grand)}
-              </td>
-            </tr>
+            {showTotal ? (
+              <tr>
+                <td
+                  className="pt-3 text-base font-bold uppercase tracking-wide"
+                  style={{ color: accent }}
+                >
+                  Total Project Price
+                </td>
+                <td
+                  className="pt-3 text-right text-lg font-bold tabular-nums"
+                  style={{ color: accent }}
+                >
+                  {formatUSD(grand)}
+                </td>
+              </tr>
+            ) : (
+              /* No grand total: the client is pricing options, and a total
+                 across options they have not chosen stops being true the
+                 moment they drop one. Say so rather than leaving a gap
+                 that reads like a missing number. */
+              <tr>
+                <td colSpan={2} className="pt-3 text-xs italic text-gray-500">
+                  Each area is priced separately. Choose any combination —
+                  your total is the sum of the areas you select.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      <ClientClosing settings={settings} accent={accent} />
+      <ClientClosing settings={settings} proposal={proposal} accent={accent} />
     </>
   )
 }
@@ -922,13 +997,10 @@ function WorkAreaPrintSection({
   // Work area total = sum of line-level (qty × cost × (1 + markup/100))
   // computed from line-level data (keeps it aligned with the editor's
   // tabular totals card, which reads the same fields).
-  const workAreaTotal = useMemo(() => {
-    let sum = 0
-    for (const l of workArea.lines) {
-      sum += lineTotal(l)
-    }
-    return sum
-  }, [workArea.lines])
+  const workAreaTotal = useMemo(
+    () => sumMoney(workArea.lines.map((l) => lineTotal(l))),
+    [workArea.lines]
+  )
 
   return (
     <section className="pv-work-area">
@@ -984,7 +1056,7 @@ function CategoryLineTable({
     [lines]
   )
 
-  const subtotal = sorted.reduce((acc, l) => acc + lineTotal(l), 0)
+  const subtotal = sumMoney(sorted.map((l) => lineTotal(l)))
 
   return (
     <div className="pv-category-table">

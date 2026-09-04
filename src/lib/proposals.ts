@@ -27,7 +27,15 @@
 import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
 import { syncLeadOnProposalGenerated, syncLeadStageForProposalStatus } from '@/lib/leads'
-import { categoryBearsMarkup, effectiveMarkupPercent, lineBase, lineMarkup, lineTotal } from '@/lib/money'
+import {
+  categoryBearsMarkup,
+  effectiveMarkupPercent,
+  lineBase,
+  lineMarkup,
+  lineTotal,
+  roundMoney,
+  sumMoney,
+} from '@/lib/money'
 import { PROPOSAL_STATUS_CONFIG, PROPOSAL_STATUS_ORDER } from '@/lib/statusConfig'
 import type {
   KitPreviewLine,
@@ -204,16 +212,17 @@ export async function listProposalsByProject(
   }
   return ((data ?? []) as RawRow[]).map((row) => {
     const wAreas = row.proposal_work_areas ?? []
-    let grand_total = 0
+    // Round each work area, then sum those — the same shape the proposal
+    // prints, so a listed total always equals the rows above it.
     let line_count = 0
+    const waTotals: number[] = []
     for (const wa of wAreas) {
       const lines = wa.proposal_lines ?? []
       line_count += lines.length
       if (!wa.enabled) continue // disabled work areas don't roll up
-      for (const l of lines) {
-        grand_total += lineTotal(l)
-      }
+      waTotals.push(sumMoney(lines.map((l) => lineTotal(l))))
     }
+    const grand_total = sumMoney(waTotals)
     // Strip embedded sub-resources before returning the row shape
     const { proposal_work_areas, ...rest } = row
     void proposal_work_areas
@@ -241,7 +250,7 @@ export async function getProposal(
       `*,
        proposal_work_areas (
          *,
-         work_areas ( id, name, description ),
+         work_areas ( id, name, description, client_description ),
          proposal_lines ( * )
        )`
     )
@@ -253,7 +262,12 @@ export async function getProposal(
   if (!data) return null
 
   type RawWorkArea = ProposalWorkArea & {
-    work_areas: { id: string; name: string; description: string | null } | null
+    work_areas: {
+      id: string
+      name: string
+      description: string | null
+      client_description: string | null
+    } | null
     proposal_lines: ProposalLine[]
   }
   const raw = data as Proposal & { proposal_work_areas: RawWorkArea[] }
@@ -268,6 +282,13 @@ export async function getProposal(
         wa.name_override?.trim() || source?.name || 'Untitled work area'
       const resolved_description =
         wa.description_override ?? source?.description ?? null
+      // The CLIENT scope for the Summary print (JAMIE-FLOW 4a). Falls back
+      // to the work order text for work areas written before the split, so
+      // an older proposal prints its scope rather than a blank — those will
+      // read crew-grade until Jamie rewrites them, which is the honest
+      // state, not a silent blank.
+      const resolved_client_description =
+        wa.description_override ?? source?.client_description ?? resolved_description
       const lines = (wa.proposal_lines ?? [])
         .slice()
         .sort((a, b) => a.sort_order - b.sort_order)
@@ -279,6 +300,7 @@ export async function getProposal(
         ...waCore,
         resolved_name,
         resolved_description,
+        resolved_client_description,
         source_work_area: source,
         lines,
       } satisfies ProposalWorkAreaResolved
@@ -327,7 +349,12 @@ export async function createProposal(input: {
  */
 export async function updateProposal(
   id: string,
-  patch: Partial<Pick<Proposal, 'name' | 'notes' | 'status'>>,
+  patch: Partial<
+    Pick<
+      Proposal,
+      'name' | 'notes' | 'status' | 'show_grand_total' | 'terms_and_conditions'
+    >
+  >,
   opts?: {
     /**
      * Optimistic-concurrency guard (0012): when set, the write only
@@ -349,9 +376,13 @@ export async function updateProposal(
     )
   }
   if (!isProposalEditable(current.status as ProposalStatus)) {
+    // show_grand_total is presentation, not pricing — it changes whether a
+    // total is rendered, never a number. Blocking it on a sent proposal
+    // would fail the print-time checkbox with an error the contractor can
+    // do nothing about, so it is exempt alongside status.
     const nonStatusKeys = Object.keys(patch)
       .filter((k) => patch[k as keyof typeof patch] !== undefined)
-      .filter((k) => k !== 'status')
+      .filter((k) => k !== 'status' && k !== 'show_grand_total')
     if (nonStatusKeys.length > 0) {
       throw new Error(
         `Proposal is ${current.status}, not editable — only status may be changed (got: ${nonStatusKeys.join(', ')}). Set it back to Draft or Ready to Send to edit.`
@@ -954,7 +985,7 @@ export async function syncProposalWorkAreaSubtotals(
     frozen_unit_cost: number
     frozen_markup_percent: number
   }>) {
-    subtotals[l.category] += lineTotal(l)
+    subtotals[l.category] = roundMoney(subtotals[l.category] + lineTotal(l))
   }
   const { data, error } = await supabase
     .from('proposal_work_areas')

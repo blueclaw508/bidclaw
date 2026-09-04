@@ -43,6 +43,7 @@ import {
 } from '@/lib/entitlements'
 import {
   estimateLineTotal,
+  sumMoney,
   formatUSD,
   type LiveMarkupSettings,
 } from '@/lib/money'
@@ -161,14 +162,12 @@ export default function WorkAreasTab({
   // loaded + settings are in, so we never flash $0 over the DB baseline.
   useEffect(() => {
     if (loading || !settings || !onEstimateTotalChange) return
-    const total = rows.reduce(
-      (sum, wa) =>
-        sum +
-        (linesByWA[wa.id] ?? []).reduce(
-          (s, l) => s + estimateLineTotal(l, settings),
-          0
-        ),
-      0
+    // Same shape as the card below: round each work area, then sum those,
+    // so the totals rail cannot disagree with the estimate by a cent.
+    const total = sumMoney(
+      rows.map((wa) =>
+        sumMoney((linesByWA[wa.id] ?? []).map((l) => estimateLineTotal(l, settings)))
+      )
     )
     onEstimateTotalChange(total)
   }, [rows, linesByWA, settings, loading, onEstimateTotalChange])
@@ -462,13 +461,14 @@ function ProjectEstimateTotals({
 
   const perWA = rows.map((wa) => ({
     wa,
-    total: (linesByWA[wa.id] ?? []).reduce(
-      (s, l) => s + estimateLineTotal(l, settings),
-      0
+    total: sumMoney(
+      (linesByWA[wa.id] ?? []).map((l) => estimateLineTotal(l, settings))
     ),
     count: (linesByWA[wa.id] ?? []).length,
   }))
-  const grand = perWA.reduce((s, x) => s + x.total, 0)
+  // Sum the ROUNDED work-area totals — the same figures on screen — so the
+  // project total is always exactly what the rows above it add up to.
+  const grand = sumMoney(perWA.map((x) => x.total))
   const approvedCount = rows.filter((w) => w.estimate_status === 'approved').length
 
   // Work areas that actually have estimate lines — the ones worth approving.
@@ -501,14 +501,10 @@ function ProjectEstimateTotals({
     (l) => !l.label.trim() || Number(l.quantity) <= 0
   ).length
   const freezableCount = approvedLines.length - skippablePreview
-  const approvedTotal = approvedWAs.reduce(
-    (s, w) =>
-      s +
-      (linesByWA[w.id] ?? []).reduce(
-        (t, l) => t + estimateLineTotal(l, settings),
-        0
-      ),
-    0
+  const approvedTotal = sumMoney(
+    approvedWAs.map((w) =>
+      sumMoney((linesByWA[w.id] ?? []).map((l) => estimateLineTotal(l, settings)))
+    )
   )
 
   const handleGenerate = async () => {
@@ -775,7 +771,7 @@ function SortableRow({
             {' · '}
             <span className="font-semibold text-gray-900">
               {formatUSD(
-                lines.reduce((s, l) => s + estimateLineTotal(l, settings), 0)
+                sumMoney(lines.map((l) => estimateLineTotal(l, settings)))
               )}
             </span>
           </span>
@@ -808,7 +804,25 @@ function SortableRow({
               className={inputClasses}
             />
           </Field>
-          <Field label="Description">
+          {/* Two scopes (JAMIE-FLOW §4a/4b). The client one is what goes on
+              the proposal; the work order is what the crew builds from and
+              what the estimator's copy prints. They are separate because one
+              text cannot do both: a client holding lift counts and load
+              counts can demand a redo when the crew builds it a different,
+              equally good way. */}
+          <Field label="Client scope — goes on the proposal">
+            <BlurSaveTextarea
+              value={workArea.client_description ?? ''}
+              onSave={(v) => onPatch({ client_description: v.trim() || null })}
+              rows={3}
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              What the client is buying. Headline sizes only — no costs, no
+              fees, no lift or load counts. Blank falls back to the work order
+              below.
+            </p>
+          </Field>
+          <Field label="Work order — crew and your copy">
             <BlurSaveTextarea
               value={workArea.description ?? ''}
               onSave={(v) => onPatch({ description: v.trim() || null })}

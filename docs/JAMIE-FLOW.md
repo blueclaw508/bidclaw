@@ -74,13 +74,46 @@ For every approved work area, she works out:
 - materials/subs as **base cost + the universal markup from My Numbers**
 - **nothing is ever zero** (see §5)
 
-## 4. Then she writes the scope description
+## 4. Then she writes the scope — TWO of them
 
 **Written FROM the line items, after the takeoff — never before.** Scope
 and line items must match 100%: if she writes it, she bills it; if she
 doesn't bill it, she doesn't write it.
 
-Required format:
+> **REVISED 2026-09-04 (Ian).** This used to be ONE text doing two jobs:
+> "it is what the client is buying and what the crew is instructed to do."
+> That was wrong, and it is a liability on a real job. One text cannot
+> serve both — so she writes two.
+
+### 4a. The CLIENT scope — proposal verbiage
+
+What the client is buying, in plain language. This is the only scope text
+that ever reaches the client.
+
+- **NEVER a cost, a fee, or anything priced.** No "six trailer loads with
+  disposal fees", no "short load fee", no supplier counts. The client side
+  carries the description and a FLAT PRICE — nothing else.
+- **No method-policing quantities.** Ian, 2026-09-04: *"if too many
+  qualifying quantities etc a client could stand over a crew that does the
+  same job with modified and demand it be redone or a partial, so we want
+  to avoid that."* A client holding "6 in in two lifts, plate compact each
+  lift" and "two continuous #4 bars" can count lifts and rebar and demand
+  a redo or a credit when the crew builds it a different, equally good
+  way. Headline dimensions the client is buying (400 SF of patio, 22 LF of
+  wall, 8 ft fire pit) stay. Internal build tolerances, lift counts, bag
+  counts, load counts, machine choices and rebar schedules do not.
+- Still bound by the prime directive in the other direction: it must not
+  promise anything that is not billed.
+
+### 4b. The WORK ORDER scope — crew verbiage
+
+The build sheet. Everything 4a leaves out lives here: the step-by-step in
+the order it actually happens, real quantities, lifts, compaction,
+material spec, machines, disposal. This is the text the scope-vs-lines
+fail-safe (§ *The fail-safe*) runs against, because this is the one that
+must account for every billed component.
+
+Required format (work order):
 
 ```
 <First line: a summary of what is being done.>
@@ -89,8 +122,15 @@ Required format:
 - <qualifying statements about material or type of installation>
 ```
 
-This text is doing two jobs at once: it is what the **client** is buying
-and what the **crew** is instructed to do.
+### Which document shows which
+
+| Print format | Audience | Scope shown | Pricing shown |
+|---|---|---|---|
+| Summary | the client | **4a client scope** | work-area flat total only |
+| Crew | the crew | 4b work order | none |
+| Detailed | the estimator | 4b work order | every line, cost + markup + price |
+
+**Detailed is an internal document and must never be sent to a client.**
 
 ## 5. Questions on the fly
 
@@ -148,12 +188,13 @@ Once the user approves, the estimate goes to a proposal.
 | **Deleting a Jamie work area after Gate 1** | BUILT — retires the staged row; Pass 2 and Gate 2 only price/show work areas that still exist |
 | **Scope written FROM the line items** | BUILT — Pass 2 writes it from the takeoff and overwrites Gate 1's |
 | **Bullet scope format (summary + steps)** | BUILT — summary line, step bullets, qualifiers, exclusions |
+| **Separate client scope vs work-order scope (§4a/4b)** | BUILT — `work_areas.client_description` alongside `description`. Pass 2 writes both (`client_scope_description` in the takeoff schema), Gate 2 and the Work Areas tab edit both, and the Summary print reads the client one while Crew and Detailed keep the work order. NULL falls back to `description`, so work areas written before the split still print |
 | **Questions on the fly** | NOT BUILT — `gap_questions` arrive as text at the end |
 | **Price catalog misses in context** | BUILT — at Gate 2, tell Jamie a price in the chat ("shell mix is 48 a ton") and she writes it onto the staged line through `set_line_prices`; the card refreshes; commit saves it to the catalog |
 | **Gate 2: edit verbiage** | BUILT — editable scope per work area |
 | **Gate 2: add lines, change markup/price** | BUILT — "Add a line" under each work area (staged like Jamie's, priced with the rest), per-line markup % on markup-bearing lines (blank = My Numbers), and a billed-price override (blank = computed); both land on `work_area_lines.markup_override` / `price_override` exactly as the estimate editor writes them |
 | **User's own kits instead of BCA's** | BUILT — hardcoded library DELETED; jamie-chat reads the user's `kits`. jamie-ingest still holds an inline copy (founder-gated, and unverifiable while API credits are out) |
-| **Learning from the user's edits** | NOT BUILT — the deltas ARE recorded (`jamie_proposed_lines` vs `inserted_work_area_line_id`); nothing reads them |
+| **Learning from the user's edits** | NOT BUILT — and this is the gap that hurts most. The deltas ARE recorded: every staged line carries `inserted_work_area_line_id` once committed, so the difference between what Jamie proposed and what the contractor actually committed is sitting in the database. **Nothing reads it.** `inserted_work_area_line_id` is written in `jamieLoop.ts` and read nowhere. So a correction like "no lath or screws on 1 in veneer over block" has to be made by hand on every future estimate, or hardcoded into the prompt, or turned into a kit by the contractor. Confirmed 2026-09-04 |
 | **Web search for unfamiliar trades** | BUILT — Layer 1: Pass 2 carries Anthropic's server-side `web_search` tool (max 6 per takeoff) to check an assembly she doesn't know cold and to price a catalog miss from a real supplier; metered at $0.01/search on the invocation |
 
 ---

@@ -1,5 +1,24 @@
 # LOOP-STATE — BidClaw
 
+## ⚑ STANDING RULE — FIDELITY TO QUICKCALC ON THE PROPOSAL (2026-09-04)
+Ian, verbatim: *"remember...fidelity to QC once we get to proposal"*.
+
+BlueQuickCalc is the reference implementation for the PROPOSAL end of the
+product — the document, its fields, and how the contractor configures it.
+When BidClaw and QC differ on anything the contractor sees or fills in at
+proposal time, QC wins and BidClaw is the thing to change. Do not invent a
+BidClaw-native way of doing something QC already settled.
+
+This is why the settings already mirror QC's three PDF visibility toggles
+(Payment Terms / Images / T&C) and why markups are the two QC has
+(Materials / Subs) rather than the three BidClaw briefly had — freight was
+scope creep and was dropped after a QC source review.
+
+Applies to: proposal document layout and sections, the My Numbers /
+company-profile field set, payment terms, terms & conditions, logo and
+branding, and the PDF toggles. Check QC before adding or renaming any of
+them.
+
 ## ⚑ KYN METHODOLOGY — THE RULE JAMIE KEEPS DRIFTING FROM (2026-08-24)
 Ian's correction, verbatim: "Jamie is supposed to come up with quantities
 and for materials/subs the costs plus markup (universal from My Numbers)
@@ -45,6 +64,89 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
   6b markup_override NULL on forward estimates
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
+
+## ⚑ MONEY IS CENTS — THE PARTS MUST ADD UP TO THE TOTAL (2026-09-04) — BUILT
+Ian, off the live Justin Helferich estimate: *"All work areas are .00 but
+total is .99 can you put something in place to fix that on all estimates?"*
+
+Cause: every displayed figure was rounded for DISPLAY only, by formatUSD,
+while every aggregate summed the RAW floats. Five work areas each really
+worth 28,878.9963 each printed $28,879.00 and each contributed
+28,878.9963 to the project total, so the total landed a cent or two off
+the column above it. A contractor cannot hand a client a proposal whose
+parts do not add up.
+
+THE RULE, now enforced in one place (`src/lib/money.ts`): money is CENTS.
+`roundMoney()` rounds the moment an amount is computed; `sumMoney()` sums
+and lands on a clean cent. Rounding happens at the LINE — the smallest
+billed number — so a work-area total is the sum of rounded lines and the
+project total is the sum of rounded work areas. Every level reconciles.
+
+- `lineBase` / `lineTotal` / `estimateLineBase` / `estimateLineTotal` all
+  return cent-exact values, including price overrides.
+- `lineMarkup` is now DERIVED as `lineTotal − lineBase` rather than
+  computed independently, so the base + markup = total invariant the
+  module was already built around holds to the cent instead of drifting.
+- Aggregates use `sumMoney`: the estimate card, the totals rail, the
+  Work Area estimate category subtotals, the proposal list's stored
+  `grand_total`, the print view's work-area and category subtotals, and
+  the denormalized `proposal_work_areas` subtotals.
+
+Because rounding now happens per line rather than per column, an
+individual work-area total can move by a cent from what it showed before.
+That is the correction, not a new error.
+
+Verified numerically (scratch harness): before, the sum of the DISPLAYED
+parts differed from the printed total by $0.01; after, they are identical.
+0.1 + 0.2 → 0.3; 0.145 → 0.15; −0.145 → −0.15.
+
+NOT WALKED IN A BROWSER.
+
+## ⚑ ONE SCOPE TEXT CANNOT SERVE CLIENT AND CREW (2026-09-04) — BUILT
+Ian's teaching point, off the live Justin Helferich takeoff. JAMIE-FLOW §4
+said the scope was "doing two jobs at once: it is what the client is buying
+and what the crew is instructed to do." That is a liability on a real job,
+and the doc is now revised (§4a client / §4b work order).
+
+Two failures, one root cause — one description printed to all three
+formats:
+1. **Method-policing detail.** Ian: *"if too many qualifying quantities etc
+   a client could stand over a crew that does the same job with modified
+   and demand it be redone or a partial."* Her text carried "6 in in two
+   lifts, and plate compact each lift", "two continuous #4 bars", "12 in
+   CMU core ... 22 LF at 20 in height".
+2. **Cost in the client's hands.** *"Jamie mentions the cost of the
+   material in a line ... this should NEVER happen. Only the description
+   and flat price to the client facing side."* Her text said "six trailer
+   loads with disposal fees"; the takeoff also carried a "Concrete Short
+   Load Fee" line.
+
+What was ALREADY right and did not change: the three print formats already
+differ correctly on pricing — Summary is narrative + one flat work-area
+total with no line costs, Crew has no pricing, Detailed is the estimator's
+copy. The leak was that all three printed the same crew-grade description.
+
+Built:
+- Migration 0026: `work_areas.client_description`,
+  `jamie_proposed_work_areas.proposed_client_description`. NULL falls back
+  to `description` everywhere, so nothing written before this breaks.
+- Pass 2 returns `client_scope_description` alongside `scope_description`
+  (one extra field in the same structured output — no second call), with
+  the 4a rules in the prompt: headline dimensions the client is buying stay
+  (400 SF, 22 LF, 8 ft), and lift/bag/load counts, rebar schedules,
+  compaction passes, machine choices and man-hours are cut. Never a cost or
+  a fee.
+- Gate 2 shows both, client scope first in green, work order below.
+- The Work Areas tab edits both.
+- Summary print reads the client scope; Crew and Detailed keep the work
+  order; the scope-vs-lines fail-safe still reconciles against the work
+  order, since that is the text that must account for every billed line.
+
+STILL OPEN: **Detailed prints every line with cost and markup and is only
+labelled the estimator's copy — nothing stops it being sent to a client.**
+Asked Ian whether that has ever happened.
+
+NOT WALKED IN A BROWSER.
 
 ## ⚑ PASS 2 TIMED OUT AND THERE WAS NO WAY BACK (2026-09-04) — SHIPPED, LIVE
 Found live on Ian's Justin Helferich proposal: 30 work areas, 6 copies of

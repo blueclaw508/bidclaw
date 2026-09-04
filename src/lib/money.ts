@@ -38,6 +38,40 @@ export interface MoneyLine {
   price_override?: number | string | null
 }
 
+/**
+ * Money is CENTS, not floating point. Round every dollar amount the moment
+ * it is computed, so a total is always the sum of the numbers actually on
+ * screen.
+ *
+ * Without this the parts and the whole disagree: five work areas each
+ * displaying $28,879.00 (rounded for display only) summed to $101,835.99,
+ * because the grand total was adding the unrounded 28,878.9963 behind each
+ * one. Ian, 2026-09-04, off a live estimate: "All work areas are .00 but
+ * total is .99". A contractor cannot hand a client a proposal whose parts
+ * do not add up to its total.
+ *
+ * Rounding at the LINE is what makes every level consistent: the line is
+ * the smallest billed number, the work-area total sums rounded lines, and
+ * the project total sums rounded work areas. Half-up on the absolute value
+ * so -0.005 and 0.005 both round away from zero, and the 1e-9 nudge absorbs
+ * float representation error (0.145 stored as 0.14499999999999999) that
+ * would otherwise round down a legitimate half-cent.
+ */
+export function roundMoney(n: number): number {
+  if (!Number.isFinite(n)) return 0
+  const sign = n < 0 ? -1 : 1
+  return (sign * Math.round(Math.abs(n) * 100 + 1e-9)) / 100
+}
+
+/**
+ * Sum dollar amounts and land on a clean cent. Adding cent-exact values in
+ * floating point still drifts (0.1 + 0.2 = 0.30000000000000004), and a
+ * stored grand_total carrying that dust is a number no one can reconcile.
+ */
+export function sumMoney(values: number[]): number {
+  return roundMoney(values.reduce((s, n) => s + (Number.isFinite(n) ? n : 0), 0))
+}
+
 /** True when this line's total is a hard override, not computed. */
 function hasOverride(line: MoneyLine): boolean {
   return (
@@ -52,7 +86,7 @@ export function lineBase(line: MoneyLine): number {
   const q = Number(line.quantity)
   const c = Number(line.frozen_unit_cost)
   if (!Number.isFinite(q) || !Number.isFinite(c)) return 0
-  return q * c
+  return roundMoney(q * c)
 }
 
 /**
@@ -61,10 +95,13 @@ export function lineBase(line: MoneyLine): number {
  * base + markup = total invariant holds in every totals breakdown.
  */
 export function lineMarkup(line: MoneyLine): number {
-  if (hasOverride(line)) return Number(line.price_override) - lineBase(line)
-  const m = Number(line.frozen_markup_percent)
-  if (!Number.isFinite(m)) return 0
-  return lineBase(line) * (m / 100)
+  // Derived from the two rounded figures rather than computed independently,
+  // so base + markup === total to the cent in every breakdown. Computing it
+  // separately and rounding would leave the three numbers a cent apart.
+  if (!hasOverride(line) && !Number.isFinite(Number(line.frozen_markup_percent))) {
+    return 0
+  }
+  return roundMoney(lineTotal(line) - lineBase(line))
 }
 
 /**
@@ -73,12 +110,12 @@ export function lineMarkup(line: MoneyLine): number {
  * $0, never NaN).
  */
 export function lineTotal(line: MoneyLine): number {
-  if (hasOverride(line)) return Number(line.price_override)
+  if (hasOverride(line)) return roundMoney(Number(line.price_override))
   const q = Number(line.quantity)
   const c = Number(line.frozen_unit_cost)
   const m = Number(line.frozen_markup_percent)
   if (!Number.isFinite(q) || !Number.isFinite(c) || !Number.isFinite(m)) return 0
-  return q * c * (1 + m / 100)
+  return roundMoney(q * c * (1 + m / 100))
 }
 
 /**
@@ -150,7 +187,7 @@ export function estimateLineBase(line: EstimateMoneyLine): number {
   const q = Number(line.quantity)
   const c = Number(line.unit_cost)
   if (!Number.isFinite(q) || !Number.isFinite(c)) return 0
-  return q * c
+  return roundMoney(q * c)
 }
 
 /**
@@ -180,7 +217,9 @@ export function estimateLineTotal(
   settings: LiveMarkupSettings
 ): number {
   if (line.price_override !== null && Number.isFinite(Number(line.price_override))) {
-    return Number(line.price_override)
+    return roundMoney(Number(line.price_override))
   }
-  return estimateLineBase(line) * (1 + effectiveMarkupPercent(line, settings) / 100)
+  return roundMoney(
+    estimateLineBase(line) * (1 + effectiveMarkupPercent(line, settings) / 100)
+  )
 }

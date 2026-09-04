@@ -223,14 +223,26 @@ const LINE_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['proposed_work_area_id', 'scope_description', 'line_items'],
+        required: [
+          'proposed_work_area_id',
+          'scope_description',
+          'client_scope_description',
+          'line_items',
+        ],
         properties: {
           proposed_work_area_id: { type: 'string' },
-          // The FINAL client-facing scope, rewritten from the takeoff
-          // below it. Pass 1's description was written before any line
-          // existed; this one is derived from the lines, which is the
-          // only way "if she writes it, she bills it" can hold.
+          // TWO scopes, both rewritten from the takeoff below (JAMIE-FLOW
+          // §4, revised 2026-09-04). Pass 1's description was written
+          // before any line existed; these are derived from the lines,
+          // which is the only way "if she writes it, she bills it" holds.
+          //
+          // scope_description = 4b, the WORK ORDER. Full detail, and the
+          // text the scope-vs-lines fail-safe reconciles against.
           scope_description: { type: 'string' },
+          // client_scope_description = 4a, the PROPOSAL. Never a cost or a
+          // fee, never a lift/bag/load count. The ONLY scope text that
+          // ever reaches a client.
+          client_scope_description: { type: 'string' },
           line_items: {
             type: 'array',
             items: {
@@ -336,7 +348,7 @@ function buildReconcilePrompt(ctx: BrainContext): string {
 
 The real example this check exists for: a "Veneer Foundation" work area whose scope described mortaring the stone veneer to the foundation — and the materials list had no mortar on it. The client was promised mortar; the estimate charged nothing for it. That is money out of the contractor's pocket on every job it happens.
 
-For each work area you are given the final scope description and the labels of every line item billed. Find every MATERIAL, EQUIPMENT, SUBCONTRACTOR or LABOR STEP that the scope text states or clearly implies but that no line item covers. Typical misses: mortar, portland, sand, lath, fasteners, weep screed, barrier/felt, joint sand, sealer, adhesive, rebar, wire mesh, form board, geotextile, drainage stone, disposal, delivery, a machine a described step cannot happen without, a saw for described cutting.
+For each work area you are given the final scope description and the labels of every line item billed. Find every MATERIAL, EQUIPMENT, SUBCONTRACTOR or LABOR STEP that the scope text states or clearly implies but that no line item covers. Typical misses: mortar, portland, sand, joint sand, sealer, adhesive, rebar, wire mesh, form board, geotextile, drainage stone, disposal, delivery, a machine a described step cannot happen without, a saw for described cutting. SUBSTRATE-DEPENDENT, so only when the scope actually calls for them: lath and fasteners belong to veneer over WOOD FRAMING OR SHEATHING (with barrier and weep screed) or over CEMENT BOARD / DUROCK on a chimney or tall vertical. A veneer adhered to concrete, CMU or existing masonry needs NONE of them — it needs a polymer-modified adhesive mortar (Laticrete or Ardex) instead. Do not report lath or fasteners missing on that assembly.
 
 Rules:
 - Only report something the SCOPE ACTUALLY MENTIONS or that a named step physically cannot happen without. Do not upsell, do not add scope, do not second-guess quantities that are already billed.
@@ -512,17 +524,40 @@ TASK — PASS 2: BUILD THE PRICED TAKEOFF. The contractor APPROVED these work ar
 
 ${staged}
 
-For each work area, work in this order: material takeoff → equipment → labor hours → general conditions. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is stone, mortar, lath, water-resistive barrier, fasteners, weep screed, corner pieces. Use the kit factors above against the quantities in the scope text, then apply the contractor's rates.
+For each work area, work in this order: material takeoff → equipment → labor hours → general conditions. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is the stone, the setting material, and every accessory that assembly actually needs.
+
+WHICH accessories depends on THE SUBSTRATE, so read the scope and list from the right one of these three:
+  (a) ONTO CONCRETE, CMU OR EXISTING MASONRY — the common case. A polymer-modified adhesive mortar (Laticrete or Ardex) for the scratch coat and setting bed, plus corner pieces. NO lath, NO fasteners or screws, NO water-resistive barrier, NO weep screed. Putting lath and screws on a veneer being adhered to block bills the contractor for material they will never buy, and puts it in the scope the client reads.
+  (b) ONTO CEMENT BOARD OR DUROCK — a chimney chase or another tall vertical. Here you DO carry lath and fasteners: on that substrate and at that height the mechanical key is what keeps the veneer on. Plus the adhesive mortar and corners.
+  (c) ONTO WOOD FRAMING OR SHEATHING — the full exterior assembly: water-resistive barrier, lath, fasteners, weep screed, mortar, corners.
+Never guess between them — the scope says what it is going onto, and if it genuinely does not, ask it as a gap question rather than picking one.
+
+Use the kit factors above against the quantities in the scope text, then apply the contractor's rates.
 
 LAYER 1 — CHECK THE ASSEMBLY ON THE WEB. You have a web_search tool. Before you build a work area's takeoff, if the complete assembly for that kind of work is not something you know cold — or it is a trade you see less often — search once for "<work type> complete materials list contractor estimate" and use what comes back to make sure no physical component is missing. Use it the same way for a current supplier price when an item is not in the catalog and you would otherwise be guessing. At most ${WEB_SEARCH_MAX_USES} searches for the whole takeoff: it is a safety net against a missing component, not a research project. Nothing you find on the web overrides THIS COMPANY'S kits, rates or catalog.
 
-THEN WRITE THE SCOPE — LAST, FROM THE LINES YOU JUST BUILT. scope_description replaces whatever was written at Gate 1, because that was written before a single line item existed. Now that the takeoff is real, the scope must describe exactly it: EVERY component you billed appears in the scope, and NOTHING appears in the scope that you did not bill. That is the prime directive and this is the step where it is actually enforced.
+THEN WRITE THE SCOPE — LAST, FROM THE LINES YOU JUST BUILT. You write TWO scopes for every work area, because one text cannot serve both audiences. Both replace whatever was written at Gate 1, because that was written before a single line item existed.
+
+1) scope_description — THE WORK ORDER. The crew builds from this and the estimator checks it. EVERY component you billed appears here, and NOTHING appears here that you did not bill. That is the prime directive and this is the step where it is enforced.
 
 Format, exactly:
   First line — one sentence summarising what is being done, in this trade's own terms ("Install 620 SF of dry-laid thermal bluestone terrace at the rear of the house." / "Install 240 LF of 6 ft cedar board-on-board privacy fence along the west property line.").
   Then bullet lines beginning with "- ", walking the crew through the work STEP BY STEP in the order it actually happens for THIS kind of work — whatever that sequence is in this trade.
   Then any qualifying statements about material or method — pattern-cut vs random, wet set vs dry set, thermal vs natural cleft, who supplies what, what is excluded.
-This text is read by TWO audiences at once: it is what the client is buying, and it is the instruction sheet the crew works from. Write it so both can act on it. Plain contractor English, no marketing.
+Plain contractor English, no marketing. Full detail: lifts, compaction, bag and load counts, machines, disposal, rebar — all of it belongs here.
+
+2) client_scope_description — THE PROPOSAL. This is the ONLY scope text that ever reaches the client. Same work, described as something they are buying rather than a set of instructions.
+
+  - NEVER a cost, a price, or a fee. Not "six trailer loads with disposal fees", not "short load fee", not "plus delivery". The client side carries this description and ONE FLAT PRICE; the money is not your job here.
+  - HEADLINE DIMENSIONS ONLY — the size of what they are buying: "a 400 SF flagstone patio", "22 LF of fieldstone wall", "an 8 ft fire pit", "three steps". KEEP those.
+  - CUT every number the crew uses to build and a client could police you with: lift counts, compaction passes, base depths, bag counts, trailer/load counts, rebar size and spacing, machine choices, man-hours. If a client can stand over the crew with your text and demand a redo or a credit because the crew did the same job a different, equally good way, you have written it wrong.
+  - Material and method stay only where the CLIENT is choosing them: "dry-laid irregular Pennsylvania flagstone", "mortared New England fieldstone", "thermal bluestone treads". That is what they picked and what they are paying for. "6 in of processed dense grade in two lifts, plate compacted" is not.
+  - Never promise anything you did not bill.
+  - Two to five sentences, or a short paragraph plus a few plain bullets. Warm, confident, plain English. No marketing adjectives.
+
+Worked contrast for the same work area:
+  work order: "- Excavate the patio ring to 8 in depth, 400 SF, and trench the fire pit footing ring. - Load all spoils and haul off site, six trailer loads with disposal fees. - Place processed dense grade 6 in in two lifts and plate compact each lift."
+  client: "We will excavate and haul away the existing bed, then build a compacted base for a 400 SF patio and the fire pit footing."
 
 label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. a supplier's name for the thing, not the job it is doing: "Processed Dense Grade" not "Processed Dense Grade Gravel — 8 inch compacted base"; "Cedar 1x6 Board" not "Cedar boards for the west line". Every item you price that isn't already in the catalog gets SAVED to the contractor's catalog under this exact name and reused on their next job, so a job-specific label quietly fills their catalog with duplicates that never match again. Keep the same item spelled the same way every time.
 
@@ -1454,6 +1489,7 @@ Deno.serve(async (req: Request) => {
             work_areas?: Array<{
               proposed_work_area_id: string
               scope_description: string
+              client_scope_description?: string
               line_items: Array<{
                 category: string
                 label: string
@@ -1470,13 +1506,20 @@ Deno.serve(async (req: Request) => {
           const rows: Array<Record<string, unknown>> = []
           for (const wa of parsed.work_areas ?? []) {
             if (!stagedIds.has(wa.proposed_work_area_id)) continue
-            // Overwrite Gate 1's scope with the one derived from the
-            // takeoff. Gate 2 shows it for editing, and the commit copies
-            // it onto the real work area.
+            // Overwrite Gate 1's scope with the two derived from the
+            // takeoff. Gate 2 shows both for editing, and the commit copies
+            // them onto the real work area (JAMIE-FLOW §4a/4b).
+            const scopePatch: Record<string, unknown> = {}
             if (wa.scope_description?.trim()) {
+              scopePatch.proposed_description = wa.scope_description.trim()
+            }
+            if (wa.client_scope_description?.trim()) {
+              scopePatch.proposed_client_description = wa.client_scope_description.trim()
+            }
+            if (Object.keys(scopePatch).length > 0) {
               await service
                 .from('jamie_proposed_work_areas')
-                .update({ proposed_description: wa.scope_description.trim() })
+                .update(scopePatch)
                 .eq('id', wa.proposed_work_area_id)
             }
             wa.line_items.forEach((l, i) => {
