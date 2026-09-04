@@ -194,7 +194,7 @@ Once the user approves, the estimate goes to a proposal.
 | **Gate 2: edit verbiage** | BUILT — editable scope per work area |
 | **Gate 2: add lines, change markup/price** | BUILT — "Add a line" under each work area (staged like Jamie's, priced with the rest), per-line markup % on markup-bearing lines (blank = My Numbers), and a billed-price override (blank = computed); both land on `work_area_lines.markup_override` / `price_override` exactly as the estimate editor writes them |
 | **User's own kits instead of BCA's** | BUILT — hardcoded library DELETED; jamie-chat reads the user's `kits`. jamie-ingest still holds an inline copy (founder-gated, and unverifiable while API credits are out) |
-| **Learning from the user's edits** | NOT BUILT — the deltas ARE recorded (`jamie_proposed_lines` vs `inserted_work_area_line_id`); nothing reads them |
+| **Learning from the user's edits** | NOT BUILT — and this is the gap that hurts most. The deltas ARE recorded: every staged line carries `inserted_work_area_line_id` once committed, so the difference between what Jamie proposed and what the contractor actually committed is sitting in the database. **Nothing reads it.** `inserted_work_area_line_id` is written in `jamieLoop.ts` and read nowhere. So a correction like "no lath or screws on 1 in veneer over block" has to be made by hand on every future estimate, or hardcoded into the prompt, or turned into a kit by the contractor. Confirmed 2026-09-04 |
 | **Web search for unfamiliar trades** | BUILT — Layer 1: Pass 2 carries Anthropic's server-side `web_search` tool (max 6 per takeoff) to check an assembly she doesn't know cold and to price a catalog miss from a real supplier; metered at $0.01/search on the invocation |
 
 ---

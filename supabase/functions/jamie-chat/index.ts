@@ -348,7 +348,7 @@ function buildReconcilePrompt(ctx: BrainContext): string {
 
 The real example this check exists for: a "Veneer Foundation" work area whose scope described mortaring the stone veneer to the foundation — and the materials list had no mortar on it. The client was promised mortar; the estimate charged nothing for it. That is money out of the contractor's pocket on every job it happens.
 
-For each work area you are given the final scope description and the labels of every line item billed. Find every MATERIAL, EQUIPMENT, SUBCONTRACTOR or LABOR STEP that the scope text states or clearly implies but that no line item covers. Typical misses: mortar, portland, sand, lath, fasteners, weep screed, barrier/felt, joint sand, sealer, adhesive, rebar, wire mesh, form board, geotextile, drainage stone, disposal, delivery, a machine a described step cannot happen without, a saw for described cutting.
+For each work area you are given the final scope description and the labels of every line item billed. Find every MATERIAL, EQUIPMENT, SUBCONTRACTOR or LABOR STEP that the scope text states or clearly implies but that no line item covers. Typical misses: mortar, portland, sand, joint sand, sealer, adhesive, rebar, wire mesh, form board, geotextile, drainage stone, disposal, delivery, a machine a described step cannot happen without, a saw for described cutting. SUBSTRATE-DEPENDENT, so only when the scope actually calls for them: lath, fasteners, weep screed and water-resistive barrier belong to veneer over WOOD FRAMING OR SHEATHING. A veneer mortared to concrete, CMU or existing masonry needs NONE of them and needs veneer mortar instead — do not report them missing there.
 
 Rules:
 - Only report something the SCOPE ACTUALLY MENTIONS or that a named step physically cannot happen without. Do not upsell, do not add scope, do not second-guess quantities that are already billed.
@@ -524,7 +524,11 @@ TASK — PASS 2: BUILD THE PRICED TAKEOFF. The contractor APPROVED these work ar
 
 ${staged}
 
-For each work area, work in this order: material takeoff → equipment → labor hours → general conditions. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is stone, mortar, lath, water-resistive barrier, fasteners, weep screed, corner pieces. Use the kit factors above against the quantities in the scope text, then apply the contractor's rates.
+For each work area, work in this order: material takeoff → equipment → labor hours → general conditions. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is the stone, the setting material, and every accessory that assembly actually needs.
+
+WHICH accessories depends on THE SUBSTRATE, so read the scope before you list them. Adhered thin veneer (roughly 1 in) onto concrete, CMU or an existing masonry wall takes veneer mortar — scratch coat and setting bed — plus corner pieces: NO lath, NO fasteners or screws, NO water-resistive barrier, NO weep screed. Those belong to the OTHER assembly: the same veneer over wood framing or sheathing, where the barrier, lath, fasteners and weep screed are what hold it on. Putting lath and screws on a veneer that is being mortared to block bills the contractor for material they will never buy. Never guess between the two — the scope says what it is going onto.
+
+Use the kit factors above against the quantities in the scope text, then apply the contractor's rates.
 
 LAYER 1 — CHECK THE ASSEMBLY ON THE WEB. You have a web_search tool. Before you build a work area's takeoff, if the complete assembly for that kind of work is not something you know cold — or it is a trade you see less often — search once for "<work type> complete materials list contractor estimate" and use what comes back to make sure no physical component is missing. Use it the same way for a current supplier price when an item is not in the catalog and you would otherwise be guessing. At most ${WEB_SEARCH_MAX_USES} searches for the whole takeoff: it is a safety net against a missing component, not a research project. Nothing you find on the web overrides THIS COMPANY'S kits, rates or catalog.
 
