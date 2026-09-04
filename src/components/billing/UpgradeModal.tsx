@@ -1,6 +1,13 @@
-import { Check, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Check, Loader2, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { Modal } from '@/components/Modal'
+import {
+  loadPricing,
+  startCheckout,
+  type BillingInterval,
+  type TierPricing,
+} from '@/lib/billing'
 import type { Plan } from '@/lib/entitlements'
 
 /**
@@ -83,6 +90,42 @@ interface UpgradeModalProps {
 }
 
 export function UpgradeModal({ open, onClose, currentPlan, reason }: UpgradeModalProps) {
+  // Live prices from subscription_tier_limits. The hardcoded TIERS above
+  // stay as the FEATURE copy and as the fallback if the fetch fails — a
+  // pricing modal that renders blank is worse than one showing last known
+  // numbers, but a WRONG price is worse than both, so anything fetched wins.
+  const [pricing, setPricing] = useState<TierPricing[] | null>(null)
+  const [interval, setInterval] = useState<BillingInterval>('monthly')
+  const [busy, setBusy] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    loadPricing()
+      .then(setPricing)
+      .catch(() => setPricing(null))
+  }, [open])
+
+  const priceFor = (id: Plan) => pricing?.find((p) => p.tier === id)
+
+  const go = async (id: Plan) => {
+    if (id !== 'pro' && id !== 'pro_ai') return
+    setBusy(id)
+    try {
+      const url = await startCheckout(id, interval)
+      // Full navigation, not a new tab: Stripe Checkout in a popup gets
+      // blocked, and the return_url brings them straight back to Settings.
+      // assign() rather than setting .href — the compiler lint reads a
+      // write to a module-scope object as a mutation, and this is a
+      // navigation either way.
+      window.location.assign(url)
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't start checkout."
+      )
+      setBusy(null)
+    }
+  }
+
   return (
     <Modal
       open={open}
@@ -91,10 +134,42 @@ export function UpgradeModal({ open, onClose, currentPlan, reason }: UpgradeModa
       description={reason ?? 'Pick the plan that fits how you estimate.'}
       size="2xl"
     >
+      {/* Monthly / annual. Rendered only when an annual price actually
+          exists in the table — offering a toggle that resolves to nothing
+          would dead-end the buyer at checkout. */}
+      {pricing?.some((p) => p.purchasableAnnual) && (
+        <div className="mb-4 flex justify-center">
+          <div className="inline-flex rounded-lg border border-gray-300 bg-gray-50 p-0.5">
+            {(['monthly', 'annual'] as BillingInterval[]).map((iv) => (
+              <button
+                key={iv}
+                type="button"
+                onClick={() => setInterval(iv)}
+                className={`rounded-md px-3.5 py-1.5 text-sm font-semibold capitalize transition-colors ${
+                  interval === iv
+                    ? 'bg-brand-navy text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {iv}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {TIERS.map((t) => {
           const isCurrent = t.id === currentPlan
           const a = ACCENT[t.accent]
+          const live = priceFor(t.id)
+          // Only offer what Stripe can actually sell right now.
+          const sellable =
+            t.id !== 'free' &&
+            !!live &&
+            (interval === 'annual'
+              ? live.purchasableAnnual
+              : live.purchasableMonthly)
           return (
             <div
               key={t.id}
@@ -116,13 +191,38 @@ export function UpgradeModal({ open, onClose, currentPlan, reason }: UpgradeModa
                 )}
               </div>
               <div className="mt-1">
-                <span className="text-xl font-extrabold text-gray-900">{t.monthly}</span>
-                {t.yearly && (
+                <span className="text-xl font-extrabold text-gray-900">
+                  {live
+                    ? interval === 'annual' && live.annualUsd !== null
+                      ? `$${live.annualUsd.toLocaleString()}/yr`
+                      : live.monthlyUsd === 0
+                        ? '$0'
+                        : `$${live.monthlyUsd?.toLocaleString()}/mo`
+                    : t.monthly}
+                </span>
+                {/* The other interval, as context. Falls back to the
+                    hardcoded copy while pricing is still loading. */}
+                {live && interval === 'monthly' && live.annualUsd !== null ? (
+                  <span className="ml-1.5 text-xs text-gray-500">
+                    or ${live.annualUsd.toLocaleString()}/yr
+                    {live.monthlyUsd !== null &&
+                      live.monthlyUsd * 12 > live.annualUsd && (
+                        <span className="ml-1 font-semibold text-emerald-600">
+                          (save $
+                          {(
+                            live.monthlyUsd * 12 -
+                            live.annualUsd
+                          ).toLocaleString()}
+                          )
+                        </span>
+                      )}
+                  </span>
+                ) : !live && t.yearly ? (
                   <span className="ml-1.5 text-xs text-gray-500">
                     or {t.yearly}
                     {t.save && <span className="ml-1 font-semibold text-emerald-600">({t.save})</span>}
                   </span>
-                )}
+                ) : null}
               </div>
               <p className="mt-0.5 text-xs text-gray-500">{t.blurb}</p>
               <ul className="mt-3 flex-1 space-y-1.5">
@@ -135,21 +235,24 @@ export function UpgradeModal({ open, onClose, currentPlan, reason }: UpgradeModa
               </ul>
               <button
                 type="button"
-                disabled={isCurrent || t.id === 'free'}
-                onClick={() =>
-                  toast('Checkout is being set up — you’ll be able to upgrade here shortly.', {
-                    icon: '✨',
-                  })
-                }
-                className={`mt-4 rounded-lg px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-default disabled:opacity-60 ${a.btn}`}
+                disabled={isCurrent || t.id === 'free' || !sellable || !!busy}
+                onClick={() => void go(t.id)}
+                className={`mt-4 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-default disabled:opacity-60 ${a.btn}`}
               >
+                {busy === t.id && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
                 {isCurrent
                   ? 'Your plan'
                   : t.id === 'free'
                     ? '—'
-                    : t.id === 'pro_ai'
-                      ? 'Upgrade to Pro + AI'
-                      : 'Upgrade to Pro'}
+                    : busy === t.id
+                      ? 'Opening checkout…'
+                      : !sellable
+                        ? 'Coming soon'
+                        : t.id === 'pro_ai'
+                          ? 'Upgrade to Pro + AI'
+                          : 'Upgrade to Pro'}
               </button>
             </div>
           )
