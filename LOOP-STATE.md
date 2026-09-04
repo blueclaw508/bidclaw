@@ -1,5 +1,24 @@
 # LOOP-STATE — BidClaw
 
+## ⚑ STANDING RULE — FIDELITY TO QUICKCALC ON THE PROPOSAL (2026-09-04)
+Ian, verbatim: *"remember...fidelity to QC once we get to proposal"*.
+
+BlueQuickCalc is the reference implementation for the PROPOSAL end of the
+product — the document, its fields, and how the contractor configures it.
+When BidClaw and QC differ on anything the contractor sees or fills in at
+proposal time, QC wins and BidClaw is the thing to change. Do not invent a
+BidClaw-native way of doing something QC already settled.
+
+This is why the settings already mirror QC's three PDF visibility toggles
+(Payment Terms / Images / T&C) and why markups are the two QC has
+(Materials / Subs) rather than the three BidClaw briefly had — freight was
+scope creep and was dropped after a QC source review.
+
+Applies to: proposal document layout and sections, the My Numbers /
+company-profile field set, payment terms, terms & conditions, logo and
+branding, and the PDF toggles. Check QC before adding or renaming any of
+them.
+
 ## ⚑ KYN METHODOLOGY — THE RULE JAMIE KEEPS DRIFTING FROM (2026-08-24)
 Ian's correction, verbatim: "Jamie is supposed to come up with quantities
 and for materials/subs the costs plus markup (universal from My Numbers)
