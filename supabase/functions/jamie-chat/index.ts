@@ -549,7 +549,7 @@ Plain contractor English, no marketing. Full detail: lifts, compaction, bag and 
 
 Worked contrast for the same work area:
   work order: "- Excavate the patio ring to 8 in depth, 400 SF, and trench the fire pit footing ring. - Load all spoils and haul off site, six trailer loads with disposal fees. - Place processed dense grade 6 in in two lifts and plate compact each lift."
-  client: "We will excavate and haul away the existing bed, then build a compacted base for a 400 SF patio and the fire pit footing." 
+  client: "We will excavate and haul away the existing bed, then build a compacted base for a 400 SF patio and the fire pit footing."
 
 label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. a supplier's name for the thing, not the job it is doing: "Processed Dense Grade" not "Processed Dense Grade Gravel — 8 inch compacted base"; "Cedar 1x6 Board" not "Cedar boards for the west line". Every item you price that isn't already in the catalog gets SAVED to the contractor's catalog under this exact name and reused on their next job, so a job-specific label quietly fills their catalog with duplicates that never match again. Keep the same item spelled the same way every time.
 
