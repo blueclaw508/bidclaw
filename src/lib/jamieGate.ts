@@ -4,14 +4,18 @@
 // browser env. jamieLoop.ts wires this to real COUNT queries.
 
 // ──────────────────────────────────────────────────────────────────────
-// Founder mode (Loop Rule 8)
+// Tier resolution (replaced founder mode when Stripe shipped)
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Until BidClaw Stripe tiering ships, canInvokeJamie() allows ONLY this
- * UUID (Ian) and denies everyone else with JAMIE_NOT_AVAILABLE. Metering
- * still records for the founder — enforcement thresholds just aren't
- * applied. Verified against auth.users in the J0 drift gate.
+ * The founder's account. Resolves to the all-NULL `founder` tier —
+ * unlimited, though metering still records every invocation.
+ *
+ * This UUID used to be the WHOLE gate: pre-Stripe, canInvokeJamie() allowed
+ * only Ian and denied everyone else with JAMIE_NOT_AVAILABLE. That was
+ * correct while nobody could pay, and became a bug the moment they could —
+ * a Pro + AI subscriber would have been charged $499 and then refused. Now
+ * it is just one tier key among several.
  */
 export const FOUNDER_USER_ID = '38b28d49-88a3-43e1-a947-34f55b793d2e'
 
@@ -25,7 +29,9 @@ export type JamieGateCode =
   | 'RATE_LIMIT'         // hourly invocation cap hit
   | 'IMAGE_LIMIT'        // per-session image cap hit
   | 'TURN_LIMIT'         // per-session chat-turn cap hit
-  | 'JAMIE_NOT_AVAILABLE' // founder-mode deny (everyone but Ian, pre-Stripe)
+  // Kept as a kill switch: no path emits it now that tiers decide access,
+  // but a tier row that vanishes entirely still needs a code to fail with.
+  | 'JAMIE_NOT_AVAILABLE'
 
 export interface JamieGateResult {
   allowed: boolean
@@ -130,24 +136,36 @@ export function evaluateJamieGate(
 }
 
 /**
- * Founder-mode wrapper (Loop Rule 8): only the founder may invoke Jamie
- * pre-Stripe; thresholds are not applied to the founder (founder tier is
- * all-NULL anyway). Everyone else gets JAMIE_NOT_AVAILABLE regardless of
- * tier — flip this to tier-resolution when BidClaw Stripe ships (J-loop
- * exit criterion 4).
+ * Which subscription_tier_limits row governs this user.
+ *
+ * The founder resolves to the all-NULL founder tier; everyone else to their
+ * company_settings.plan, whose values are the same keys as the tier table
+ * (`free` / `pro` / `pro_ai`) and have been since J0. An account with no
+ * settings row, or a blank plan, is treated as free rather than as an
+ * error — the caller then denies with UPGRADE_REQUIRED, which is both true
+ * and actionable.
+ *
+ * Pure by design, like the rest of this file: the caller does the lookup
+ * and hands the plan in, so the whole gate stays testable without a DB.
  */
-export function evaluateFounderModeGate(
+export function tierKeyForUser(
   userId: string,
-  limits: TierLimits | null,
-  usage: JamieUsage
-): JamieGateResult {
-  if (userId !== FOUNDER_USER_ID) {
-    return deny(
-      'JAMIE_NOT_AVAILABLE',
-      'Jamie is not available on this account yet.'
-    )
-  }
-  return evaluateJamieGate(limits, usage)
+  plan: string | null | undefined
+): string {
+  if (userId === FOUNDER_USER_ID) return 'founder'
+  return (plan ?? '').trim() || 'free'
+}
+
+/**
+ * True when this tier includes Jamie at all — i.e. the deny would be
+ * UPGRADE_REQUIRED no matter what the usage counts say.
+ *
+ * Callers use it to skip the live COUNT queries on an account that could
+ * never pass: a free or Pro contractor opening a project should not cost
+ * four aggregate queries to be told they need to upgrade.
+ */
+export function tierIncludesJamie(limits: TierLimits | null): boolean {
+  return !!limits && limits.monthly_jamie_estimates !== 0
 }
 
 // ──────────────────────────────────────────────────────────────────────

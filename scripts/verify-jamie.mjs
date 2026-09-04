@@ -27,7 +27,7 @@
 //   1. gate allows founder (200 + SSE)
 //   2. ECHO streams back (stub brain round-trip through real Anthropic)
 //   3. invocation row lands with real token counts + nonzero cost
-//   4. rls-probe user gets 403 JAMIE_NOT_AVAILABLE and NO invocation row
+//   4. rls-probe user gets 403 UPGRADE_REQUIRED and NO invocation row
 //   5. jamieGate.ts copies (src/lib ↔ function dir) are content-identical
 //   6. user + assistant messages persisted on the run
 //   7. request_type 'validation' routes to Sonnet — proves the router
@@ -241,7 +241,11 @@ async function main() {
     .from('jamie_invocations')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', probeId)
-  check('4. probe → 403 JAMIE_NOT_AVAILABLE, no invocation row', probeCall.status === 403 && probeCall.json?.code === 'JAMIE_NOT_AVAILABLE' && probeInvCount === 0, `status=${probeCall.status}, code=${probeCall.json?.code}, probeRows=${probeInvCount}`)
+  // Founder mode is gone: a non-entitled account is now refused by TIER,
+  // so the probe user (free plan) gets UPGRADE_REQUIRED rather than
+  // JAMIE_NOT_AVAILABLE. What matters is unchanged — 403, and no
+  // invocation row, meaning zero spend on a deny.
+  check('4. probe → 403 UPGRADE_REQUIRED, no invocation row', probeCall.status === 403 && probeCall.json?.code === 'UPGRADE_REQUIRED' && probeInvCount === 0, `status=${probeCall.status}, code=${probeCall.json?.code}, probeRows=${probeInvCount}`)
 
   // ── 5: gate copies identical (no divergent gate implementations) ──
   const srcGate = readFileSync('src/lib/jamieGate.ts', 'utf8')

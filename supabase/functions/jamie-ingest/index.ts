@@ -15,8 +15,9 @@
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
-  evaluateFounderModeGate,
-  FOUNDER_USER_ID,
+  evaluateJamieGate,
+  tierIncludesJamie,
+  tierKeyForUser,
   type TierLimits,
 } from './jamieGate.ts'
 
@@ -194,9 +195,25 @@ Deno.serve(async (req: Request) => {
   const { data: { user }, error: authErr } = await supabase.auth.getUser()
   if (authErr || !user) return json({ error: 'Not signed in.' }, 401)
 
-  // Founder fast gate (Loop Rule 8) — zero spend on deny.
-  if (user.id !== FOUNDER_USER_ID) {
-    const denied = evaluateFounderModeGate(user.id, null, {
+  // TIER GATE — zero spend on deny. Ingest is a Jamie feature, so it rides
+  // the same entitlement as the takeoff: whatever this account's plan
+  // includes, resolved server-side from company_settings.
+  const gateService = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  )
+  const { data: planRow } = await gateService
+    .from('company_settings')
+    .select('plan')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  const { data: tierRow } = await gateService
+    .from('subscription_tier_limits')
+    .select('*')
+    .eq('tier', tierKeyForUser(user.id, planRow?.plan as string | null))
+    .maybeSingle()
+  if (!tierIncludesJamie(tierRow as TierLimits | null)) {
+    const denied = evaluateJamieGate(tierRow as TierLimits | null, {
       jamieEstimatesThisMonth: 0, invocationsThisMonth: 0,
       invocationsLastHour: 0, imagesThisSession: 0, turnsThisSession: 0,
     })
