@@ -5,7 +5,11 @@ import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
 import { resolveAddress } from '@/lib/address'
 import { getProposal, updateProposal } from '@/lib/proposals'
-import { resolvePaymentTerms, showsGrandTotal } from '@/lib/proposalDefaults'
+import {
+  resolvePaymentTerms,
+  resolveTerms,
+  showsGrandTotal,
+} from '@/lib/proposalDefaults'
 import { toast } from 'sonner'
 import {
   categoryBearsMarkup,
@@ -23,6 +27,7 @@ import type {
   CompanySettings,
   Customer,
   Project,
+  Proposal,
   ProposalLine,
   ProposalLineCategory,
   ProposalWithWorkAreas,
@@ -53,7 +58,6 @@ import type {
  *   • Email-from-app (Resend integration)
  *   • Accept/decline tracking links
  *   • E-sign integration
- *   • Custom per-proposal terms (uses default_terms_and_conditions only)
  *   • Server-side PDF generation (browser print is fine for v1)
  */
 
@@ -409,6 +413,7 @@ export default function ProposalPrintView() {
               {format === 'summary' && (
                 <SummaryBody
                   settings={settings}
+                  proposal={proposal}
                   project={projectWithCustomer}
                   enabledWorkAreas={enabledWorkAreas}
                   accent={accent}
@@ -620,15 +625,18 @@ function CustomerProjectBlock({
 /** Shared client closing: T&C + payment terms + signature block. */
 function ClientClosing({
   settings,
+  proposal,
   accent,
 }: {
   settings: CompanySettings
+  /** Carries this proposal's own terms, when it has any. */
+  proposal: Proposal | null
   accent: string
 }) {
+  const terms = resolveTerms(proposal, settings)
   return (
     <>
-      {settings.pdf_show_terms_and_conditions &&
-      settings.default_terms_and_conditions?.trim() ? (
+      {settings.pdf_show_terms_and_conditions && terms ? (
         <section className="pv-section pv-page-break-before mt-10">
           <h3
             className="pv-section-heading text-sm font-bold uppercase tracking-wider"
@@ -637,7 +645,7 @@ function ClientClosing({
             Terms &amp; Conditions
           </h3>
           <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">
-            {settings.default_terms_and_conditions}
+            {terms}
           </p>
         </section>
       ) : null}
@@ -699,7 +707,7 @@ function DetailedBody({
         <GrandTotalsCard workAreas={enabledWorkAreas} accent={accent} />
       </div>
 
-      <ClientClosing settings={settings} accent={accent} />
+      <ClientClosing settings={settings} proposal={proposal} accent={accent} />
     </>
   )
 }
@@ -712,12 +720,15 @@ function DetailedBody({
  */
 function SummaryBody({
   settings,
+  proposal,
   project,
   enabledWorkAreas,
   accent,
   showTotal,
 }: {
   settings: CompanySettings
+  /** For this proposal's own Terms & Conditions, when it has any. */
+  proposal: Proposal | null
   project: Project
   enabledWorkAreas: ProposalWorkAreaResolved[]
   accent: string
@@ -834,7 +845,7 @@ function SummaryBody({
         </table>
       </div>
 
-      <ClientClosing settings={settings} accent={accent} />
+      <ClientClosing settings={settings} proposal={proposal} accent={accent} />
     </>
   )
 }

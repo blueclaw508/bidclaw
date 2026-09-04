@@ -349,7 +349,12 @@ export async function createProposal(input: {
  */
 export async function updateProposal(
   id: string,
-  patch: Partial<Pick<Proposal, 'name' | 'notes' | 'status' | 'show_grand_total'>>,
+  patch: Partial<
+    Pick<
+      Proposal,
+      'name' | 'notes' | 'status' | 'show_grand_total' | 'terms_and_conditions'
+    >
+  >,
   opts?: {
     /**
      * Optimistic-concurrency guard (0012): when set, the write only

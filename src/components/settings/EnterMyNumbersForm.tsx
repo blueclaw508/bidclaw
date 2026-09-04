@@ -563,8 +563,10 @@ function TermsCard({
         />
         <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
           <ScrollText className="w-3 h-3" />
-          These terms are applied universally to all new proposals. You can
-          still edit them per-proposal on the Create Proposal page.
+          These are your DEFAULT terms, printed on every proposal. To give
+          one job its own language, open that proposal and use
+          &ldquo;Terms &amp; Conditions — this proposal&rdquo;; anything you
+          put there replaces this default for that proposal only.
         </p>
 
         {/* Payment terms had a show/hide toggle from the start but no field:

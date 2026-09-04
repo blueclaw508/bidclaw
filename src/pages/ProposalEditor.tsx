@@ -103,6 +103,9 @@ export default function ProposalEditor() {
 
   // Notes draft state (Save+Reset bar pattern)
   const [notesDraft, setNotesDraft] = useState<string>('')
+  // Per-proposal Terms & Conditions. Blank inherits the company default
+  // from My Numbers, which is what every proposal did before this existed.
+  const [termsDraft, setTermsDraft] = useState<string>('')
 
   // Delete-proposal modal state — null when closed, true when the
   // contractor has clicked the toolbar Delete button + we're waiting
@@ -158,6 +161,7 @@ export default function ProposalEditor() {
       }
       setProposal(p)
       setNotesDraft(p.notes ?? '')
+      setTermsDraft(p.terms_and_conditions ?? '')
       primeLineState(p, setLocalLines, setOriginalLines)
       setDeletedLineIds(new Set())
 
@@ -216,6 +220,10 @@ export default function ProposalEditor() {
     if (!proposal) return false
     return notesDraft !== (proposal.notes ?? '')
   }, [notesDraft, proposal])
+  const termsDirty = useMemo(() => {
+    if (!proposal) return false
+    return termsDraft !== (proposal.terms_and_conditions ?? '')
+  }, [termsDraft, proposal])
 
   // A line is dirty when any of (name / quantity / cost / sort_order)
   // differs from the server snapshot, or when it's in deletedLineIds.
@@ -253,7 +261,7 @@ export default function ProposalEditor() {
   }, [localLines, deletedLineIds])
 
   const linesDirtyCount = dirtyLineIds.size + deletedLineIds.size
-  const anyDirty = notesDirty || linesDirtyCount > 0
+  const anyDirty = notesDirty || termsDirty || linesDirtyCount > 0
   const canSave = anyDirty && linesWithErrors.size === 0 && !saving
 
   // Items-need-pricing count: lines whose customer-facing TOTAL is $0.
@@ -324,11 +332,20 @@ export default function ProposalEditor() {
       await assertProposalVersion(proposal.id, proposal.lock_version)
 
       const ops: Promise<unknown>[] = []
-      // Notes
-      if (notesDirty) {
+      // Notes + per-proposal terms (one write when either changed)
+      if (notesDirty || termsDirty) {
         ops.push(
           updateProposal(proposal.id, {
-            notes: notesDraft.trim() ? notesDraft : null,
+            ...(notesDirty
+              ? { notes: notesDraft.trim() ? notesDraft : null }
+              : {}),
+            ...(termsDirty
+              ? {
+                  // Blank means "inherit the company default", not "print
+                  // no terms" — NULL is what the resolver falls back on.
+                  terms_and_conditions: termsDraft.trim() ? termsDraft : null,
+                }
+              : {}),
           })
         )
       }
@@ -385,6 +402,8 @@ export default function ProposalEditor() {
     proposal,
     canSave,
     notesDirty,
+    termsDirty,
+    termsDraft,
     notesDraft,
     dirtyLineIds,
     localLines,
@@ -787,6 +806,24 @@ export default function ProposalEditor() {
               placeholder="Internal notes for this proposal."
               className={`${inputClasses} disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500`}
             />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Terms &amp; Conditions — this proposal
+            </span>
+            <textarea
+              value={termsDraft}
+              onChange={(e) => setTermsDraft(e.target.value)}
+              disabled={readOnly}
+              rows={5}
+              placeholder="Leave blank to use your default terms from My Numbers. Anything here replaces them for this proposal only."
+              className={`${inputClasses} disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500`}
+            />
+            <span className="mt-1 block text-[11px] text-gray-400">
+              {termsDraft.trim()
+                ? 'This proposal prints these terms instead of your default.'
+                : 'Blank — this proposal prints your default terms from My Numbers.'}
+            </span>
           </label>
         </div>
       </section>

@@ -570,6 +570,12 @@ export interface Proposal {
    * options-priced job has no single true total until the client picks.
    */
   show_grand_total: boolean | null
+  /**
+   * Terms & Conditions for THIS proposal. NULL inherits the company
+   * default. Set per proposal for the job that needs its own language —
+   * an access clause, an HOA rider, a winter-shutdown caveat.
+   */
+  terms_and_conditions: string | null
   created_at: string
   updated_at: string
 }

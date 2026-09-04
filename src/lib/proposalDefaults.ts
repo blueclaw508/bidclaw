@@ -22,6 +22,22 @@ export function resolvePaymentTerms(
 }
 
 /**
+ * The Terms & Conditions to print: this proposal's own text when set,
+ * otherwise the company default. Visibility is still governed by
+ * `pdf_show_terms_and_conditions`.
+ */
+export function resolveTerms(
+  proposal: Pick<Proposal, 'terms_and_conditions'> | null | undefined,
+  settings: Pick<CompanySettings, 'default_terms_and_conditions'> | null | undefined
+): string {
+  return (
+    proposal?.terms_and_conditions?.trim() ||
+    settings?.default_terms_and_conditions?.trim() ||
+    ''
+  )
+}
+
+/**
  * Whether this proposal prints a PROJECT TOTAL.
  *
  * Per-proposal wins; NULL inherits the company default. Ian, 2026-09-04:
