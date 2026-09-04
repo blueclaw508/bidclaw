@@ -349,7 +349,7 @@ export async function createProposal(input: {
  */
 export async function updateProposal(
   id: string,
-  patch: Partial<Pick<Proposal, 'name' | 'notes' | 'status'>>,
+  patch: Partial<Pick<Proposal, 'name' | 'notes' | 'status' | 'show_grand_total'>>,
   opts?: {
     /**
      * Optimistic-concurrency guard (0012): when set, the write only
@@ -371,9 +371,13 @@ export async function updateProposal(
     )
   }
   if (!isProposalEditable(current.status as ProposalStatus)) {
+    // show_grand_total is presentation, not pricing — it changes whether a
+    // total is rendered, never a number. Blocking it on a sent proposal
+    // would fail the print-time checkbox with an error the contractor can
+    // do nothing about, so it is exempt alongside status.
     const nonStatusKeys = Object.keys(patch)
       .filter((k) => patch[k as keyof typeof patch] !== undefined)
-      .filter((k) => k !== 'status')
+      .filter((k) => k !== 'status' && k !== 'show_grand_total')
     if (nonStatusKeys.length > 0) {
       throw new Error(
         `Proposal is ${current.status}, not editable — only status may be changed (got: ${nonStatusKeys.join(', ')}). Set it back to Draft or Ready to Send to edit.`

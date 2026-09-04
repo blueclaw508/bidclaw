@@ -13,6 +13,7 @@ import type {
   CompanyLaborType,
   CompanySettings,
 } from '@/lib/types'
+import { DEFAULT_PAYMENT_TERMS } from '@/lib/proposalDefaults'
 
 /**
  * QC-aligned Enter My Numbers cards. Mirrors the QC component structure
@@ -225,6 +226,15 @@ function PdfBrandingCard({
               subtitle="Legal terms at the bottom of the PDF"
               checked={value.pdf_show_terms_and_conditions ?? true}
               onChange={(v) => onChange({ pdf_show_terms_and_conditions: v })}
+            />
+            <ToggleRow
+              icon={DollarSign}
+              iconColor="text-blue-500"
+              accentBg="peer-checked:bg-blue-500"
+              title="Project Total"
+              subtitle="Off prices each work area but shows no grand total — for jobs the client picks options from"
+              checked={value.pdf_show_grand_total ?? true}
+              onChange={(v) => onChange({ pdf_show_grand_total: v })}
             />
           </div>
         </div>
@@ -555,6 +565,39 @@ function TermsCard({
           <ScrollText className="w-3 h-3" />
           These terms are applied universally to all new proposals. You can
           still edit them per-proposal on the Create Proposal page.
+        </p>
+
+        {/* Payment terms had a show/hide toggle from the start but no field:
+            the sentence was hardcoded in the print view, so it could be
+            switched off and never reworded. Blank keeps that original
+            sentence, so nothing changes until it is deliberately edited. */}
+        <label className="mt-6 block text-sm font-medium text-gray-700">
+          Payment Terms
+        </label>
+        <p className="mb-2 text-xs text-gray-400">
+          Printed under PAYMENT TERMS on the client proposal, when that
+          section is switched on above.
+        </p>
+        <textarea
+          placeholder={DEFAULT_PAYMENT_TERMS}
+          value={value.default_payment_terms ?? ''}
+          onChange={(e) => {
+            const next = e.target.value
+            const wasEmpty = !(value.default_payment_terms ?? '').trim()
+            const nowHasText = next.trim() !== ''
+            onChange({
+              default_payment_terms: next.trim() === '' ? null : next,
+              // Same trap as the terms field above: entering text into a
+              // section whose visibility toggle is off would look broken.
+              ...(wasEmpty && nowHasText ? { pdf_show_payment_terms: true } : {}),
+            })
+          }}
+          rows={3}
+          className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+        />
+        <p className="mt-2 flex items-center gap-1 text-xs text-gray-400">
+          <CreditCard className="h-3 w-3" />
+          Leave blank to use: &ldquo;{DEFAULT_PAYMENT_TERMS}&rdquo;
         </p>
       </div>
     </div>

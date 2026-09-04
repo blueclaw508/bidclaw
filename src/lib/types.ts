@@ -319,6 +319,13 @@ export interface CompanySettings {
   pdf_show_payment_terms: boolean
   pdf_show_images: boolean
   pdf_show_terms_and_conditions: boolean
+  /**
+   * Company default for printing a PROJECT TOTAL on the client proposal.
+   * Work-area prices always print; this governs the grand total only, so a
+   * client picking a subset of options is never quoted a total that stops
+   * being true the moment they drop one. Overridable per proposal.
+   */
+  pdf_show_grand_total: boolean
 
   // Markups — QC has TWO (Materials / Subs). Freight was Bidclaw scope
   // creep dropped after QC source review.
@@ -327,6 +334,12 @@ export interface CompanySettings {
 
   // Proposal defaults
   default_terms_and_conditions: string | null
+  /**
+   * Payment terms text for the client proposal. NULL falls back to
+   * DEFAULT_PAYMENT_TERMS, which is the sentence this was hardcoded to
+   * before it became editable. Rendered only when pdf_show_payment_terms.
+   */
+  default_payment_terms: string | null
 
   /**
    * Jamie (AI estimating agent) entitlement — Jamie is a PAID UPGRADE.
@@ -550,6 +563,13 @@ export interface Proposal {
    * the document → ProposalConflictError instead of last-write-wins.
    */
   lock_version: number
+  /**
+   * Print a PROJECT TOTAL on this proposal? NULL inherits the company
+   * default (`company_settings.pdf_show_grand_total`). Set per proposal
+   * because whether a total makes sense is a per-job call: an
+   * options-priced job has no single true total until the client picks.
+   */
+  show_grand_total: boolean | null
   created_at: string
   updated_at: string
 }
