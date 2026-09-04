@@ -98,10 +98,25 @@ jobs:
               exit 1
             fi
             echo "── Deploying ${fn}"
-            # JWT verification stays ON (the CLI default). Every function in
-            # this repo authenticates the caller itself and would be an open
-            # endpoint without it.
-            supabase functions deploy "${fn}" --project-ref "${PROJECT_REF}"
+            # JWT verification is ON by default, and stays on for every
+            # function a signed-in contractor calls — each one authenticates
+            # the caller itself and would be an open endpoint without it.
+            #
+            # stripe-webhook is the one exception, and it has to be: Stripe
+            # calls it with a Stripe signature and no Supabase JWT, so with
+            # verification on it would reject every event and subscriptions
+            # would silently never activate. Its security comes from
+            # constructEventAsync() verifying that signature — it refuses
+            # before it writes anything.
+            case "${fn}" in
+              stripe-webhook)
+                supabase functions deploy "${fn}" \
+                  --project-ref "${PROJECT_REF}" --no-verify-jwt
+                ;;
+              *)
+                supabase functions deploy "${fn}" --project-ref "${PROJECT_REF}"
+                ;;
+            esac
           done
 
       - name: Summary
