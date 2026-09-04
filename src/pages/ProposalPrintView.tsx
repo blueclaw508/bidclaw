@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Printer, ScrollText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
+import { loadEntitlements } from '@/lib/entitlements'
 import { resolveAddress } from '@/lib/address'
 import { getProposal, updateProposal } from '@/lib/proposals'
 import {
@@ -103,6 +104,9 @@ export default function ProposalPrintView() {
   // so the choice sticks for the next print rather than resetting.
   const [showTotal, setShowTotal] = useState(true)
   const [savingTotal, setSavingTotal] = useState(false)
+  // Free trial → every page prints PREVIEW. Defaults false so a failed
+  // entitlement read can never watermark a paying customer's proposal.
+  const [watermarked, setWatermarked] = useState(false)
 
   /* ---------- parallel load ---------- */
 
@@ -114,11 +118,17 @@ export default function ProposalPrintView() {
     setNotFound(false)
     ;(async () => {
       try {
-        const [p, cs] = await Promise.all([
+        const [p, cs, ent] = await Promise.all([
           getProposal(proposalId),
           loadCompanySettings(),
+          // Never fail the print because the entitlement read failed —
+          // fall back to NOT watermarking. A missing watermark on a paid
+          // account's proposal is invisible; a spurious one on a paying
+          // customer's document is a support call.
+          loadEntitlements().catch(() => null),
         ])
         if (cancelled) return
+        setWatermarked(ent?.watermarked ?? false)
         if (!p) {
           setNotFound(true)
           setLoading(false)
@@ -234,8 +244,9 @@ export default function ProposalPrintView() {
       <style>{PRINT_CSS}</style>
 
       <div className="pv-root min-h-screen bg-gray-100 print:bg-white">
+        {watermarked ? <PreviewWatermark /> : null}
         {/* ───── Toolbar — screen only ───── */}
-        <div className="pv-toolbar sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <div className="pv-toolbar sticky top-0 z-30 border-b border-gray-200 bg-white px-4 py-3 shadow-sm">
           <div className="mx-auto flex max-w-[850px] flex-wrap items-center justify-between gap-2">
             <button
               type="button"
@@ -623,6 +634,39 @@ function CustomerProjectBlock({
 /* ============================================================
  * Format bodies (R7) — Detailed / Summary / Crew
  * ============================================================ */
+
+/**
+ * Free-trial watermark: PREVIEW across every page, on screen and in print.
+ *
+ * This is a CONVERSION LEVER, not a lock. It is a DOM element on a
+ * client-rendered page, so anyone who opens devtools can delete it and
+ * print clean — a known, accepted trade (see migration 0030's header). The
+ * thing a free account genuinely cannot do is mark a proposal Sent; that is
+ * a Postgres trigger with no browser path around it.
+ *
+ * pointer-events-none so it never blocks a click on the document under it,
+ * and aria-hidden so a screen reader isn't made to read it on every page.
+ */
+function PreviewWatermark() {
+  return (
+    <div
+      className="pv-watermark pointer-events-none fixed inset-0 z-20 flex items-center justify-center overflow-hidden"
+      aria-hidden="true"
+    >
+      <span
+        className="select-none whitespace-nowrap text-[18vw] font-black uppercase leading-none tracking-tight"
+        style={{
+          transform: 'rotate(-32deg)',
+          // Light enough to read the proposal through it, dark enough that
+          // no client would mistake it for a finished document.
+          color: 'rgba(15, 23, 42, 0.10)',
+        }}
+      >
+        Preview
+      </span>
+    </div>
+  )
+}
 
 /** Shared client closing: T&C + payment terms + signature block. */
 function ClientClosing({
@@ -1459,6 +1503,27 @@ const PRINT_CSS = `
   .pv-document a {
     color: inherit !important;
     text-decoration: none !important;
+  }
+
+  /* Free-trial watermark. position:fixed is what makes it repeat on EVERY
+     printed page rather than only the first — the whole point of a
+     watermark. Colour forced through with print-color-adjust, since
+     browsers strip backgrounds by default. */
+  .pv-watermark {
+    display: flex !important;
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* vw resolves against the viewport, not the sheet, so the screen size
+     does not survive printing. Pin it in points against Letter width. */
+  .pv-watermark span {
+    font-size: 130pt !important;
   }
 }
 `

@@ -38,7 +38,7 @@ import { loadCompanySettings } from '@/lib/companySettings'
 import { generateProposalFromEstimates } from '@/lib/proposals'
 import {
   loadEntitlements,
-  isEstimateLimitError,
+  isFreeProposalUsedError,
   type Entitlements,
 } from '@/lib/entitlements'
 import {
@@ -522,7 +522,7 @@ function ProjectEstimateTotals({
       navigate(`/app/projects/${projectId}/proposals/${proposalId}`)
     } catch (err) {
       // Free-tier gate (server trigger) → show the upgrade path, not an error.
-      if (isEstimateLimitError(err)) {
+      if (isFreeProposalUsedError(err)) {
         setGenerating(false)
         setGenOpen(false)
         setUpgradeOpen(true)
@@ -542,18 +542,24 @@ function ProjectEstimateTotals({
           Project Estimate
         </h3>
         <div className="flex items-center gap-2">
-          {entitlements?.plan === 'free' && entitlements.estimateLimit !== null && (
+          {entitlements && !entitlements.subscribed && (
             <button
               type="button"
               onClick={() => setUpgradeOpen(true)}
-              title="Free plan — 5 estimates per month. Click to upgrade."
+              title={
+                entitlements.trialUsed
+                  ? 'Your free proposal is used. Subscribe to build more.'
+                  : 'Free trial — one proposal. Click to see plans.'
+              }
               className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 transition-colors hover:ring-2 ${
-                entitlements.estimatesThisMonth >= entitlements.estimateLimit
+                entitlements.trialUsed
                   ? 'bg-amber-50 text-amber-700 ring-amber-300'
                   : 'bg-white text-blue-700 ring-blue-200'
               }`}
             >
-              {entitlements.estimatesThisMonth}/{entitlements.estimateLimit} estimates · Upgrade
+              {entitlements.trialUsed
+                ? 'Free proposal used · Subscribe'
+                : 'Free trial · 1 proposal'}
             </button>
           )}
           <span className="text-xs font-medium text-blue-700">
@@ -680,10 +686,8 @@ function ProjectEstimateTotals({
             onClose={() => setUpgradeOpen(false)}
             currentPlan={entitlements?.plan ?? 'free'}
             reason={
-              entitlements?.plan === 'free' &&
-              entitlements.estimateLimit !== null &&
-              entitlements.estimatesThisMonth >= entitlements.estimateLimit
-                ? `You've used all ${entitlements.estimateLimit} estimates this month. Upgrade for unlimited.`
+              entitlements?.trialUsed
+                ? 'That was your free proposal. Subscribe to build more — and to send them without the PREVIEW watermark.'
                 : undefined
             }
           />

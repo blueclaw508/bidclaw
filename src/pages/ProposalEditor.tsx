@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   DndContext,
@@ -59,6 +59,12 @@ import { TotalsBreakdown } from '@/components/proposals/TotalsBreakdown'
 import { getLinkedLeadForLostPrompt, updateLead } from '@/lib/leads'
 import { categoryBearsMarkup, lineTotal } from '@/lib/money'
 import { loadCompanySettings } from '@/lib/companySettings'
+import {
+  isSendGateError,
+  loadEntitlements,
+  type Entitlements,
+} from '@/lib/entitlements'
+const UpgradeModal = lazy(() => import('@/components/billing/UpgradeModal'))
 import PaymentMilestonesEditor from '@/components/proposals/PaymentMilestonesEditor'
 import {
   parsePaymentMilestones,
@@ -139,6 +145,10 @@ export default function ProposalEditor() {
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [pendingTransition, setPendingTransition] = useState<StatusTransition | null>(null)
   const [transitioning, setTransitioning] = useState(false)
+  // Subscription state — drives the trial banner and the upgrade modal the
+  // send gate opens. The gate itself is server-side; this is presentation.
+  const [entitlements, setEntitlements] = useState<Entitlements | null>(null)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
 
   // P1-B: after a decline, if the project has a linked lead, offer
   // (never force) moving it to Lost. Holds the lead while the prompt
@@ -187,6 +197,9 @@ export default function ProposalEditor() {
       }
       setProposal(p)
       setSettings(cs)
+      // Best-effort: a failed entitlement read must not break the editor.
+      // The real gate is server-side, so the worst case is a missing banner.
+      loadEntitlements().then(setEntitlements).catch(() => {})
       setNotesDraft(p.notes ?? '')
       setTermsDraft(p.terms_and_conditions ?? resolveTerms(null, cs))
       setMilestones(resolvePaymentMilestones(p, cs))
@@ -528,7 +541,16 @@ export default function ProposalEditor() {
         }
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Status update failed.')
+      // The send gate is a Postgres trigger, so a free account's attempt
+      // to mark a proposal Sent arrives here as a raw exception. Turn it
+      // into the upgrade path rather than showing them
+      // "subscription_required_to_send".
+      if (isSendGateError(err)) {
+        setPendingTransition(null)
+        setUpgradeOpen(true)
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Status update failed.')
+      }
     } finally {
       setTransitioning(false)
     }
@@ -1143,6 +1165,17 @@ export default function ProposalEditor() {
         confirmLabel="Delete"
         tone="danger"
       />
+
+      {upgradeOpen && (
+        <Suspense fallback={null}>
+          <UpgradeModal
+            open={upgradeOpen}
+            onClose={() => setUpgradeOpen(false)}
+            currentPlan={entitlements?.plan ?? 'free'}
+            reason="Subscribe to send proposals. You can keep building and previewing this one — it just prints watermarked until you do."
+          />
+        </Suspense>
+      )}
     </div>
   )
 }
