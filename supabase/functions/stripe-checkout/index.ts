@@ -97,6 +97,30 @@ Deno.serve(async (req: Request) => {
 
   const stripe = new Stripe(secretKey, { apiVersion: '2025-10-29.clover' })
 
+  // The table may hold a PRICE id or a PRODUCT id. Stripe's dashboard puts
+  // the product id in front of you far more prominently than the price id,
+  // so "paste the id" reliably produces prod_... — and a subscription line
+  // item needs price_.... Resolving it here costs one API call on a page
+  // the user is about to leave anyway, and removes a whole class of
+  // silent misconfiguration.
+  let resolvedPrice = priceId
+  if (priceId.startsWith('prod_')) {
+    const product = await stripe.products.retrieve(priceId)
+    const def = product.default_price
+    resolvedPrice = typeof def === 'string' ? def : (def?.id ?? '')
+    if (!resolvedPrice) {
+      // A product with no default price is ambiguous, not guessable: it may
+      // have several, and picking one would charge an amount nobody chose.
+      return json(
+        {
+          error:
+            'That plan is misconfigured — its Stripe product has no default price set.',
+        },
+        409
+      )
+    }
+  }
+
   // ── One Stripe customer per account, reused ─────────────────────────
   // Without this, every checkout makes a new customer and the portal shows
   // one subscription per attempt.
@@ -133,7 +157,7 @@ Deno.serve(async (req: Request) => {
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [{ price: resolvedPrice, quantity: 1 }],
     success_url: `${allowedOrigin}/app/settings?checkout=success`,
     cancel_url: `${allowedOrigin}/app/settings?checkout=cancelled`,
     allow_promotion_codes: true,

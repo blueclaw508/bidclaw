@@ -23,7 +23,8 @@ type ServiceClient = ReturnType<typeof createClient>
 /** Tier a Stripe price belongs to, or null if we don't sell it. */
 async function tierForPrice(
   service: ServiceClient,
-  priceId: string | null
+  priceId: string | null,
+  productForPrice: string | null
 ): Promise<string | null> {
   if (!priceId) return null
   // The id goes into a PostgREST .or() filter, which is a comma-and-dot
@@ -42,7 +43,23 @@ async function tierForPrice(
       `stripe_price_id_monthly.eq.${priceId},stripe_price_id_annual.eq.${priceId}`
     )
     .maybeSingle()
-  return (data?.tier as string) ?? null
+  if (data?.tier) return data.tier as string
+
+  // The column may hold a PRODUCT id instead (checkout accepts either and
+  // resolves it). Stripe always reports the PRICE on the subscription, so
+  // fall back to matching on the price's parent product.
+  const productId = productForPrice
+  if (productId && /^prod_[A-Za-z0-9]+$/.test(productId)) {
+    const { data: byProduct } = await service
+      .from('subscription_tier_limits')
+      .select('tier')
+      .or(
+        `stripe_price_id_monthly.eq.${productId},stripe_price_id_annual.eq.${productId}`
+      )
+      .maybeSingle()
+    if (byProduct?.tier) return byProduct.tier as string
+  }
+  return null
 }
 
 Deno.serve(async (req: Request) => {
@@ -130,8 +147,13 @@ Deno.serve(async (req: Request) => {
           return new Response('No matching account', { status: 200 })
         }
 
-        const priceId = sub.items.data[0]?.price?.id ?? null
-        const paidTier = await tierForPrice(service, priceId)
+        const price = sub.items.data[0]?.price
+        const priceId = price?.id ?? null
+        const productId =
+          typeof price?.product === 'string'
+            ? price.product
+            : (price?.product?.id ?? null)
+        const paidTier = await tierForPrice(service, priceId, productId)
 
         // A subscription that is over, or one on a price we no longer sell,
         // drops the account to free. Deleting the plan is the same code
