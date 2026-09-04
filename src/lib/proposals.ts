@@ -352,7 +352,12 @@ export async function updateProposal(
   patch: Partial<
     Pick<
       Proposal,
-      'name' | 'notes' | 'status' | 'show_grand_total' | 'terms_and_conditions'
+      | 'name'
+      | 'notes'
+      | 'status'
+      | 'show_grand_total'
+      | 'terms_and_conditions'
+      | 'payment_milestones'
     >
   >,
   opts?: {

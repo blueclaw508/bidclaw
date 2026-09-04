@@ -340,6 +340,13 @@ export interface CompanySettings {
    * before it became editable. Rendered only when pdf_show_payment_terms.
    */
   default_payment_terms: string | null
+  /**
+   * Default payment schedule (up to 5 milestones) inherited by every new
+   * proposal. NULL falls back to DEFAULT_PAYMENT_MILESTONES. Percentages
+   * only — the dollar amounts derive from each proposal's own total, so a
+   * schedule can never go stale against the price it is splitting.
+   */
+  default_payment_milestones: PaymentMilestone[] | null
 
   /**
    * Jamie (AI estimating agent) entitlement — Jamie is a PAID UPGRADE.
@@ -548,6 +555,17 @@ export type ProposalLineCategory =
   | 'subcontractor'
   | 'other'
 
+/**
+ * One row of a payment schedule: what the client is paying for and what
+ * share of the job it covers. Percent, never dollars — the amount is
+ * derived from the proposal total at render, so re-pricing a line can
+ * never leave a payment schedule quoting a number the job no longer costs.
+ */
+export interface PaymentMilestone {
+  description: string
+  percent: number
+}
+
 export interface Proposal {
   id: string
   project_id: string
@@ -576,6 +594,13 @@ export interface Proposal {
    * an access clause, an HOA rider, a winter-shutdown caveat.
    */
   terms_and_conditions: string | null
+  /**
+   * Payment schedule for THIS proposal. NULL inherits the company default
+   * from My Numbers. Overridden per proposal for the job that pays on its
+   * own rhythm — a longer build with progress draws, a deposit a client
+   * negotiated down.
+   */
+  payment_milestones: PaymentMilestone[] | null
   created_at: string
   updated_at: string
 }
