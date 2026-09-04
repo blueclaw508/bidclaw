@@ -213,9 +213,13 @@ export default function JamieWorkspace() {
     }
   }, [runId, runStatus, projectId, gateNonce])
 
+  // awaitingLines belongs here too: it is loaded a beat AFTER the messages
+  // (separate query), so leaving it out let the "Build the takeoff" card
+  // render below the fold under a long thread with no re-scroll — present,
+  // but invisible unless you happened to scroll down.
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight })
-  }, [messages, stagedWas, stagedGroups])
+  }, [messages, stagedWas, stagedGroups, awaitingLines])
 
   // ── Sending ─────────────────────────────────────────────────────────
   const send = useCallback(
