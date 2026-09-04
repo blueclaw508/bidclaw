@@ -1,0 +1,121 @@
+# Deploy Supabase edge functions from CI.
+#
+# Why this exists: edge functions are the one part of BidClaw that Netlify
+# does not build, and they could not be deployed from a Claude Code session
+# either — that sandbox's egress policy blocks api.supabase.com, and the
+# fallback (pasting the whole function into a tool call) does not fit for
+# jamie-chat, which is ~91KB. GitHub's runner has neither problem: it checks
+# the repo out and the CLI reads straight off disk.
+#
+# ONE SECRET IS REQUIRED: SUPABASE_ACCESS_TOKEN
+#   Repo → Settings → Secrets and variables → Actions → New repository secret
+#   Value: a token from https://supabase.com/dashboard/account/tokens
+#
+# The project ref is NOT secret — it is already in the public frontend bundle
+# as part of VITE_SUPABASE_URL — so it lives here in plain sight.
+
+name: Deploy edge functions
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/deploy-edge-functions.yml'
+  workflow_dispatch:
+    inputs:
+      function:
+        description: 'Function to deploy (blank = every function that changed)'
+        required: false
+        default: ''
+
+concurrency:
+  # Never let two deploys of the same function race each other.
+  group: deploy-edge-functions
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Two commits so a push can be diffed against its parent to find
+          # which functions actually changed.
+          fetch-depth: 2
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Work out what to deploy
+        id: targets
+        env:
+          # Passed through the environment, never interpolated into the
+          # script body — a workflow_dispatch input is attacker-controlled
+          # text as far as the shell is concerned.
+          REQUESTED: ${{ inputs.function }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUESTED}" ]; then
+            targets="${REQUESTED}"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            # Second path segment of supabase/functions/<name>/... is the
+            # function name. Shared files (jamieGate.ts) live inside each
+            # function directory, so a change to one only redeploys that one.
+            targets=$(git diff --name-only HEAD^ HEAD -- supabase/functions/ \
+              | awk -F/ 'NF>3 {print $3}' | sort -u)
+          else
+            targets=''
+          fi
+          if [ -z "${targets}" ]; then
+            echo "No function changed — nothing to deploy."
+          fi
+          # Multi-line output for the deploy step.
+          {
+            echo 'list<<EOF'
+            echo "${targets}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Deploy
+        if: steps.targets.outputs.list != ''
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: cdjpzvyqvohwmlmquldt
+          TARGETS: ${{ steps.targets.outputs.list }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN is not set. Add it under" \
+                 "Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "${TARGETS}" | while read -r fn; do
+            [ -z "${fn}" ] && continue
+            if [ ! -f "supabase/functions/${fn}/index.ts" ]; then
+              echo "::error::No such function: ${fn}"
+              exit 1
+            fi
+            echo "── Deploying ${fn}"
+            # JWT verification stays ON (the CLI default). Every function in
+            # this repo authenticates the caller itself and would be an open
+            # endpoint without it.
+            supabase functions deploy "${fn}" --project-ref "${PROJECT_REF}"
+          done
+
+      - name: Summary
+        if: always()
+        env:
+          TARGETS: ${{ steps.targets.outputs.list }}
+        run: |
+          {
+            echo '### Edge function deploy'
+            echo
+            if [ -z "${TARGETS}" ]; then
+              echo 'Nothing to deploy — no function directory changed.'
+            else
+              echo 'Deployed:'
+              echo "${TARGETS}" | sed 's/^/- /'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
