@@ -389,6 +389,10 @@ export default function ProposalEditor() {
         setProposal(p)
         primeLineState(p, setLocalLines, setOriginalLines)
         setNotesDraft(p.notes ?? '')
+        // Re-prime from server truth, not from the draft we just sent:
+        // a whitespace-only entry is stored as NULL, and without this
+        // the field would read dirty forever after saving it.
+        setTermsDraft(p.terms_and_conditions ?? '')
       }
       setTotals(t)
       setDeletedLineIds(new Set())
@@ -413,6 +417,7 @@ export default function ProposalEditor() {
   const handleResetAll = useCallback(() => {
     if (!proposal) return
     setNotesDraft(proposal.notes ?? '')
+    setTermsDraft(proposal.terms_and_conditions ?? '')
     setLocalLines({ ...originalLines })
     setDeletedLineIds(new Set())
   }, [proposal, originalLines])
