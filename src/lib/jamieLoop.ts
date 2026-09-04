@@ -581,6 +581,47 @@ export async function commitWorkAreaGate(
 }
 
 /**
+ * Approved work areas on this run that still have NO staged lines — i.e. the
+ * part of the takeoff Pass 2 has not built yet.
+ *
+ * Pass 2 is chunked (2026-09-04) because pricing every work area in one
+ * request blew past the edge function's 150s wall clock and died silently.
+ * This is what the workspace walks through, and what tells it a takeoff was
+ * left half-built — a Pass 2 that died used to leave the contractor in chat
+ * with no way to resume, and re-proposing was the only button that did
+ * anything. Ordered so the takeoff is built in the order the contractor
+ * approved.
+ */
+export async function listWorkAreasAwaitingLines(
+  runId: string
+): Promise<Array<{ id: string; name: string }>> {
+  const { data: approved, error } = await supabase
+    .from('jamie_proposed_work_areas')
+    .select('id, proposed_name, sort_order, inserted_work_area_id')
+    .eq('jamie_run_id', runId)
+    .eq('status', 'approved')
+    .not('inserted_work_area_id', 'is', null)
+    .order('sort_order')
+  if (error) throw new Error(`Couldn't read the approved work areas: ${error.message}`)
+  const rows = (approved ?? []) as Array<{ id: string; proposed_name: string }>
+  if (rows.length === 0) return []
+
+  const { data: lines, error: lineErr } = await supabase
+    .from('jamie_proposed_lines')
+    .select('jamie_proposed_work_area_id')
+    .in('jamie_proposed_work_area_id', rows.map((r) => r.id))
+  if (lineErr) throw new Error(`Couldn't read the staged lines: ${lineErr.message}`)
+  const priced = new Set(
+    ((lines ?? []) as Array<{ jamie_proposed_work_area_id: string }>).map(
+      (l) => l.jamie_proposed_work_area_id
+    )
+  )
+  return rows
+    .filter((r) => !priced.has(r.id))
+    .map((r) => ({ id: r.id, name: r.proposed_name }))
+}
+
+/**
  * What Pass 2 reads as the scope of a work area the contractor added at
  * Gate 1 without describing it. The staged row needs SOME scope text or the
  * prompt shows "(none)" and Jamie has nothing to build from; the real
