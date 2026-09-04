@@ -46,6 +46,43 @@ VERIFIED by npm run verify:jamie-loop, assertions 5b/5c/6b:
 Last run 10/10: 47 lines, cheapest $1.15/unit, 8 rates matched,
 cost $40,297 -> billed $48,872.30, margin $8,575.30 (50% mat / 34.9% subs).
 
+## ⚑ MONEY IS CENTS — THE PARTS MUST ADD UP TO THE TOTAL (2026-09-04) — BUILT
+Ian, off the live Justin Helferich estimate: *"All work areas are .00 but
+total is .99 can you put something in place to fix that on all estimates?"*
+
+Cause: every displayed figure was rounded for DISPLAY only, by formatUSD,
+while every aggregate summed the RAW floats. Five work areas each really
+worth 28,878.9963 each printed $28,879.00 and each contributed
+28,878.9963 to the project total, so the total landed a cent or two off
+the column above it. A contractor cannot hand a client a proposal whose
+parts do not add up.
+
+THE RULE, now enforced in one place (`src/lib/money.ts`): money is CENTS.
+`roundMoney()` rounds the moment an amount is computed; `sumMoney()` sums
+and lands on a clean cent. Rounding happens at the LINE — the smallest
+billed number — so a work-area total is the sum of rounded lines and the
+project total is the sum of rounded work areas. Every level reconciles.
+
+- `lineBase` / `lineTotal` / `estimateLineBase` / `estimateLineTotal` all
+  return cent-exact values, including price overrides.
+- `lineMarkup` is now DERIVED as `lineTotal − lineBase` rather than
+  computed independently, so the base + markup = total invariant the
+  module was already built around holds to the cent instead of drifting.
+- Aggregates use `sumMoney`: the estimate card, the totals rail, the
+  Work Area estimate category subtotals, the proposal list's stored
+  `grand_total`, the print view's work-area and category subtotals, and
+  the denormalized `proposal_work_areas` subtotals.
+
+Because rounding now happens per line rather than per column, an
+individual work-area total can move by a cent from what it showed before.
+That is the correction, not a new error.
+
+Verified numerically (scratch harness): before, the sum of the DISPLAYED
+parts differed from the printed total by $0.01; after, they are identical.
+0.1 + 0.2 → 0.3; 0.145 → 0.15; −0.145 → −0.15.
+
+NOT WALKED IN A BROWSER.
+
 ## ⚑ ONE SCOPE TEXT CANNOT SERVE CLIENT AND CREW (2026-09-04) — BUILT
 Ian's teaching point, off the live Justin Helferich takeoff. JAMIE-FLOW §4
 said the scope was "doing two jobs at once: it is what the client is buying

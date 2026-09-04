@@ -27,7 +27,15 @@
 import { supabase } from '@/lib/supabase'
 import { loadKit, resolveKitLineReference } from '@/lib/kits'
 import { syncLeadOnProposalGenerated, syncLeadStageForProposalStatus } from '@/lib/leads'
-import { categoryBearsMarkup, effectiveMarkupPercent, lineBase, lineMarkup, lineTotal } from '@/lib/money'
+import {
+  categoryBearsMarkup,
+  effectiveMarkupPercent,
+  lineBase,
+  lineMarkup,
+  lineTotal,
+  roundMoney,
+  sumMoney,
+} from '@/lib/money'
 import { PROPOSAL_STATUS_CONFIG, PROPOSAL_STATUS_ORDER } from '@/lib/statusConfig'
 import type {
   KitPreviewLine,
@@ -204,16 +212,17 @@ export async function listProposalsByProject(
   }
   return ((data ?? []) as RawRow[]).map((row) => {
     const wAreas = row.proposal_work_areas ?? []
-    let grand_total = 0
+    // Round each work area, then sum those — the same shape the proposal
+    // prints, so a listed total always equals the rows above it.
     let line_count = 0
+    const waTotals: number[] = []
     for (const wa of wAreas) {
       const lines = wa.proposal_lines ?? []
       line_count += lines.length
       if (!wa.enabled) continue // disabled work areas don't roll up
-      for (const l of lines) {
-        grand_total += lineTotal(l)
-      }
+      waTotals.push(sumMoney(lines.map((l) => lineTotal(l))))
     }
+    const grand_total = sumMoney(waTotals)
     // Strip embedded sub-resources before returning the row shape
     const { proposal_work_areas, ...rest } = row
     void proposal_work_areas
@@ -967,7 +976,7 @@ export async function syncProposalWorkAreaSubtotals(
     frozen_unit_cost: number
     frozen_markup_percent: number
   }>) {
-    subtotals[l.category] += lineTotal(l)
+    subtotals[l.category] = roundMoney(subtotals[l.category] + lineTotal(l))
   }
   const { data, error } = await supabase
     .from('proposal_work_areas')

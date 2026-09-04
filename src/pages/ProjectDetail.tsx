@@ -27,7 +27,7 @@ import {
   mapsUrl,
   type SplitAddress,
 } from '@/lib/address'
-import { estimateLineTotal, formatUSD } from '@/lib/money'
+import { estimateLineTotal, formatUSD, sumMoney } from '@/lib/money'
 import { loadCompanySettings } from '@/lib/companySettings'
 import { canInvokeJamie } from '@/lib/jamieLoop'
 
@@ -148,14 +148,11 @@ export default function ProjectDetailPage() {
       markup_subs_percent: settings?.markup_subs_percent ?? 0,
     }
     type WARow = { work_area_lines: Parameters<typeof estimateLineTotal>[0][] | null }
-    const value = ((waLines.data as WARow[] | null) ?? []).reduce(
-      (sum, wa) =>
-        sum +
-        (wa.work_area_lines ?? []).reduce(
-          (s, l) => s + estimateLineTotal(l, markup),
-          0
-        ),
-      0
+    // Round per work area then sum, matching the estimate card exactly.
+    const value = sumMoney(
+      ((waLines.data as WARow[] | null) ?? []).map((wa) =>
+        sumMoney((wa.work_area_lines ?? []).map((l) => estimateLineTotal(l, markup)))
+      )
     )
     setEstimatedValue(value)
   }, [projectId])

@@ -38,6 +38,7 @@ import { jamieCategoryToDb, type JamieLineItem } from '@/lib/jamie'
 import {
   categoryBearsMarkup,
   estimateLineTotal,
+  sumMoney,
   formatUSD,
   liveMarkupPercent,
   type LiveMarkupSettings,
@@ -148,7 +149,7 @@ export function WorkAreaEstimate({
   }, [lines])
 
   const workAreaTotal = useMemo(
-    () => lines.reduce((sum, l) => sum + estimateLineTotal(l, settings), 0),
+    () => sumMoney(lines.map((l) => estimateLineTotal(l, settings))),
     [lines, settings]
   )
 
@@ -277,9 +278,8 @@ export function WorkAreaEstimate({
         if (catLines.length === 0) return null
         const bearsMarkup = categoryBearsMarkup(cat)
         const markupPct = liveMarkupPercent(cat, settings)
-        const subtotal = catLines.reduce(
-          (s, l) => s + estimateLineTotal(l, settings),
-          0
+        const subtotal = sumMoney(
+          catLines.map((l) => estimateLineTotal(l, settings))
         )
         return (
           <div key={cat} className="border-b border-blue-100/70 last:border-b-0">

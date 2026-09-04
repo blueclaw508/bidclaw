@@ -5,7 +5,14 @@ import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
 import { resolveAddress } from '@/lib/address'
 import { getProposal } from '@/lib/proposals'
-import { categoryBearsMarkup, formatUSD, lineBase, lineMarkup, lineTotal } from '@/lib/money'
+import {
+  categoryBearsMarkup,
+  formatUSD,
+  lineBase,
+  lineMarkup,
+  lineTotal,
+  sumMoney,
+} from '@/lib/money'
 import {
   PROPOSAL_LINE_CATEGORY_LABELS,
   PROPOSAL_LINE_CATEGORY_ORDER,
@@ -688,8 +695,9 @@ function SummaryBody({
       project.site_address
     ) || 'the specified location'
   const waTotal = (wa: ProposalWorkAreaResolved) =>
-    wa.lines.reduce((s, l) => s + lineTotal(l), 0)
-  const grand = enabledWorkAreas.reduce((s, wa) => s + waTotal(wa), 0)
+    sumMoney(wa.lines.map((l) => lineTotal(l)))
+  // The client proposal's parts must add up to its total, to the cent.
+  const grand = sumMoney(enabledWorkAreas.map((wa) => waTotal(wa)))
 
   return (
     <>
@@ -925,13 +933,10 @@ function WorkAreaPrintSection({
   // Work area total = sum of line-level (qty × cost × (1 + markup/100))
   // computed from line-level data (keeps it aligned with the editor's
   // tabular totals card, which reads the same fields).
-  const workAreaTotal = useMemo(() => {
-    let sum = 0
-    for (const l of workArea.lines) {
-      sum += lineTotal(l)
-    }
-    return sum
-  }, [workArea.lines])
+  const workAreaTotal = useMemo(
+    () => sumMoney(workArea.lines.map((l) => lineTotal(l))),
+    [workArea.lines]
+  )
 
   return (
     <section className="pv-work-area">
@@ -987,7 +992,7 @@ function CategoryLineTable({
     [lines]
   )
 
-  const subtotal = sorted.reduce((acc, l) => acc + lineTotal(l), 0)
+  const subtotal = sumMoney(sorted.map((l) => lineTotal(l)))
 
   return (
     <div className="pv-category-table">
