@@ -4,10 +4,14 @@ import { Modal } from '@/components/Modal'
 import type { Plan } from '@/lib/entitlements'
 
 /**
- * Upgrade / pricing modal. Shown when a free user hits the 5-estimate
- * monthly cap, or from a plan badge. Prices are the canonical BCG table
- * (blueclaw-app-pricing). Checkout is not wired yet (billing source is
- * pending the central-hub decision) — the CTA is an interim placeholder.
+ * Upgrade / pricing modal. Shown when the free trial's one proposal is
+ * spent, when the send gate refuses a transition, or from a plan badge.
+ *
+ * PRICES ARE STILL HARDCODED HERE. They should come from
+ * subscription_tier_limits (which already carries monthly_price_usd and
+ * stripe_price_id), so changing a plan is a data edit rather than a deploy.
+ * That swap lands with the real numbers + Stripe checkout — doing it twice
+ * would mean writing the fetch against prices that are about to change.
  */
 
 interface Tier {
@@ -25,11 +29,16 @@ interface Tier {
 const TIERS: Tier[] = [
   {
     id: 'free',
-    name: 'Free',
+    name: 'Free trial',
     monthly: '$0',
     yearly: '',
-    blurb: '5 estimates a month',
-    features: ['5 estimates / month', 'Manual estimating (KYN)', 'Proposals + PDF (Detailed / Summary / Crew)'],
+    blurb: 'One proposal, on us',
+    features: [
+      'One proposal — build it start to finish',
+      'Manual estimating (KYN)',
+      'Prints watermarked PREVIEW',
+      'Cannot be sent until you subscribe',
+    ],
     accent: 'gray',
   },
   {
@@ -39,7 +48,11 @@ const TIERS: Tier[] = [
     yearly: '$399/yr',
     save: 'save $69',
     blurb: 'Unlimited estimates',
-    features: ['Unlimited estimates', 'Everything in Free', 'Kits + catalog'],
+    features: [
+      'Unlimited proposals',
+      'Send proposals — no watermark',
+      'Kits + catalog',
+    ],
     accent: 'navy',
   },
   {
@@ -148,3 +161,5 @@ export function UpgradeModal({ open, onClose, currentPlan, reason }: UpgradeModa
     </Modal>
   )
 }
+
+export default UpgradeModal
