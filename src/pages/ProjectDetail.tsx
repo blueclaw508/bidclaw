@@ -7,6 +7,7 @@ import {
   Database,
   FileText,
   Hash,
+  Lock,
   Pencil,
   Plus,
   ShieldAlert,
@@ -30,12 +31,16 @@ import {
 import { estimateLineTotal, formatUSD, sumMoney } from '@/lib/money'
 import { loadCompanySettings } from '@/lib/companySettings'
 import { canInvokeJamie } from '@/lib/jamieLoop'
+import type { JamieGateResult } from '@/lib/jamieGate'
+import { loadEntitlements, type Plan } from '@/lib/entitlements'
 
 // Lazy-loaded so dnd-kit only ships when the Work Areas tab is opened.
 const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
 // Lazy-loaded so react-dropzone only ships when the Files tab is opened.
 const FilesTab = lazy(() => import('@/components/project/FilesTab'))
 const ProposalsTab = lazy(() => import('@/components/project/ProposalsTab'))
+// Only pulled in when a contractor actually clicks the locked Jamie button.
+const UpgradeModal = lazy(() => import('@/components/billing/UpgradeModal'))
 // Jamie is a full-page workspace (J4) — see src/pages/JamieWorkspace.tsx.
 // The J2 side panel is retired: a drawer gave the contractor nowhere to
 // look and no obvious next click.
@@ -84,10 +89,22 @@ export default function ProjectDetailPage() {
   const [workAreaCount, setWorkAreaCount] = useState<number | null>(null)
   const [fileCount, setFileCount] = useState<number | null>(null)
   const [estimatedValue, setEstimatedValue] = useState<number | null>(null)
-  // Jamie Chat gating (J2): the entry button renders ONLY when the gate
-  // pre-check allows (founder-only pre-Stripe). Denied users see nothing —
-  // no disabled button, no upsell (that surface is J7's).
-  const [jamieChatAllowed, setJamieChatAllowed] = useState(false)
+  // Jamie gating. The button now renders for EVERYONE — what changes is
+  // what it does. It used to render only when the gate allowed, which meant
+  // a Pro subscriber never learned Jamie existed: no button, no mention, no
+  // way to buy the tier that turns her on. A paywall you cannot see is not a
+  // paywall, it is a missing feature.
+  //
+  //   allowed          → opens the Jamie workspace
+  //   UPGRADE_REQUIRED → opens the pricing modal (this is the upsell)
+  //   quota / rate cap → disabled, with the reason on hover; they already
+  //                      pay for Jamie, so hiding it would read as a bug
+  const [jamieGate, setJamieGate] = useState<JamieGateResult | null>(null)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  // Only fetched once the modal is actually opened. The pricing card needs
+  // to know which tier to mark "Current"; loading it on every project view
+  // would be two queries spent on a modal most visits never open.
+  const [plan, setPlan] = useState<Plan | null>(null)
 
   // Drop `add=1` off the URL once it has been read. The dialog is already
   // open from initial state, so this only stops a refresh or a shared link
@@ -104,15 +121,24 @@ export default function ProjectDetailPage() {
     let cancelled = false
     canInvokeJamie(user.id)
       .then((gate) => {
-        if (!cancelled) setJamieChatAllowed(gate.allowed)
+        if (!cancelled) setJamieGate(gate)
       })
       .catch(() => {
-        /* gate pre-check failure = no button; the server re-checks anyway */
+        /* Pre-check failed (offline, RLS hiccup). Leave the gate null so
+           the button stays hidden rather than guessing — the server
+           re-checks every invocation regardless. */
       })
     return () => {
       cancelled = true
     }
   }, [user])
+
+  useEffect(() => {
+    if (!upgradeOpen || plan) return
+    loadEntitlements()
+      .then((e) => setPlan(e.plan))
+      .catch(() => setPlan('free'))
+  }, [upgradeOpen, plan])
 
   /**
    * Totals rail refresh. Counts use HEAD queries; estimated value is the live
@@ -301,7 +327,7 @@ export default function ProjectDetailPage() {
             {t.label}
           </button>
         ))}
-        {jamieChatAllowed && (
+        {jamieGate?.allowed && (
           <button
             type="button"
             onClick={() => navigate(`/app/projects/${project.id}/jamie`)}
@@ -311,6 +337,34 @@ export default function ProjectDetailPage() {
             <Sparkles className="h-4 w-4" />
             Build with Jamie
           </button>
+        )}
+        {/* The upsell. Same place, same words, a lock instead of a spark —
+            so the button a Pro contractor sees is the button they'll keep
+            using once they buy the tier. */}
+        {jamieGate && !jamieGate.allowed && jamieGate.code === 'UPGRADE_REQUIRED' && (
+          <button
+            type="button"
+            onClick={() => setUpgradeOpen(true)}
+            title="Jamie builds the estimate from your scope — see plans"
+            className="mb-1.5 ml-auto flex items-center gap-1.5 rounded-lg border-2 border-brand-gold bg-brand-gold/5 px-3.5 py-2 text-sm font-semibold text-brand-gold-dark transition-all hover:bg-brand-gold/15"
+          >
+            <Lock className="h-3.5 w-3.5" />
+            Build with Jamie
+            <span className="rounded-full bg-brand-gold px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+              AI
+            </span>
+          </button>
+        )}
+        {/* Already paying for Jamie, just out of room this month / hour.
+            Nothing to sell them — say what happened and leave it visible. */}
+        {jamieGate && !jamieGate.allowed && jamieGate.code !== 'UPGRADE_REQUIRED' && (
+          <span
+            title={jamieGate.reason}
+            className="mb-1.5 ml-auto flex cursor-default items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2 text-sm font-semibold text-gray-400"
+          >
+            <Sparkles className="h-4 w-4" />
+            Build with Jamie
+          </span>
         )}
       </nav>
 
@@ -363,6 +417,17 @@ export default function ProjectDetailPage() {
         confirmLabel="Archive"
         tone="danger"
       />
+
+      {upgradeOpen && (
+        <Suspense fallback={null}>
+          <UpgradeModal
+            open={upgradeOpen}
+            onClose={() => setUpgradeOpen(false)}
+            currentPlan={plan ?? 'free'}
+            reason="Jamie reads your scope, prices it off your own catalog and rates, and hands you the takeoff to approve line by line."
+          />
+        </Suspense>
+      )}
     </div>
   )
 }

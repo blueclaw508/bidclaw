@@ -126,7 +126,7 @@ Deno.serve(async (req: Request) => {
   // one subscription per attempt.
   const { data: settings } = await service
     .from('company_settings')
-    .select('stripe_customer_id, company_legal_name')
+    .select('stripe_customer_id, company_legal_name, stripe_subscription_id')
     .eq('user_id', user.id)
     .maybeSingle()
 
@@ -153,12 +153,84 @@ Deno.serve(async (req: Request) => {
     origin && /^https:\/\/([a-z0-9-]+\.)*bluebidclaw\.app$/.test(origin)
       ? origin
       : 'https://bluebidclaw.app'
+  const returnUrl = `${allowedOrigin}/app/settings?checkout=success`
+
+  // ── Already subscribed? CHANGE the plan, never sell a second one ─────
+  //
+  // Checkout Sessions do not upgrade — they create. A Pro contractor who
+  // clicks "Upgrade to Pro + Jamie" would come back holding TWO live
+  // subscriptions and a $538 monthly bill, and the webhook would write
+  // whichever event arrived last. That is a refund and an apology, so it
+  // is handled here rather than being left to the buyer to notice.
+  //
+  // The portal's subscription_update_confirm flow is the right surface:
+  // Stripe shows the proration and the new amount on its own page, the
+  // customer confirms there, and the resulting customer.subscription.updated
+  // lands on the same webhook branch that grants a first-time plan.
+  const existingSubId = settings?.stripe_subscription_id as string | null
+  if (existingSubId) {
+    let live: Stripe.Subscription | null = null
+    try {
+      live = await stripe.subscriptions.retrieve(existingSubId)
+    } catch {
+      // Gone or belongs to another account/mode — fall through and sell
+      // a fresh subscription rather than refusing on stale local state.
+      live = null
+    }
+    const stillRunning =
+      !!live &&
+      ['active', 'trialing', 'past_due', 'incomplete'].includes(live.status)
+
+    if (live && stillRunning) {
+      const item = live.items.data[0]
+      if (item?.price?.id === resolvedPrice) {
+        return json({ error: "You're already on that plan." }, 409)
+      }
+      if (!item) {
+        return json(
+          { error: 'That subscription has no billable item — contact support.' },
+          409
+        )
+      }
+      try {
+        const portal = await stripe.billingPortal.sessions.create({
+          customer: customerId,
+          return_url: returnUrl,
+          flow_data: {
+            type: 'subscription_update_confirm',
+            subscription_update_confirm: {
+              subscription: live.id,
+              items: [{ id: item.id, price: resolvedPrice, quantity: 1 }],
+            },
+            after_completion: {
+              type: 'redirect',
+              redirect: { return_url: returnUrl },
+            },
+          },
+        })
+        return json({ url: portal.url })
+      } catch (err) {
+        // Overwhelmingly the cause: no Billing Portal configuration, or one
+        // that does not allow switching to this product. Say which, because
+        // the fix is a dashboard setting and nothing in the code.
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('stripe-checkout: portal update flow failed:', msg)
+        return json(
+          {
+            error:
+              'Plan changes are not switched on in Stripe yet. Enable the customer portal and allow updating between the BidClaw plans.',
+          },
+          409
+        )
+      }
+    }
+  }
 
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
     line_items: [{ price: resolvedPrice, quantity: 1 }],
-    success_url: `${allowedOrigin}/app/settings?checkout=success`,
+    success_url: returnUrl,
     cancel_url: `${allowedOrigin}/app/settings?checkout=cancelled`,
     allow_promotion_codes: true,
     // Carried onto the subscription so the webhook can identify the account
