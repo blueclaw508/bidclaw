@@ -78,6 +78,9 @@ as $function$
     from public.jamie_loop_runs r
     join public.projects p on p.id = r.project_id
     where r.project_id = p_project_id
+      -- Only the owner may ask. SECURITY DEFINER reads past RLS, so this
+      -- has to be explicit or any signed-in user could probe any project.
+      and p.user_id = auth.uid()
       and r.was_ai_trial
       and r.status = 'committed'
       and public.resolve_plan(p.user_id) is distinct from 'pro_ai'
