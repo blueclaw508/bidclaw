@@ -155,22 +155,49 @@ Deno.serve(async (req: Request) => {
             : (price?.product?.id ?? null)
         const paidTier = await tierForPrice(service, priceId, productId)
 
-        // A subscription that is over, or one on a price we no longer sell,
-        // drops the account to free. Deleting the plan is the same code
-        // path as granting it — there is no separate "downgrade" branch to
-        // forget to write.
+        // NOT A BIDCLAW PRODUCT → NOT BIDCLAW'S BUSINESS.
+        //
+        // KYN (Know Your Numbers) bills through the SAME Stripe account as
+        // BidClaw — compare sub_1U2Dss[BoIAQos8md]... against
+        // acct_1LC9wR[BoIAQos8md]. So this endpoint receives every
+        // customer.subscription.* event for KYN too, and there is no way to
+        // unsubscribe from "other products" in Stripe: the event type is the
+        // only filter it offers.
+        //
+        // The old code read an unrecognised price as `paidTier ?? 'free'`
+        // and wrote it. That turns a KYN renewal into a silent downgrade of
+        // a paying BidClaw customer — and overwrites their BidClaw
+        // stripe_subscription_id with the KYN one, which the upgrade path in
+        // stripe-checkout then retrieves and tries to re-price, converting
+        // their KYN subscription into a BidClaw subscription.
+        //
+        // A price we don't sell means "this event is about something else",
+        // never "cancel their plan". Same for the deleted/canceled variants:
+        // a KYN cancellation must not take BidClaw down with it. That comp
+        // is revoked deliberately through kyn_granted_tier, not as a side
+        // effect of an event this function can barely identify.
+        //
+        // This also fails safe in the one case where a real BidClaw price
+        // stops resolving — a price id edited in subscription_tier_limits:
+        // the customer keeps what they have and it gets logged, rather than
+        // being dropped to free by a config typo.
+        if (!paidTier) {
+          console.error(
+            `stripe-webhook: ${event.type} on price ${priceId} / product ${productId} ` +
+              `matches no BidClaw tier — ignoring (not ours)`
+          )
+          return new Response('Not a BidClaw product', { status: 200 })
+        }
+
+        // From here the price IS one of ours, so the event genuinely decides
+        // this account's plan. Cancelling runs the same code path as
+        // granting — there is no separate "downgrade" branch to forget.
         const ended =
           event.type === 'customer.subscription.deleted' ||
           sub.status === 'canceled' ||
           sub.status === 'unpaid' ||
           sub.status === 'incomplete_expired'
-        const tier = ended ? 'free' : (paidTier ?? 'free')
-
-        if (!ended && !paidTier) {
-          console.error(
-            `stripe-webhook: price ${priceId} maps to no tier — account left on free`
-          )
-        }
+        const tier = ended ? 'free' : paidTier
 
         const periodEnd = (sub as unknown as { current_period_end?: number })
           .current_period_end
