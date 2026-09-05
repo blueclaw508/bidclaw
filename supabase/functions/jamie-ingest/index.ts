@@ -16,7 +16,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
   evaluateJamieGate,
-  tierIncludesJamie,
+  tierHasPaidJamie,
   tierKeyForUser,
   type TierLimits,
 } from './jamieGate.ts'
@@ -212,10 +212,15 @@ Deno.serve(async (req: Request) => {
     .select('*')
     .eq('tier', tierKeyForUser(user.id, planRow?.plan as string | null))
     .maybeSingle()
-  if (!tierIncludesJamie(tierRow as TierLimits | null)) {
+  // tierHasPaidJamie, NOT tierIncludesJamie. Ingest has no usage meter of
+  // its own — it gates on the tier and then calls the model. The free
+  // one-estimate trial is metered run by run in jamie-chat; letting it
+  // through here would be an uncapped Opus budget for anyone on Pro.
+  if (!tierHasPaidJamie(tierRow as TierLimits | null)) {
     const denied = evaluateJamieGate(tierRow as TierLimits | null, {
       jamieEstimatesThisMonth: 0, invocationsThisMonth: 0,
       invocationsLastHour: 0, imagesThisSession: 0, turnsThisSession: 0,
+      jamieEstimatesEver: 0, invocationsEver: 0,
     })
     return json({ error: denied.reason, code: denied.code }, 403)
   }

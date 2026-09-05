@@ -29,7 +29,8 @@ export const FOUNDER_USER_ID = '38b28d49-88a3-43e1-a947-34f55b793d2e'
 // ──────────────────────────────────────────────────────────────────────
 
 export type JamieGateCode =
-  | 'UPGRADE_REQUIRED'   // tier has no Jamie at all (free / pro)
+  | 'UPGRADE_REQUIRED'   // tier has no Jamie at all, and no trial left to offer
+  | 'TRIAL_USED'         // the one free estimate is spent — the upsell moment
   | 'QUOTA_REACHED'      // monthly estimates or total-invocation ceiling hit
   | 'RATE_LIMIT'         // hourly invocation cap hit
   | 'IMAGE_LIMIT'        // per-session image cap hit
@@ -42,6 +43,15 @@ export interface JamieGateResult {
   allowed: boolean
   code?: JamieGateCode
   reason?: string
+  /**
+   * True when the allowance came from the one-free-estimate trial rather
+   * than from a paid AI tier. Callers stamp jamie_loop_runs.was_ai_trial
+   * with this, which is what later decides the watermark. Recorded at the
+   * moment of the decision on purpose: inferring it afterwards would mean
+   * asking "did they have AI back then", and that answer flips the instant
+   * they subscribe — precisely when we need to remember it was a trial.
+   */
+  trial?: boolean
 }
 
 /** subscription_tier_limits row. NULL limit = unlimited. */
@@ -56,6 +66,19 @@ export interface TierLimits {
   chat_turns_per_jamie_session: number | null
   jamie_overage_enabled: boolean
   jamie_overage_price_usd: number | null
+  /**
+   * THE FREE TASTE. Lifetime committed estimates allowed on a tier whose
+   * monthly_jamie_estimates is 0. NULL or 0 = no trial.
+   *
+   * The other three bound the WORK allowed in reaching it, because getting
+   * to one committed estimate can take many Opus calls and every one is
+   * billed to Blue Claw. All four live in subscription_tier_limits so "how
+   * much free AI per lead" is a data edit, never a deploy.
+   */
+  ai_trial_estimates: number | null
+  ai_trial_invocations: number | null
+  ai_trial_turns_per_session: number | null
+  ai_trial_images_per_session: number | null
 }
 
 /** Current usage counts the gate evaluates against. */
@@ -70,9 +93,16 @@ export interface JamieUsage {
   imagesThisSession: number
   /** Chat turns in the current session (run). */
   turnsThisSession: number
+  /**
+   * LIFETIME counters — the trial's meters. The monthly ones above reset;
+   * a trial that reset would be a free product rather than a taste.
+   */
+  jamieEstimatesEver: number
+  invocationsEver: number
 }
 
 const allow = (): JamieGateResult => ({ allowed: true })
+const allowTrial = (): JamieGateResult => ({ allowed: true, trial: true })
 const deny = (code: JamieGateCode, reason: string): JamieGateResult => ({
   allowed: false,
   code,
@@ -89,11 +119,68 @@ export function evaluateJamieGate(
   limits: TierLimits | null,
   usage: JamieUsage
 ): JamieGateResult {
-  if (!limits || limits.monthly_jamie_estimates === 0) {
+  if (!limits) {
     return deny(
       'UPGRADE_REQUIRED',
       'Jamie estimates are not included in this plan. Upgrade to Pro + AI to turn Jamie on.'
     )
+  }
+
+  // ── The free taste ────────────────────────────────────────────────
+  //
+  // A tier with no monthly AI may still owe this account ONE estimate. The
+  // whole point of comping a KYN subscriber onto Pro is that they meet
+  // Jamie once and feel what they are missing, so this branch runs before
+  // the flat refusal rather than after it.
+  //
+  // Every limit here is LIFETIME. A monthly trial is not a trial.
+  if (limits.monthly_jamie_estimates === 0) {
+    const trialEstimates = limits.ai_trial_estimates ?? 0
+    if (trialEstimates <= 0) {
+      return deny(
+        'UPGRADE_REQUIRED',
+        'Jamie estimates are not included in this plan. Upgrade to Pro + AI to turn Jamie on.'
+      )
+    }
+    if (usage.jamieEstimatesEver >= trialEstimates) {
+      return deny(
+        'TRIAL_USED',
+        trialEstimates === 1
+          ? "That was your free Jamie estimate. Upgrade to Pro + AI and she'll build the rest — starting with un-watermarking that one."
+          : `You've used all ${trialEstimates} of your free Jamie estimates. Upgrade to Pro + AI to keep going.`
+      )
+    }
+    // The cost guard. Committing an estimate is what the trial GRANTS;
+    // this bounds what reaching it may COST, because a contractor who
+    // never commits would otherwise have an unmetered Opus budget.
+    if (
+      limits.ai_trial_invocations !== null &&
+      usage.invocationsEver >= limits.ai_trial_invocations
+    ) {
+      return deny(
+        'TRIAL_USED',
+        "You've used up the free Jamie trial. Upgrade to Pro + AI to pick up where you left off."
+      )
+    }
+    if (
+      limits.ai_trial_images_per_session !== null &&
+      usage.imagesThisSession >= limits.ai_trial_images_per_session
+    ) {
+      return deny(
+        'IMAGE_LIMIT',
+        `The free trial allows ${limits.ai_trial_images_per_session} photos per session.`
+      )
+    }
+    if (
+      limits.ai_trial_turns_per_session !== null &&
+      usage.turnsThisSession >= limits.ai_trial_turns_per_session
+    ) {
+      return deny(
+        'TURN_LIMIT',
+        'This free Jamie session is at its message limit. Upgrade to Pro + AI to keep the conversation going.'
+      )
+    }
+    return allowTrial()
   }
   if (
     limits.monthly_jamie_estimates !== null &&
@@ -170,6 +257,31 @@ export function tierKeyForUser(
  * four aggregate queries to be told they need to upgrade.
  */
 export function tierIncludesJamie(limits: TierLimits | null): boolean {
+  if (!limits) return false
+  // A paid AI tier, OR a tier that still owes a free estimate. Getting this
+  // wrong in the second case would skip the usage lookup and deny a trial
+  // that was actually available — the cheap-deny shortcut quietly becoming
+  // a wrong answer.
+  return (
+    limits.monthly_jamie_estimates !== 0 || (limits.ai_trial_estimates ?? 0) > 0
+  )
+}
+
+/**
+ * True only for a tier that BOUGHT Jamie — the free taste does not count.
+ *
+ * tierIncludesJamie() answers "may this account reach Jamie at all", which
+ * became true for Pro the moment Pro gained a trial. That is the right
+ * answer for the estimating workspace, where the trial is metered run by
+ * run, and the WRONG answer for any surface that has no meter of its own:
+ * jamie-ingest gates on the tier alone, so a trial user passing
+ * tierIncludesJamie() there would get unlimited ingests, each one an Opus
+ * call, with nothing counting them.
+ *
+ * So features outside the metered loop ask this instead. The free estimate
+ * is one guided run with Jamie — not a key to the whole AI surface.
+ */
+export function tierHasPaidJamie(limits: TierLimits | null): boolean {
   return !!limits && limits.monthly_jamie_estimates !== 0
 }
 
