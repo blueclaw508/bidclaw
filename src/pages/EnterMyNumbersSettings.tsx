@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Loader2, RotateCcw, Save, Settings as SettingsIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { EnterMyNumbersForm } from '@/components/settings/EnterMyNumbersForm'
+import { KynImportCard } from '@/components/settings/KynImportCard'
 import {
   loadCompanyEquipmentRates,
   loadCompanyLaborTypes,
@@ -10,8 +11,18 @@ import {
   updateCompanyEquipmentRate,
   updateCompanyLaborType,
   updateCompanySettings,
+  loadCompanyDivisions,
+  createCompanyDivision,
+  renameCompanyDivision,
+  deleteCompanyDivision,
+  addCompanyLaborType,
+  deleteCompanyLaborType,
+  addCompanyEquipmentRate,
+  deleteCompanyEquipmentRate,
 } from '@/lib/companySettings'
+import { DivisionsCard } from '@/components/settings/DivisionsCard'
 import type {
+  CompanyDivision,
   CompanyEquipmentRate,
   CompanyLaborType,
   CompanySettings,
@@ -36,30 +47,44 @@ export default function EnterMyNumbersSettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  // Adding or removing a ROW writes immediately, unlike the field edits
+  // above which batch behind Save. A row is structure, not a value: leaving
+  // a half-created one sitting in local state until Save would make Reset
+  // ambiguous and let an unsaved row be typed into and then silently lost.
+  const [rowBusy, setRowBusy] = useState(false)
+  const [divisions, setDivisions] = useState<CompanyDivision[]>([])
 
-  useEffect(() => {
-    let cancelled = false
-    void Promise.all([
-      loadCompanySettings(),
-      loadCompanyLaborTypes(),
-      loadCompanyEquipmentRates(),
-    ])
-      .then(([s, lt, er]) => {
-        if (cancelled) return
-        setServerSettings(s)
-        setServerLabor(lt)
-        setServerEquipment(er)
-        setLocalSettings(s)
-        setLocalLabor(lt)
-        setLocalEquipment(er)
-      })
-      .catch((err) => {
-        if (!cancelled) setLoadError((err as Error).message)
-      })
-    return () => {
-      cancelled = true
+  /**
+   * Load everything and reset BOTH server and local copies.
+   *
+   * Also the post-import refresh: the KYN import writes server-side, so the
+   * local draft has to be replaced outright rather than merged — anything
+   * unsaved at that point was about to be overwritten by the import anyway,
+   * and merging would leave the form showing a mix of the two.
+   */
+  const reloadAll = useCallback(async () => {
+    try {
+      const [s, lt, er, dv] = await Promise.all([
+        loadCompanySettings(),
+        loadCompanyLaborTypes(),
+        loadCompanyEquipmentRates(),
+        loadCompanyDivisions(),
+      ])
+      setServerSettings(s)
+      setServerLabor(lt)
+      setServerEquipment(er)
+      setLocalSettings(s)
+      setLocalLabor(lt)
+      setLocalEquipment(er)
+      setDivisions(dv)
+    } catch (err) {
+      setLoadError((err as Error).message)
     }
   }, [])
+
+  useEffect(() => {
+    void reloadAll()
+  }, [reloadAll])
 
   const handleSettingsChange = useCallback(
     (patch: Partial<CompanySettings>) => {
@@ -89,6 +114,68 @@ export default function EnterMyNumbersSettingsPage() {
     },
     []
   )
+
+  const handleAddLabor = useCallback(async (divisionId: string | null) => {
+    setRowBusy(true)
+    try {
+      const row = await addCompanyLaborType(localLabor, divisionId)
+      setServerLabor((prev) => [...prev, row])
+      setLocalLabor((prev) => [...prev, row])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't add a labor type.")
+    } finally {
+      setRowBusy(false)
+    }
+  }, [localLabor])
+
+  const handleDeleteLabor = useCallback(async (id: string) => {
+    setRowBusy(true)
+    try {
+      const unlinked = await deleteCompanyLaborType(id)
+      setServerLabor((prev) => prev.filter((r) => r.id !== id))
+      setLocalLabor((prev) => prev.filter((r) => r.id !== id))
+      if (unlinked > 0) {
+        toast.warning(
+          `Removed. ${unlinked} kit line${unlinked === 1 ? '' : 's'} that referenced it kept ${unlinked === 1 ? 'its' : 'their'} rate but no longer track this one.`
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't remove that row.")
+    } finally {
+      setRowBusy(false)
+    }
+  }, [])
+
+  const handleAddEquipment = useCallback(async (divisionId: string | null) => {
+    setRowBusy(true)
+    try {
+      const row = await addCompanyEquipmentRate(localEquipment, divisionId)
+      setServerEquipment((prev) => [...prev, row])
+      setLocalEquipment((prev) => [...prev, row])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't add equipment.")
+    } finally {
+      setRowBusy(false)
+    }
+  }, [localEquipment])
+
+  const handleDeleteEquipment = useCallback(async (id: string) => {
+    setRowBusy(true)
+    try {
+      const unlinked = await deleteCompanyEquipmentRate(id)
+      setServerEquipment((prev) => prev.filter((r) => r.id !== id))
+      setLocalEquipment((prev) => prev.filter((r) => r.id !== id))
+      if (unlinked > 0) {
+        toast.warning(
+          `Removed. ${unlinked} kit line${unlinked === 1 ? '' : 's'} that referenced it kept ${unlinked === 1 ? 'its' : 'their'} rate but no longer track this one.`
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't remove that row.")
+    } finally {
+      setRowBusy(false)
+    }
+  }, [])
 
   const handleReset = useCallback(() => {
     if (!serverSettings) return
@@ -254,6 +341,55 @@ export default function EnterMyNumbersSettingsPage() {
         </p>
       </div>
 
+      {/* Offered before the form itself: for a KYN subscriber this fills
+          the whole page in one click, and typing it all by hand is the
+          fallback rather than the default. */}
+      <KynImportCard onImported={() => void reloadAll()} />
+
+      <DivisionsCard
+        divisions={divisions}
+        busy={rowBusy}
+        onCreate={async (name) => {
+          setRowBusy(true)
+          try {
+            const d = await createCompanyDivision(name, divisions)
+            setDivisions((prev) => [...prev, d])
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Couldn't add that division.")
+          } finally {
+            setRowBusy(false)
+          }
+        }}
+        onRename={async (id, name) => {
+          setRowBusy(true)
+          try {
+            const d = await renameCompanyDivision(id, name)
+            setDivisions((prev) => prev.map((x) => (x.id === id ? d : x)))
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Couldn't rename that division.")
+          } finally {
+            setRowBusy(false)
+          }
+        }}
+        onDelete={async (id) => {
+          setRowBusy(true)
+          try {
+            const freed = await deleteCompanyDivision(id)
+            setDivisions((prev) => prev.filter((x) => x.id !== id))
+            await reloadAll()
+            if (freed > 0) {
+              toast.info(
+                `Division removed. ${freed} rate${freed === 1 ? '' : 's'} moved to Ungrouped — nothing was deleted.`
+              )
+            }
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Couldn't remove that division.")
+          } finally {
+            setRowBusy(false)
+          }
+        }}
+      />
+
       <EnterMyNumbersForm
         value={localSettings}
         onChange={handleSettingsChange}
@@ -261,6 +397,12 @@ export default function EnterMyNumbersSettingsPage() {
         onLaborChange={handleLaborChange}
         equipmentRates={localEquipment}
         onEquipmentChange={handleEquipmentChange}
+        onAddLabor={(divId) => void handleAddLabor(divId)}
+        onDeleteLabor={(id) => void handleDeleteLabor(id)}
+        onAddEquipment={(divId) => void handleAddEquipment(divId)}
+        onDeleteEquipment={(id) => void handleDeleteEquipment(id)}
+        divisions={divisions}
+        rowBusy={rowBusy}
         mode="settings"
       />
 

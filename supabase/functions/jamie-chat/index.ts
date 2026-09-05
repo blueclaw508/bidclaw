@@ -875,24 +875,36 @@ async function loadUsage(
   const quotaMonth = monthStart.toISOString().slice(0, 10)
   const hourAgo = new Date(Date.now() - 3600_000).toISOString()
 
-  const [quotaRows, totalCount, hourCount] = await Promise.all([
-    service
-      .from('jamie_invocations')
-      .select('jamie_run_id')
-      .eq('user_id', userId)
-      .eq('counts_against_quota', true)
-      .eq('quota_month', quotaMonth),
-    service
-      .from('jamie_invocations')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('quota_month', quotaMonth),
-    service
-      .from('jamie_invocations')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('started_at', hourAgo),
-  ])
+  const [quotaRows, totalCount, hourCount, everRows, everCount] =
+    await Promise.all([
+      service
+        .from('jamie_invocations')
+        .select('jamie_run_id')
+        .eq('user_id', userId)
+        .eq('counts_against_quota', true)
+        .eq('quota_month', quotaMonth),
+      service
+        .from('jamie_invocations')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('quota_month', quotaMonth),
+      service
+        .from('jamie_invocations')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('started_at', hourAgo),
+      // LIFETIME — the free-trial meters. No quota_month filter on purpose:
+      // a trial that reset monthly would be a free product, not a taste.
+      service
+        .from('jamie_invocations')
+        .select('jamie_run_id')
+        .eq('user_id', userId)
+        .eq('counts_against_quota', true),
+      service
+        .from('jamie_invocations')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId),
+    ])
 
   return {
     jamieEstimatesThisMonth: new Set(
@@ -904,6 +916,10 @@ async function loadUsage(
     // increment, not just the running total.
     imagesThisSession: run.image_count + newImageCount,
     turnsThisSession: run.chat_turn_count,
+    jamieEstimatesEver: new Set(
+      (everRows.data ?? []).map((r: { jamie_run_id: string }) => r.jamie_run_id)
+    ).size,
+    invocationsEver: everCount.count ?? 0,
   }
 }
 
@@ -1009,6 +1025,8 @@ Deno.serve(async (req: Request) => {
       invocationsLastHour: 0,
       imagesThisSession: 0,
       turnsThisSession: 0,
+      jamieEstimatesEver: 0,
+      invocationsEver: 0,
     })
     return json({ error: denied.reason, code: denied.code }, 403)
   }
@@ -1032,6 +1050,20 @@ Deno.serve(async (req: Request) => {
   const usage = await loadUsage(service, user.id, run, imageRefs.length)
   const gate = evaluateJamieGate(limits, usage)
   if (!gate.allowed) return json({ error: gate.reason, code: gate.code }, 403)
+
+  // 4c — Record that this run is running on the free taste, the first time
+  // the gate says so. Stamped HERE, at the decision, rather than worked out
+  // later: "did this account have AI?" gives a different answer the moment
+  // they subscribe, and that is exactly when we need to remember this run
+  // was a trial — so the watermark lifts off the estimate they already made
+  // instead of the fact being lost.
+  if (gate.trial) {
+    await service
+      .from('jamie_loop_runs')
+      .update({ was_ai_trial: true })
+      .eq('id', run.id)
+      .eq('was_ai_trial', false)
+  }
 
   // 4b — Brain context (J3). The contractor's KYN numbers, the project, the
   // work areas they already own, and — for Pass 2 — the staged work areas

@@ -387,6 +387,25 @@ export async function loadJamieUsage(
     .gte('started_at', hourAgo)
   if (hourErr) throw new Error(`Couldn't check your Jamie usage: ${hourErr.message}`)
 
+  // LIFETIME counters — the free-trial meters. Deliberately unfiltered by
+  // quota_month: a trial that reset every month would be a free product.
+  const { data: everRows, error: everErr } = await supabase
+    .from('jamie_invocations')
+    .select('jamie_run_id')
+    .eq('user_id', userId)
+    .eq('counts_against_quota', true)
+  if (everErr) throw new Error(`Couldn't check your Jamie usage: ${everErr.message}`)
+  const jamieEstimatesEver = new Set(
+    (everRows ?? []).map((r) => r.jamie_run_id as string)
+  ).size
+
+  const { count: invocationsEver, error: everCountErr } = await supabase
+    .from('jamie_invocations')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+  if (everCountErr)
+    throw new Error(`Couldn't check your Jamie usage: ${everCountErr.message}`)
+
   let imagesThisSession = 0
   let turnsThisSession = 0
   if (runId) {
@@ -406,6 +425,8 @@ export async function loadJamieUsage(
     invocationsLastHour: invocationsLastHour ?? 0,
     imagesThisSession,
     turnsThisSession,
+    jamieEstimatesEver,
+    invocationsEver: invocationsEver ?? 0,
   }
 }
 
@@ -440,6 +461,8 @@ const EMPTY_USAGE: JamieUsage = {
   invocationsLastHour: 0,
   imagesThisSession: 0,
   turnsThisSession: 0,
+  jamieEstimatesEver: 0,
+  invocationsEver: 0,
 }
 
 // ──────────────────────────────────────────────────────────────────────
