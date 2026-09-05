@@ -11,12 +11,18 @@ import {
   updateCompanyEquipmentRate,
   updateCompanyLaborType,
   updateCompanySettings,
+  loadCompanyDivisions,
+  createCompanyDivision,
+  renameCompanyDivision,
+  deleteCompanyDivision,
   addCompanyLaborType,
   deleteCompanyLaborType,
   addCompanyEquipmentRate,
   deleteCompanyEquipmentRate,
 } from '@/lib/companySettings'
+import { DivisionsCard } from '@/components/settings/DivisionsCard'
 import type {
+  CompanyDivision,
   CompanyEquipmentRate,
   CompanyLaborType,
   CompanySettings,
@@ -46,6 +52,7 @@ export default function EnterMyNumbersSettingsPage() {
   // a half-created one sitting in local state until Save would make Reset
   // ambiguous and let an unsaved row be typed into and then silently lost.
   const [rowBusy, setRowBusy] = useState(false)
+  const [divisions, setDivisions] = useState<CompanyDivision[]>([])
 
   /**
    * Load everything and reset BOTH server and local copies.
@@ -57,10 +64,11 @@ export default function EnterMyNumbersSettingsPage() {
    */
   const reloadAll = useCallback(async () => {
     try {
-      const [s, lt, er] = await Promise.all([
+      const [s, lt, er, dv] = await Promise.all([
         loadCompanySettings(),
         loadCompanyLaborTypes(),
         loadCompanyEquipmentRates(),
+        loadCompanyDivisions(),
       ])
       setServerSettings(s)
       setServerLabor(lt)
@@ -68,6 +76,7 @@ export default function EnterMyNumbersSettingsPage() {
       setLocalSettings(s)
       setLocalLabor(lt)
       setLocalEquipment(er)
+      setDivisions(dv)
     } catch (err) {
       setLoadError((err as Error).message)
     }
@@ -106,10 +115,10 @@ export default function EnterMyNumbersSettingsPage() {
     []
   )
 
-  const handleAddLabor = useCallback(async () => {
+  const handleAddLabor = useCallback(async (divisionId: string | null) => {
     setRowBusy(true)
     try {
-      const row = await addCompanyLaborType(localLabor)
+      const row = await addCompanyLaborType(localLabor, divisionId)
       setServerLabor((prev) => [...prev, row])
       setLocalLabor((prev) => [...prev, row])
     } catch (err) {
@@ -137,10 +146,10 @@ export default function EnterMyNumbersSettingsPage() {
     }
   }, [])
 
-  const handleAddEquipment = useCallback(async () => {
+  const handleAddEquipment = useCallback(async (divisionId: string | null) => {
     setRowBusy(true)
     try {
-      const row = await addCompanyEquipmentRate(localEquipment)
+      const row = await addCompanyEquipmentRate(localEquipment, divisionId)
       setServerEquipment((prev) => [...prev, row])
       setLocalEquipment((prev) => [...prev, row])
     } catch (err) {
@@ -337,6 +346,50 @@ export default function EnterMyNumbersSettingsPage() {
           fallback rather than the default. */}
       <KynImportCard onImported={() => void reloadAll()} />
 
+      <DivisionsCard
+        divisions={divisions}
+        busy={rowBusy}
+        onCreate={async (name) => {
+          setRowBusy(true)
+          try {
+            const d = await createCompanyDivision(name, divisions)
+            setDivisions((prev) => [...prev, d])
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Couldn't add that division.")
+          } finally {
+            setRowBusy(false)
+          }
+        }}
+        onRename={async (id, name) => {
+          setRowBusy(true)
+          try {
+            const d = await renameCompanyDivision(id, name)
+            setDivisions((prev) => prev.map((x) => (x.id === id ? d : x)))
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Couldn't rename that division.")
+          } finally {
+            setRowBusy(false)
+          }
+        }}
+        onDelete={async (id) => {
+          setRowBusy(true)
+          try {
+            const freed = await deleteCompanyDivision(id)
+            setDivisions((prev) => prev.filter((x) => x.id !== id))
+            await reloadAll()
+            if (freed > 0) {
+              toast.info(
+                `Division removed. ${freed} rate${freed === 1 ? '' : 's'} moved to Ungrouped — nothing was deleted.`
+              )
+            }
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Couldn't remove that division.")
+          } finally {
+            setRowBusy(false)
+          }
+        }}
+      />
+
       <EnterMyNumbersForm
         value={localSettings}
         onChange={handleSettingsChange}
@@ -344,10 +397,11 @@ export default function EnterMyNumbersSettingsPage() {
         onLaborChange={handleLaborChange}
         equipmentRates={localEquipment}
         onEquipmentChange={handleEquipmentChange}
-        onAddLabor={() => void handleAddLabor()}
+        onAddLabor={(divId) => void handleAddLabor(divId)}
         onDeleteLabor={(id) => void handleDeleteLabor(id)}
-        onAddEquipment={() => void handleAddEquipment()}
+        onAddEquipment={(divId) => void handleAddEquipment(divId)}
         onDeleteEquipment={(id) => void handleDeleteEquipment(id)}
+        divisions={divisions}
         rowBusy={rowBusy}
         mode="settings"
       />

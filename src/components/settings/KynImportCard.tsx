@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { Download, Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
+import { Download, Info, Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   applyKynImport,
   loadKynCatalogue,
   previewKynImport,
   KynSyncError,
-  type KynImportPlan,
+  type KynDivisionPlan,
+  type KynMarkupPlan,
   type KynModelSummary,
 } from '@/lib/kynSync'
 
@@ -15,21 +16,25 @@ import {
  *
  * Three deliberate steps — find, preview, import — because this writes over
  * numbers the contractor may have typed themselves. Nothing is written until
- * they have seen the exact rates that will land, machine by machine.
+ * they have seen the exact rate for every crew and machine, by name.
  *
- * BidClaw is a CONSTRUCTION estimator; maintenance work belongs in
- * RouteClaw. KYN models are divisional and often carry both, so the
- * contractor picks the division rather than having one guessed for them —
- * matching on the name would be a heuristic built on a field where
- * "Maintanence" is a real, misspelled value in live data.
+ * Divisions are MULTI-SELECT and each becomes a BidClaw division, so a
+ * contractor who runs hardscape and planting off different numbers keeps
+ * them apart instead of having them averaged into one set.
  */
 export function KynImportCard({ onImported }: { onImported: () => void }) {
   const [catalogue, setCatalogue] = useState<KynModelSummary[] | null>(null)
   const [year, setYear] = useState<number | null>(null)
-  const [division, setDivision] = useState<number | null>(null)
-  const [plan, setPlan] = useState<KynImportPlan | null>(null)
+  const [picked, setPicked] = useState<number[]>([])
+  const [plans, setPlans] = useState<KynDivisionPlan[] | null>(null)
+  const [markupPlan, setMarkupPlan] = useState<KynMarkupPlan | null>(null)
   const [busy, setBusy] = useState<'find' | 'preview' | 'apply' | null>(null)
   const [notFound, setNotFound] = useState<string | null>(null)
+
+  const clearPreview = () => {
+    setPlans(null)
+    setMarkupPlan(null)
+  }
 
   const find = async () => {
     setBusy('find')
@@ -39,41 +44,58 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
       setCatalogue(c)
       if (c.length > 0) {
         setYear(c[0].year)
-        setDivision(null)
-        setPlan(null)
+        setPicked([])
+        clearPreview()
       }
     } catch (err) {
-      if (err instanceof KynSyncError && (err.code === 'NO_KYN_ACCOUNT' || err.code === 'NO_MODEL')) {
+      if (
+        err instanceof KynSyncError &&
+        (err.code === 'NO_KYN_ACCOUNT' || err.code === 'NO_MODEL')
+      ) {
         setNotFound(err.message)
       } else {
-        toast.error(err instanceof Error ? err.message : "Couldn't reach Know Your Numbers.")
+        toast.error(
+          err instanceof Error ? err.message : "Couldn't reach Know Your Numbers."
+        )
       }
     } finally {
       setBusy(null)
     }
   }
 
-  const preview = async (y: number, d: number) => {
+  const toggle = (index: number) => {
+    clearPreview()
+    setPicked((prev) =>
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
+    )
+  }
+
+  const preview = async () => {
+    if (year === null || picked.length === 0) return
     setBusy('preview')
-    setDivision(d)
     try {
-      const { plan: p } = await previewKynImport(y, d)
-      setPlan(p)
+      const res = await previewKynImport(year, picked)
+      setPlans(res.plans)
+      setMarkupPlan(res.markupPlan)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't read that division.")
-      setPlan(null)
+      toast.error(err instanceof Error ? err.message : "Couldn't read those divisions.")
+      clearPreview()
     } finally {
       setBusy(null)
     }
   }
 
   const apply = async () => {
-    if (year === null || division === null) return
+    if (year === null || picked.length === 0) return
     setBusy('apply')
     try {
-      await applyKynImport(year, division)
-      toast.success('Your Know Your Numbers rates are in.')
-      setPlan(null)
+      await applyKynImport(year, picked)
+      toast.success(
+        picked.length === 1
+          ? 'Your Know Your Numbers rates are in.'
+          : `Imported ${picked.length} divisions from Know Your Numbers.`
+      )
+      clearPreview()
       onImported()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't finish the import.")
@@ -100,6 +122,22 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
       </div>
 
       <div className="space-y-4 p-6">
+        {/* The scope note. BidClaw prices construction work; recurring
+            maintenance routes are RouteClaw's job, and a contractor whose
+            KYN model carries both should know which half belongs here. */}
+        <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50 p-3.5 text-sm text-blue-900">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            <span className="font-semibold">
+              BidClaw is built for construction divisions.
+            </span>{' '}
+            Import the divisions you bid and build work out of. Recurring
+            maintenance belongs in RouteClaw, so a maintenance division's
+            numbers aren't much use here — though nothing stops you bringing
+            one in if you price maintenance jobs as projects.
+          </p>
+        </div>
+
         {!catalogue && !notFound && (
           <button
             type="button"
@@ -137,118 +175,146 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
 
         {model && (
           <>
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="text-sm">
-                <span className="mb-1 block font-medium text-gray-700">Year</span>
-                <select
-                  value={year ?? ''}
-                  onChange={(e) => {
-                    setYear(Number(e.target.value))
-                    setDivision(null)
-                    setPlan(null)
-                  }}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
-                >
-                  {catalogue!.map((m) => (
-                    <option key={m.year} value={m.year}>
-                      {m.year}
-                      {m.company_name ? ` — ${m.company_name}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-gray-700">Year</span>
+              <select
+                value={year ?? ''}
+                onChange={(e) => {
+                  setYear(Number(e.target.value))
+                  setPicked([])
+                  clearPreview()
+                }}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
+              >
+                {catalogue!.map((m) => (
+                  <option key={m.year} value={m.year}>
+                    {m.year}
+                    {m.company_name ? ` — ${m.company_name}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <div>
               <p className="mb-2 text-sm font-medium text-gray-700">
-                Which division?
+                Which divisions? Each becomes a division in BidClaw.
               </p>
-              <p className="mb-2.5 text-xs text-gray-500">
-                BidClaw estimates construction work — maintenance divisions
-                belong in RouteClaw.
-              </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {model.divisions
                   .filter((d) => d.crews > 0 || d.equipment > 0)
-                  .map((d) => (
-                    <button
-                      key={d.index}
-                      type="button"
-                      onClick={() => void preview(model.year, d.index)}
-                      disabled={busy !== null}
-                      className={`rounded-lg border px-3.5 py-2 text-left text-sm transition disabled:opacity-60 ${
-                        division === d.index
-                          ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500'
-                          : 'border-gray-300 hover:border-emerald-400 hover:bg-emerald-50/40'
-                      }`}
-                    >
-                      <span className="block font-semibold text-gray-900">
-                        {d.name}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {d.crews} crew{d.crews === 1 ? '' : 's'} ·{' '}
-                        {d.equipment} machine{d.equipment === 1 ? '' : 's'}
-                      </span>
-                    </button>
-                  ))}
+                  .map((d) => {
+                    const on = picked.includes(d.index)
+                    return (
+                      <label
+                        key={d.index}
+                        className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm transition ${
+                          on
+                            ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500'
+                            : 'border-gray-300 hover:border-emerald-400 hover:bg-emerald-50/40'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => toggle(d.index)}
+                          disabled={busy !== null}
+                          className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>
+                          <span className="block font-semibold text-gray-900">
+                            {d.name}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {d.crews} crew{d.crews === 1 ? '' : 's'} ·{' '}
+                            {d.equipment} machine{d.equipment === 1 ? '' : 's'}
+                          </span>
+                        </span>
+                      </label>
+                    )
+                  })}
               </div>
             </div>
+
+            {picked.length > 0 && !plans && (
+              <button
+                type="button"
+                onClick={() => void preview()}
+                disabled={busy !== null}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-600 px-4 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60"
+              >
+                {busy === 'preview' && <Loader2 className="h-4 w-4 animate-spin" />}
+                Show me what will come across
+              </button>
+            )}
           </>
         )}
 
-        {busy === 'preview' && (
-          <p className="flex items-center gap-2 text-sm text-gray-500">
-            <Loader2 className="h-4 w-4 animate-spin" /> Working out your rates…
-          </p>
-        )}
-
-        {plan && busy !== 'preview' && (
-          <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50/60 p-4">
+        {plans && markupPlan && (
+          <div className="space-y-5 rounded-lg border border-gray-200 bg-gray-50/60 p-4">
             <p className="text-sm font-semibold text-gray-900">
               Here's exactly what will land
             </p>
 
-            <PreviewList
-              title="Labor types"
-              rows={plan.labor.incoming}
-              counts={plan.labor}
-            />
-            <PreviewList
-              title="Equipment rates"
-              rows={plan.equipment.incoming}
-              counts={plan.equipment}
-              note="Hourly charge derived from KYN's ownership-cost model — purchase price, salvage, life, hours, fuel and repairs — using KYN's own formula."
-            />
+            {plans.map((p) => (
+              <div key={p.kynIndex} className="space-y-3">
+                <p className="text-sm font-bold text-gray-900">
+                  {p.division}
+                  {p.isNewDivision && (
+                    <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                      new division
+                    </span>
+                  )}
+                </p>
+                <PreviewList
+                  title="Labor types"
+                  rows={p.labor.incoming}
+                  counts={p.labor}
+                />
+                <PreviewList
+                  title="Equipment rates"
+                  rows={p.equipment.incoming}
+                  counts={p.equipment}
+                  note="Hourly charge derived from KYN's ownership-cost model — purchase price, salvage, life, hours, fuel and repairs — using KYN's own formula."
+                />
+                {Object.keys(p.unmappedMarkups).length > 0 && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      KYN also carries{' '}
+                      {Object.entries(p.unmappedMarkups)
+                        .map(([k, v]) => `${k} ${v}%`)
+                        .join(', ')}{' '}
+                      on this division. BidClaw only has materials and subs
+                      markups, so those won't come across — fold them into a
+                      line's own markup.
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
 
-            <div className="text-xs text-gray-600">
+            <div className="border-t border-gray-200 pt-3 text-xs text-gray-600">
               <span className="font-semibold text-gray-800">Markups: </span>
-              {plan.markupMaterials !== null
-                ? `materials ${plan.markupMaterials}%`
+              {markupPlan.materials !== null
+                ? `materials ${markupPlan.materials}%`
                 : 'materials unchanged'}
               {', '}
-              {plan.markupSubs !== null
-                ? `subs ${plan.markupSubs}%`
+              {markupPlan.subs !== null
+                ? `subs ${markupPlan.subs}%`
                 : 'subs unchanged'}
+              {plans.length > 1 && (
+                <span className="text-gray-500">
+                  {' '}
+                  — taken from {markupPlan.fromDivision}. Markups are
+                  company-wide in BidClaw, so only one division's can apply.
+                </span>
+              )}
             </div>
 
-            {Object.keys(plan.unmappedMarkups).length > 0 && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
-                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>
-                  KYN also carries{' '}
-                  {Object.entries(plan.unmappedMarkups)
-                    .map(([k, v]) => `${k} ${v}%`)
-                    .join(', ')}
-                  . BidClaw only has materials and subs markups, so{' '}
-                  {Object.keys(plan.unmappedMarkups).length === 1 ? 'that one' : 'those'}{' '}
-                  won't come across — you'd fold it into a line's own markup.
-                </span>
-              </div>
-            )}
-
             <p className="text-xs text-gray-500">
-              Existing rows are overwritten in order and extras are added.
-              Nothing is deleted, so kits you've already built keep working.
+              Existing rows in each division are overwritten in order and
+              extras are added. Nothing is deleted, so kits you've already
+              built keep working.
             </p>
 
             <button

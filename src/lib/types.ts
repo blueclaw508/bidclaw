@@ -378,26 +378,50 @@ export interface CompanySettings {
  * 5 slots by default, but the catalog item can override the rate
  * inline. Proposals freeze the rate at creation time (Q3a).
  */
+/**
+ * A grouping of rates — a contractor's hardscape crew costs different money
+ * than their planting crew, and KYN has always modelled that. Optional:
+ * rates with a NULL division_id are ungrouped, which is how every account
+ * looked before divisions existed (0039).
+ */
+export interface CompanyDivision {
+  id: string
+  user_id: string
+  name: string
+  sort_order: number
+  /** Set when this division arrived from a KYN import, so a re-import updates it. */
+  kyn_year: number | null
+  kyn_division_index: number | null
+  created_at: string
+  updated_at: string
+}
+
 export interface CompanyLaborType {
   id: string
   user_id: string
-  slot_number: number // 1..5, enforced by CHECK constraint
+  /** Display order. Unbounded since 0038 — no longer a fixed slot. */
+  slot_number: number
   name: string | null
   rate_per_hour: number | null
+  /** Owning division, or null for ungrouped (0039). */
+  division_id: string | null
   created_at: string
   updated_at: string
 }
 
 /**
  * One of 10 equipment-rate slots. Same shape + pattern as
- * `CompanyLaborType` (slots 1..10 enforced by CHECK).
+ * `CompanyLaborType`.
  */
 export interface CompanyEquipmentRate {
   id: string
   user_id: string
-  slot_number: number // 1..10
+  /** Display order. Unbounded since 0038. */
+  slot_number: number
   name: string | null
   rate_per_hour: number | null
+  /** Owning division, or null for ungrouped (0039). */
+  division_id: string | null
   created_at: string
   updated_at: string
 }

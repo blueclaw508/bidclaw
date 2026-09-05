@@ -9,6 +9,7 @@
 
 import { supabase } from '@/lib/supabase'
 import type {
+  CompanyDivision,
   CompanyEquipmentRate,
   CompanyLaborType,
   CompanySettings,
@@ -169,6 +170,90 @@ export async function markSetupComplete(): Promise<CompanySettings> {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Divisions (0039) — optional groupings of rates
+// ──────────────────────────────────────────────────────────────────────
+//
+// A contractor with no divisions has none of these rows and every rate sits
+// with division_id NULL. That is the default and it looks exactly like the
+// flat list that existed before. Divisions are opted into.
+
+export async function loadCompanyDivisions(): Promise<CompanyDivision[]> {
+  const { data, error } = await supabase
+    .from('company_divisions')
+    .select('*')
+    .order('sort_order', { ascending: true })
+    .order('name', { ascending: true })
+  if (error) throw new Error(`Couldn't load divisions: ${error.message}`)
+  return (data ?? []) as CompanyDivision[]
+}
+
+export async function createCompanyDivision(
+  name: string,
+  existing: readonly CompanyDivision[]
+): Promise<CompanyDivision> {
+  const { data: auth } = await supabase.auth.getUser()
+  const userId = auth.user?.id
+  if (!userId) throw new Error('Not signed in.')
+
+  const sort = existing.reduce((m, d) => Math.max(m, d.sort_order), 0) + 1
+  const { data, error } = await supabase
+    .from('company_divisions')
+    .insert({ user_id: userId, name: name.trim(), sort_order: sort })
+    .select()
+    .single()
+  if (error || !data) {
+    // The unique (user_id, name) constraint is the likeliest failure and
+    // deserves a sentence rather than a Postgres code.
+    if (error?.code === '23505') {
+      throw new Error(`You already have a division called "${name.trim()}".`)
+    }
+    throw new Error(`Couldn't add that division: ${error?.message ?? 'no row returned'}`)
+  }
+  return data as CompanyDivision
+}
+
+export async function renameCompanyDivision(
+  id: string,
+  name: string
+): Promise<CompanyDivision> {
+  const { data, error } = await supabase
+    .from('company_divisions')
+    .update({ name: name.trim() })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error || !data) {
+    if (error?.code === '23505') {
+      throw new Error(`You already have a division called "${name.trim()}".`)
+    }
+    throw new Error(`Couldn't rename that division: ${error?.message ?? 'no row returned'}`)
+  }
+  return data as CompanyDivision
+}
+
+/**
+ * Remove a division. The rates inside it SURVIVE — division_id is
+ * ON DELETE SET NULL, so they fall back to ungrouped rather than being
+ * destroyed along with their label. Returns how many were unassigned so
+ * the caller can say so.
+ */
+export async function deleteCompanyDivision(id: string): Promise<number> {
+  const [{ count: laborCount }, { count: equipCount }] = await Promise.all([
+    supabase
+      .from('company_labor_types')
+      .select('id', { count: 'exact', head: true })
+      .eq('division_id', id),
+    supabase
+      .from('company_equipment_rates')
+      .select('id', { count: 'exact', head: true })
+      .eq('division_id', id),
+  ])
+  const { error } = await supabase.from('company_divisions').delete().eq('id', id)
+  if (error) throw new Error(`Couldn't remove that division: ${error.message}`)
+  return (laborCount ?? 0) + (equipCount ?? 0)
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Labor types — as many as the contractor wants (0038)
 // ──────────────────────────────────────────────────────────────────────
 
@@ -217,7 +302,8 @@ export async function updateCompanyLaborType(
  * plain error rather than a duplicate, and the form reloads after.
  */
 export async function addCompanyLaborType(
-  existing: readonly CompanyLaborType[]
+  existing: readonly CompanyLaborType[],
+  divisionId: string | null = null
 ): Promise<CompanyLaborType> {
   const nextSlot =
     existing.reduce((max, r) => Math.max(max, r.slot_number), 0) + 1
@@ -227,7 +313,7 @@ export async function addCompanyLaborType(
 
   const { data, error } = await supabase
     .from('company_labor_types')
-    .insert({ user_id: userId, slot_number: nextSlot })
+    .insert({ user_id: userId, slot_number: nextSlot, division_id: divisionId })
     .select()
     .single()
   if (error || !data) {
@@ -278,7 +364,8 @@ export async function loadCompanyEquipmentRates(): Promise<CompanyEquipmentRate[
 }
 
 export async function addCompanyEquipmentRate(
-  existing: readonly CompanyEquipmentRate[]
+  existing: readonly CompanyEquipmentRate[],
+  divisionId: string | null = null
 ): Promise<CompanyEquipmentRate> {
   const nextSlot =
     existing.reduce((max, r) => Math.max(max, r.slot_number), 0) + 1
@@ -288,7 +375,7 @@ export async function addCompanyEquipmentRate(
 
   const { data, error } = await supabase
     .from('company_equipment_rates')
-    .insert({ user_id: userId, slot_number: nextSlot })
+    .insert({ user_id: userId, slot_number: nextSlot, division_id: divisionId })
     .select()
     .single()
   if (error || !data) {

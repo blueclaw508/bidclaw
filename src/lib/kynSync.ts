@@ -27,8 +27,11 @@ export interface KynMappedRow {
   rate: number
 }
 
-export interface KynImportPlan {
+export interface KynDivisionPlan {
+  kynIndex: number
   division: string
+  /** True when the import would create this division in BidClaw. */
+  isNewDivision: boolean
   labor: {
     incoming: KynMappedRow[]
     overwrites: number
@@ -41,10 +44,20 @@ export interface KynImportPlan {
     appends: number
     untouched: number
   }
-  markupMaterials: number | null
-  markupSubs: number | null
   /** Markups KYN carries that BidClaw has nowhere to store. Shown, not hidden. */
   unmappedMarkups: Record<string, number>
+}
+
+/**
+ * Markups are per-division in KYN and company-wide in BidClaw, so importing
+ * several divisions still yields one pair. The first selected division
+ * supplies it, and `fromDivision` names which — averaging them, or letting
+ * the last one silently win, would both be worse than saying so.
+ */
+export interface KynMarkupPlan {
+  fromDivision: string
+  materials: number | null
+  subs: number | null
 }
 
 export class KynSyncError extends Error {
@@ -83,18 +96,30 @@ export function loadKynCatalogue(): Promise<{ catalogue: KynModelSummary[] }> {
   return call({ mode: 'preview' })
 }
 
-/** What exactly would land, if they imported this division? Writes nothing. */
+/** What exactly would land, for these divisions? Writes nothing. */
 export function previewKynImport(
   year: number,
-  division: number
-): Promise<{ catalogue: KynModelSummary[]; plan: KynImportPlan }> {
-  return call({ mode: 'preview', year, division })
+  divisions: number[]
+): Promise<{
+  catalogue: KynModelSummary[]
+  plans: KynDivisionPlan[]
+  markupPlan: KynMarkupPlan
+}> {
+  return call({ mode: 'preview', year, divisions })
 }
 
-/** Do it. Overwrites matching rows and appends the rest; deletes nothing. */
+/**
+ * Do it. Creates a BidClaw division per KYN division, overwrites matching
+ * rows inside it and appends the rest. Deletes nothing — kit lines point at
+ * these rows, so a full replace would unlink kits already built.
+ */
 export function applyKynImport(
   year: number,
-  division: number
-): Promise<{ applied: boolean; plan: KynImportPlan }> {
-  return call({ mode: 'apply', year, division })
+  divisions: number[]
+): Promise<{
+  applied: boolean
+  plans: KynDivisionPlan[]
+  markupPlan: KynMarkupPlan
+}> {
+  return call({ mode: 'apply', year, divisions })
 }

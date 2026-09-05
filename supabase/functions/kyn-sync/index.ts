@@ -230,7 +230,7 @@ Deno.serve(async (req: Request) => {
   if (authErr || !user?.email) return json({ error: 'Not signed in.' }, 401)
   const email = user.email.trim().toLowerCase()
 
-  let body: { mode?: string; year?: number; division?: number }
+  let body: { mode?: string; year?: number; divisions?: number[] }
   try {
     body = await req.json()
   } catch {
@@ -309,100 +309,179 @@ Deno.serve(async (req: Request) => {
     }
   })
 
-  if (body.year === undefined || body.division === undefined) {
+  const wanted = Array.isArray(body.divisions)
+    ? [...new Set(body.divisions.filter((n) => Number.isInteger(n) && n >= 0))]
+    : []
+
+  if (body.year === undefined || wanted.length === 0) {
     return json({ catalogue })
   }
 
-  // ── Map one division ────────────────────────────────────────────────
+  // ── Map the chosen divisions ────────────────────────────────────────
   const model = models.find((m) => m.year === body.year)
   if (!model) return json({ error: 'No Know Your Numbers model for that year.' }, 404)
   const divisions = ((model.data ?? {}) as KynModel).divisions ?? []
-  const div = divisions[body.division]
-  if (!div) return json({ error: 'No such division in that model.' }, 404)
 
-  const mapped = mapDivision(div)
+  const chosen: Array<{ index: number; mapped: Mapped }> = []
+  for (const idx of wanted) {
+    const div = divisions[idx]
+    if (!div) return json({ error: `No division ${idx} in that model.` }, 404)
+    chosen.push({ index: idx, mapped: mapDivision(div) })
+  }
 
-  // ── What would change ───────────────────────────────────────────────
   const service = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
-  const [{ data: existingLabor }, { data: existingEquip }] = await Promise.all([
+
+  // Existing BidClaw divisions, so a repeat import updates the one it made
+  // last time rather than stacking a second copy beside it.
+  const { data: existingDivs } = await service
+    .from('company_divisions')
+    .select('id, name, sort_order, kyn_year, kyn_division_index')
+    .eq('user_id', user.id)
+  const divRows = existingDivs ?? []
+
+  const findDivision = (kynIndex: number, name: string) =>
+    divRows.find(
+      (d) => d.kyn_year === body.year && d.kyn_division_index === kynIndex
+    ) ?? divRows.find((d) => d.name === name)
+
+  // ── What would change ───────────────────────────────────────────────
+  const [{ data: allLabor }, { data: allEquip }] = await Promise.all([
     service
       .from('company_labor_types')
-      .select('id, slot_number, name, rate_per_hour')
+      .select('id, slot_number, division_id')
       .eq('user_id', user.id)
       .order('slot_number'),
     service
       .from('company_equipment_rates')
-      .select('id, slot_number, name, rate_per_hour')
+      .select('id, slot_number, division_id')
       .eq('user_id', user.id)
       .order('slot_number'),
   ])
-  const labRows = existingLabor ?? []
-  const eqRows = existingEquip ?? []
+  const labRows = allLabor ?? []
+  const eqRows = allEquip ?? []
 
-  const plan = {
-    division: mapped.divisionName,
-    labor: {
-      incoming: mapped.labor,
-      overwrites: Math.min(mapped.labor.length, labRows.length),
-      appends: Math.max(0, mapped.labor.length - labRows.length),
-      untouched: Math.max(0, labRows.length - mapped.labor.length),
-    },
-    equipment: {
-      incoming: mapped.equipment,
-      overwrites: Math.min(mapped.equipment.length, eqRows.length),
-      appends: Math.max(0, mapped.equipment.length - eqRows.length),
-      untouched: Math.max(0, eqRows.length - mapped.equipment.length),
-    },
-    markupMaterials: mapped.markupMaterials,
-    markupSubs: mapped.markupSubs,
-    unmappedMarkups: mapped.unmappedMarkups,
+  const plans = chosen.map(({ index, mapped }) => {
+    const target = findDivision(index, mapped.divisionName)
+    const inDivLabor = target
+      ? labRows.filter((r) => r.division_id === target.id)
+      : []
+    const inDivEquip = target
+      ? eqRows.filter((r) => r.division_id === target.id)
+      : []
+    return {
+      kynIndex: index,
+      division: mapped.divisionName,
+      isNewDivision: !target,
+      labor: {
+        incoming: mapped.labor,
+        overwrites: Math.min(mapped.labor.length, inDivLabor.length),
+        appends: Math.max(0, mapped.labor.length - inDivLabor.length),
+        untouched: Math.max(0, inDivLabor.length - mapped.labor.length),
+      },
+      equipment: {
+        incoming: mapped.equipment,
+        overwrites: Math.min(mapped.equipment.length, inDivEquip.length),
+        appends: Math.max(0, mapped.equipment.length - inDivEquip.length),
+        untouched: Math.max(0, inDivEquip.length - mapped.equipment.length),
+      },
+      unmappedMarkups: mapped.unmappedMarkups,
+    }
+  })
+
+  // Markups are COMPANY-level in BidClaw and per-division in KYN, so
+  // importing several divisions cannot bring several markup pairs. The
+  // first selected division supplies them, and the preview says which —
+  // silently averaging or last-write-wins would be worse than naming it.
+  const markupSource = chosen[0]
+  const markupPlan = {
+    fromDivision: markupSource.mapped.divisionName,
+    materials: markupSource.mapped.markupMaterials,
+    subs: markupSource.mapped.markupSubs,
   }
 
-  if (mode === 'preview') return json({ catalogue, plan })
+  if (mode === 'preview') return json({ catalogue, plans, markupPlan })
 
   // ── Apply ───────────────────────────────────────────────────────────
-  // In place by slot, appending what does not fit. Never deletes: kit_lines
-  // point at these rows with ON DELETE SET NULL, so removing one would
-  // quietly unlink kits the contractor has already built.
-  const writeRows = async (
-    table: 'company_labor_types' | 'company_equipment_rates',
-    incoming: MappedRow[],
-    existing: Array<{ id: string; slot_number: number }>
-  ) => {
-    let nextSlot = existing.reduce((m, r) => Math.max(m, r.slot_number), 0)
-    for (let i = 0; i < incoming.length; i++) {
-      const row = incoming[i]
-      const target = existing[i]
-      if (target) {
-        const { error } = await service
-          .from(table)
-          .update({ name: row.name, rate_per_hour: row.rate })
-          .eq('id', target.id)
-        if (error) throw new Error(`${table}: ${error.message}`)
-      } else {
-        nextSlot += 1
-        const { error } = await service.from(table).insert({
-          user_id: user.id,
-          slot_number: nextSlot,
-          name: row.name,
-          rate_per_hour: row.rate,
-        })
-        if (error) throw new Error(`${table}: ${error.message}`)
-      }
-    }
-  }
+  // Never DELETES a rate row: kit_lines reference these with ON DELETE SET
+  // NULL, so a full replace would quietly unlink every kit already built.
+  // Overwrites within the division in order, appends the remainder.
+  let nextLaborSlot = labRows.reduce((m, r) => Math.max(m, r.slot_number), 0)
+  let nextEquipSlot = eqRows.reduce((m, r) => Math.max(m, r.slot_number), 0)
+  let nextDivSort = divRows.reduce((m, d) => Math.max(m, d.sort_order), 0)
 
   try {
-    await writeRows('company_labor_types', mapped.labor, labRows)
-    await writeRows('company_equipment_rates', mapped.equipment, eqRows)
+    for (const { index, mapped } of chosen) {
+      // Find or create the BidClaw division.
+      let target = findDivision(index, mapped.divisionName)
+      if (!target) {
+        nextDivSort += 1
+        const { data: created, error } = await service
+          .from('company_divisions')
+          .insert({
+            user_id: user.id,
+            name: mapped.divisionName,
+            sort_order: nextDivSort,
+            kyn_year: body.year,
+            kyn_division_index: index,
+          })
+          .select('id, name, sort_order, kyn_year, kyn_division_index')
+          .single()
+        if (error || !created) {
+          throw new Error(`division "${mapped.divisionName}": ${error?.message}`)
+        }
+        target = created
+        divRows.push(created)
+      } else if (target.kyn_year === null) {
+        // Matched by name on a division the contractor made themselves —
+        // record the provenance so the next import updates this one.
+        await service
+          .from('company_divisions')
+          .update({ kyn_year: body.year, kyn_division_index: index })
+          .eq('id', target.id)
+      }
+
+      const divisionId = target.id
+
+      const writeRows = async (
+        table: 'company_labor_types' | 'company_equipment_rates',
+        incoming: MappedRow[],
+        existing: Array<{ id: string; slot_number: number; division_id: string | null }>,
+        bumpSlot: () => number
+      ) => {
+        const mine = existing.filter((r) => r.division_id === divisionId)
+        for (let i = 0; i < incoming.length; i++) {
+          const row = incoming[i]
+          const hit = mine[i]
+          if (hit) {
+            const { error } = await service
+              .from(table)
+              .update({ name: row.name, rate_per_hour: row.rate })
+              .eq('id', hit.id)
+            if (error) throw new Error(`${table}: ${error.message}`)
+          } else {
+            const { error } = await service.from(table).insert({
+              user_id: user.id,
+              slot_number: bumpSlot(),
+              name: row.name,
+              rate_per_hour: row.rate,
+              division_id: divisionId,
+            })
+            if (error) throw new Error(`${table}: ${error.message}`)
+          }
+        }
+      }
+
+      await writeRows('company_labor_types', mapped.labor, labRows, () => ++nextLaborSlot)
+      await writeRows('company_equipment_rates', mapped.equipment, eqRows, () => ++nextEquipSlot)
+    }
 
     const patch: Record<string, number> = {}
-    if (mapped.markupMaterials !== null)
-      patch.markup_materials_percent = mapped.markupMaterials
-    if (mapped.markupSubs !== null) patch.markup_subs_percent = mapped.markupSubs
+    if (markupPlan.materials !== null)
+      patch.markup_materials_percent = markupPlan.materials
+    if (markupPlan.subs !== null) patch.markup_subs_percent = markupPlan.subs
     if (Object.keys(patch).length > 0) {
       const { error } = await service
         .from('company_settings')
@@ -413,8 +492,11 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('kyn-sync apply failed:', msg)
-    return json({ error: "Couldn't finish the import. Nothing else was changed." }, 500)
+    return json(
+      { error: "Couldn't finish the import. Some divisions may have been imported already — re-run it to finish." },
+      500
+    )
   }
 
-  return json({ applied: true, plan })
+  return json({ applied: true, plans, markupPlan })
 })
