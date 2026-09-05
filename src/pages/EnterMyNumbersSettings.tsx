@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Loader2, RotateCcw, Save, Settings as SettingsIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { EnterMyNumbersForm } from '@/components/settings/EnterMyNumbersForm'
+import { KynImportCard } from '@/components/settings/KynImportCard'
 import {
   loadCompanyEquipmentRates,
   loadCompanyLaborTypes,
@@ -46,29 +47,35 @@ export default function EnterMyNumbersSettingsPage() {
   // ambiguous and let an unsaved row be typed into and then silently lost.
   const [rowBusy, setRowBusy] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    void Promise.all([
-      loadCompanySettings(),
-      loadCompanyLaborTypes(),
-      loadCompanyEquipmentRates(),
-    ])
-      .then(([s, lt, er]) => {
-        if (cancelled) return
-        setServerSettings(s)
-        setServerLabor(lt)
-        setServerEquipment(er)
-        setLocalSettings(s)
-        setLocalLabor(lt)
-        setLocalEquipment(er)
-      })
-      .catch((err) => {
-        if (!cancelled) setLoadError((err as Error).message)
-      })
-    return () => {
-      cancelled = true
+  /**
+   * Load everything and reset BOTH server and local copies.
+   *
+   * Also the post-import refresh: the KYN import writes server-side, so the
+   * local draft has to be replaced outright rather than merged — anything
+   * unsaved at that point was about to be overwritten by the import anyway,
+   * and merging would leave the form showing a mix of the two.
+   */
+  const reloadAll = useCallback(async () => {
+    try {
+      const [s, lt, er] = await Promise.all([
+        loadCompanySettings(),
+        loadCompanyLaborTypes(),
+        loadCompanyEquipmentRates(),
+      ])
+      setServerSettings(s)
+      setServerLabor(lt)
+      setServerEquipment(er)
+      setLocalSettings(s)
+      setLocalLabor(lt)
+      setLocalEquipment(er)
+    } catch (err) {
+      setLoadError((err as Error).message)
     }
   }, [])
+
+  useEffect(() => {
+    void reloadAll()
+  }, [reloadAll])
 
   const handleSettingsChange = useCallback(
     (patch: Partial<CompanySettings>) => {
@@ -324,6 +331,11 @@ export default function EnterMyNumbersSettingsPage() {
           These numbers drive your proposals.
         </p>
       </div>
+
+      {/* Offered before the form itself: for a KYN subscriber this fills
+          the whole page in one click, and typing it all by hand is the
+          fallback rather than the default. */}
+      <KynImportCard onImported={() => void reloadAll()} />
 
       <EnterMyNumbersForm
         value={localSettings}
