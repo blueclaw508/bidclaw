@@ -4,7 +4,9 @@ import {
   Image as ImageIcon,
   Palette,
   Percent,
+  Plus,
   ScrollText,
+  Trash2,
   Users,
   Wrench,
 } from 'lucide-react'
@@ -47,6 +49,17 @@ interface EnterMyNumbersFormProps {
     slotNumber: number,
     patch: Partial<CompanyEquipmentRate>
   ) => void
+  /**
+   * Add/remove rate rows. Optional so the setup wizard can leave them out —
+   * a contractor filling in their numbers for the first time is choosing
+   * values, not managing a list, and the seeded rows are enough there.
+   */
+  onAddLabor?: () => void
+  onDeleteLabor?: (id: string) => void
+  onAddEquipment?: () => void
+  onDeleteEquipment?: (id: string) => void
+  /** True while an add/delete is in flight — disables both. */
+  rowBusy?: boolean
   mode: 'wizard' | 'settings'
   onValidityChange?: (isValid: boolean) => void
 }
@@ -63,6 +76,11 @@ export function EnterMyNumbersForm({
   onLaborChange,
   equipmentRates,
   onEquipmentChange,
+  onAddLabor,
+  onDeleteLabor,
+  onAddEquipment,
+  onDeleteEquipment,
+  rowBusy = false,
   mode,
   onValidityChange,
 }: EnterMyNumbersFormProps) {
@@ -91,13 +109,22 @@ export function EnterMyNumbersForm({
     <div className="space-y-6">
       <PdfBrandingCard value={value} onChange={onChange} />
 
-      <LaborCard laborTypes={laborTypes} onLaborChange={onLaborChange} />
+      <LaborCard
+        laborTypes={laborTypes}
+        onLaborChange={onLaborChange}
+        onAddLabor={onAddLabor}
+        onDeleteLabor={onDeleteLabor}
+        busy={rowBusy}
+      />
 
       <MarkupsGrid value={value} onChange={onChange} />
 
       <EquipmentCard
         equipmentRates={equipmentRates}
         onEquipmentChange={onEquipmentChange}
+        onAddEquipment={onAddEquipment}
+        onDeleteEquipment={onDeleteEquipment}
+        busy={rowBusy}
       />
 
       <TermsCard value={value} onChange={onChange} />
@@ -295,15 +322,21 @@ function ToggleRow({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Target Billable Rates — Labor (5 slots)
+// Target Billable Rates — Labor (unlimited since 0038)
 // ──────────────────────────────────────────────────────────────────────
 
 function LaborCard({
   laborTypes,
   onLaborChange,
+  onAddLabor,
+  onDeleteLabor,
+  busy,
 }: {
   laborTypes: readonly CompanyLaborType[]
   onLaborChange: (slotNumber: number, patch: Partial<CompanyLaborType>) => void
+  onAddLabor?: () => void
+  onDeleteLabor?: (id: string) => void
+  busy: boolean
 }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -312,7 +345,8 @@ function LaborCard({
         <div>
           <h2 className="font-semibold text-gray-900">Target Billable Rates — Labor</h2>
           <p className="text-xs text-gray-500">
-            Up to 5 labor types with target billable rate per man hour
+            Every labor type you use, with its target billable rate per man
+            hour. Add as many as your company actually runs.
           </p>
         </div>
       </div>
@@ -351,8 +385,31 @@ function LaborCard({
               />
             </div>
             <span className="text-xs text-gray-400 w-8">/hr</span>
+            {onDeleteLabor && (
+            <button
+              type="button"
+              onClick={() => onDeleteLabor(lt.id)}
+              disabled={busy}
+              title="Remove this labor type"
+              aria-label={`Remove labor type ${lt.name || lt.slot_number}`}
+              className="rounded-md p-1.5 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-default disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            )}
           </div>
         ))}
+        {onAddLabor && (
+        <button
+          type="button"
+          onClick={onAddLabor}
+          disabled={busy}
+          className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700 disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" />
+          Add labor type
+        </button>
+        )}
       </div>
     </div>
   )
@@ -452,18 +509,24 @@ function MarkupCard({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Billable Equipment Hourly Rates (10 slots)
+// Billable Equipment Hourly Rates (unlimited since 0038)
 // ──────────────────────────────────────────────────────────────────────
 
 function EquipmentCard({
   equipmentRates,
   onEquipmentChange,
+  onAddEquipment,
+  onDeleteEquipment,
+  busy,
 }: {
   equipmentRates: readonly CompanyEquipmentRate[]
   onEquipmentChange: (
     slotNumber: number,
     patch: Partial<CompanyEquipmentRate>
   ) => void
+  onAddEquipment?: () => void
+  onDeleteEquipment?: (id: string) => void
+  busy: boolean
 }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -472,7 +535,8 @@ function EquipmentCard({
         <div>
           <h2 className="font-semibold text-gray-900">Billable Equipment Hourly Rates</h2>
           <p className="text-xs text-gray-500">
-            Up to 10 equipment types with hourly rates
+            Every machine you bill for, at its hourly rate. Add as many as
+            you own or rent.
           </p>
         </div>
       </div>
@@ -511,8 +575,31 @@ function EquipmentCard({
               />
             </div>
             <span className="text-xs text-gray-400 w-8">/hr</span>
+            {onDeleteEquipment && (
+            <button
+              type="button"
+              onClick={() => onDeleteEquipment(eq.id)}
+              disabled={busy}
+              title="Remove this equipment type"
+              aria-label={`Remove equipment ${eq.name || eq.slot_number}`}
+              className="rounded-md p-1.5 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-default disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            )}
           </div>
         ))}
+        {onAddEquipment && (
+        <button
+          type="button"
+          onClick={onAddEquipment}
+          disabled={busy}
+          className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-purple-400 hover:bg-purple-50/50 hover:text-purple-700 disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" />
+          Add equipment
+        </button>
+        )}
       </div>
     </div>
   )

@@ -169,7 +169,7 @@ export async function markSetupComplete(): Promise<CompanySettings> {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Labor types — 5 slots per user
+// Labor types — as many as the contractor wants (0038)
 // ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -208,8 +208,62 @@ export async function updateCompanyLaborType(
   return data as CompanyLaborType
 }
 
+/**
+ * Add a labor type. slot_number is an ordinal, not a cap — the CHECK that
+ * bounded it at 5 is gone (0038), so this just takes the next one.
+ *
+ * Computed from the caller's already-loaded list rather than re-queried:
+ * the unique (user_id, slot_number) constraint turns any race into a
+ * plain error rather than a duplicate, and the form reloads after.
+ */
+export async function addCompanyLaborType(
+  existing: readonly CompanyLaborType[]
+): Promise<CompanyLaborType> {
+  const nextSlot =
+    existing.reduce((max, r) => Math.max(max, r.slot_number), 0) + 1
+  const { data: auth } = await supabase.auth.getUser()
+  const userId = auth.user?.id
+  if (!userId) throw new Error('Not signed in.')
+
+  const { data, error } = await supabase
+    .from('company_labor_types')
+    .insert({ user_id: userId, slot_number: nextSlot })
+    .select()
+    .single()
+  if (error || !data) {
+    throw new Error(`Couldn't add a labor type: ${error?.message ?? 'no row returned'}`)
+  }
+  return data as CompanyLaborType
+}
+
+/**
+ * Delete a labor type outright.
+ *
+ * Note what this does NOT do: renumber the rows above it. Kits and estimate
+ * lines reference these by id, so the gap is cosmetic and closing it would
+ * mean rewriting rows nothing asked to change.
+ */
+export async function deleteCompanyLaborType(id: string): Promise<number> {
+  // kit_lines.reference_labor_type_id is ON DELETE SET NULL, so this
+  // succeeds quietly and unlinks any kit line that pointed here — the line
+  // keeps its own stored rate but stops tracking this one. Count first so
+  // the contractor is told, rather than finding out the next time a kit
+  // prices differently than they expect.
+  const { count } = await supabase
+    .from('kit_lines')
+    .select('id', { count: 'exact', head: true })
+    .eq('reference_labor_type_id', id)
+
+  const { error } = await supabase
+    .from('company_labor_types')
+    .delete()
+    .eq('id', id)
+  if (error) throw new Error(`Couldn't remove that labor type: ${error.message}`)
+  return count ?? 0
+}
+
 // ──────────────────────────────────────────────────────────────────────
-// Equipment rates — 10 slots per user
+// Equipment rates — as many as the contractor wants (0038)
 // ──────────────────────────────────────────────────────────────────────
 
 export async function loadCompanyEquipmentRates(): Promise<CompanyEquipmentRate[]> {
@@ -221,6 +275,41 @@ export async function loadCompanyEquipmentRates(): Promise<CompanyEquipmentRate[
     throw new Error(`Couldn't load equipment rates: ${error.message}`)
   }
   return (data ?? []) as CompanyEquipmentRate[]
+}
+
+export async function addCompanyEquipmentRate(
+  existing: readonly CompanyEquipmentRate[]
+): Promise<CompanyEquipmentRate> {
+  const nextSlot =
+    existing.reduce((max, r) => Math.max(max, r.slot_number), 0) + 1
+  const { data: auth } = await supabase.auth.getUser()
+  const userId = auth.user?.id
+  if (!userId) throw new Error('Not signed in.')
+
+  const { data, error } = await supabase
+    .from('company_equipment_rates')
+    .insert({ user_id: userId, slot_number: nextSlot })
+    .select()
+    .single()
+  if (error || !data) {
+    throw new Error(`Couldn't add an equipment rate: ${error?.message ?? 'no row returned'}`)
+  }
+  return data as CompanyEquipmentRate
+}
+
+export async function deleteCompanyEquipmentRate(id: string): Promise<number> {
+  // Same SET NULL unlink as labor — see deleteCompanyLaborType.
+  const { count } = await supabase
+    .from('kit_lines')
+    .select('id', { count: 'exact', head: true })
+    .eq('reference_equipment_rate_id', id)
+
+  const { error } = await supabase
+    .from('company_equipment_rates')
+    .delete()
+    .eq('id', id)
+  if (error) throw new Error(`Couldn't remove that equipment rate: ${error.message}`)
+  return count ?? 0
 }
 
 export async function updateCompanyEquipmentRate(

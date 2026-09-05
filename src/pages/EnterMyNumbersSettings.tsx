@@ -10,6 +10,10 @@ import {
   updateCompanyEquipmentRate,
   updateCompanyLaborType,
   updateCompanySettings,
+  addCompanyLaborType,
+  deleteCompanyLaborType,
+  addCompanyEquipmentRate,
+  deleteCompanyEquipmentRate,
 } from '@/lib/companySettings'
 import type {
   CompanyEquipmentRate,
@@ -36,6 +40,11 @@ export default function EnterMyNumbersSettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  // Adding or removing a ROW writes immediately, unlike the field edits
+  // above which batch behind Save. A row is structure, not a value: leaving
+  // a half-created one sitting in local state until Save would make Reset
+  // ambiguous and let an unsaved row be typed into and then silently lost.
+  const [rowBusy, setRowBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -89,6 +98,68 @@ export default function EnterMyNumbersSettingsPage() {
     },
     []
   )
+
+  const handleAddLabor = useCallback(async () => {
+    setRowBusy(true)
+    try {
+      const row = await addCompanyLaborType(localLabor)
+      setServerLabor((prev) => [...prev, row])
+      setLocalLabor((prev) => [...prev, row])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't add a labor type.")
+    } finally {
+      setRowBusy(false)
+    }
+  }, [localLabor])
+
+  const handleDeleteLabor = useCallback(async (id: string) => {
+    setRowBusy(true)
+    try {
+      const unlinked = await deleteCompanyLaborType(id)
+      setServerLabor((prev) => prev.filter((r) => r.id !== id))
+      setLocalLabor((prev) => prev.filter((r) => r.id !== id))
+      if (unlinked > 0) {
+        toast.warning(
+          `Removed. ${unlinked} kit line${unlinked === 1 ? '' : 's'} that referenced it kept ${unlinked === 1 ? 'its' : 'their'} rate but no longer track this one.`
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't remove that row.")
+    } finally {
+      setRowBusy(false)
+    }
+  }, [])
+
+  const handleAddEquipment = useCallback(async () => {
+    setRowBusy(true)
+    try {
+      const row = await addCompanyEquipmentRate(localEquipment)
+      setServerEquipment((prev) => [...prev, row])
+      setLocalEquipment((prev) => [...prev, row])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't add equipment.")
+    } finally {
+      setRowBusy(false)
+    }
+  }, [localEquipment])
+
+  const handleDeleteEquipment = useCallback(async (id: string) => {
+    setRowBusy(true)
+    try {
+      const unlinked = await deleteCompanyEquipmentRate(id)
+      setServerEquipment((prev) => prev.filter((r) => r.id !== id))
+      setLocalEquipment((prev) => prev.filter((r) => r.id !== id))
+      if (unlinked > 0) {
+        toast.warning(
+          `Removed. ${unlinked} kit line${unlinked === 1 ? '' : 's'} that referenced it kept ${unlinked === 1 ? 'its' : 'their'} rate but no longer track this one.`
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't remove that row.")
+    } finally {
+      setRowBusy(false)
+    }
+  }, [])
 
   const handleReset = useCallback(() => {
     if (!serverSettings) return
@@ -261,6 +332,11 @@ export default function EnterMyNumbersSettingsPage() {
         onLaborChange={handleLaborChange}
         equipmentRates={localEquipment}
         onEquipmentChange={handleEquipmentChange}
+        onAddLabor={() => void handleAddLabor()}
+        onDeleteLabor={(id) => void handleDeleteLabor(id)}
+        onAddEquipment={() => void handleAddEquipment()}
+        onDeleteEquipment={(id) => void handleDeleteEquipment(id)}
+        rowBusy={rowBusy}
         mode="settings"
       />
 
