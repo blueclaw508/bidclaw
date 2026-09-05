@@ -1,32 +1,52 @@
 // ============================================================
-// PHASE 1 LOCKDOWN — REMOVE WHEN OPENING TO PUBLIC.
+// PHASE 1 SIGNUP ALLOWLIST — CLIENT HALF
 // ============================================================
-// During Phase 1 only this email may sign in to BidClaw. The
-// same email is hardcoded in the Supabase trigger
-// `public.enforce_email_allowlist()` (migration phase1_rls_auth_storage)
-// so the DB rejects any other signup at the auth layer too.
+// The list lives in public.beta_allowlist (migration 0034) and is
+// service-role only: RLS on, no policies, so it cannot be read or written
+// through the API. This module can ask whether ONE address is on it. It
+// cannot read the list, so nothing about who has access reaches the
+// browser or the bundle.
 //
-// Both copies must match. Changing one without the other will
-// either lock you out or let someone else in.
+// That is the point of the rewrite. The previous version hardcoded the
+// address here — which compiled it into dist/assets/index-*.js and served
+// it to every visitor — directly under a comment insisting the email
+// "must NEVER be rendered in any user-facing UI".
 //
-// Why a constant and not an env var: env vars introduce a silent
-// fail-open mode (unset = no enforcement). A code-level constant
-// is loud to change and visible in code review.
+// THIS IS A COURTESY CHECK, NOT THE LOCK. Enforcement is the BEFORE INSERT
+// trigger enforce_email_allowlist() on auth.users, which runs inside the
+// database and cannot be reached from a browser. Everything here exists so
+// a stranger gets a straight answer instead of an email that will never
+// work — and so someone revoked mid-session doesn't keep the app open.
 //
-// To open Phase 1 to additional emails: delete this file, drop
-// the Supabase trigger, audit every call site of
-// `isEmailAllowed()`. Do not extend this constant in place; the
-// fail-closed pattern only works for single-user lockdown.
+// To invite or revoke someone, change the TABLE. No deploy, no constant.
 // ============================================================
 
-const ALLOWED_EMAIL = 'ianm@blueclawassociates.com'
+import { supabase } from '@/lib/supabase'
 
-export function isEmailAllowed(email: string | null | undefined): boolean {
-  if (!email) return false
-  return email.trim().toLowerCase() === ALLOWED_EMAIL
+/**
+ * Is this address on the allowlist?
+ *
+ * Returns `null` — not `false` — when the question could not be answered
+ * (offline, RPC error). The distinction is deliberate: "no" and "don't
+ * know" call for different handling, and collapsing them into a falsy
+ * value is how a dropped request turns into a user being signed out. Each
+ * caller decides what to do with `null`, in the open, at the call site.
+ */
+export async function isEmailAllowed(
+  email: string | null | undefined
+): Promise<boolean | null> {
+  const trimmed = email?.trim().toLowerCase()
+  if (!trimmed) return false
+
+  const { data, error } = await supabase.rpc('is_email_allowed', {
+    p_email: trimmed,
+  })
+  if (error) {
+    // Not fatal and not a denial — the caller chooses. Logged because a
+    // persistent failure here means the sign-in form has quietly stopped
+    // pre-checking, and the only symptom would be dead magic-link emails.
+    console.error('allowlist check failed:', error.message)
+    return null
+  }
+  return data === true
 }
-
-// INTENTIONALLY NOT EXPORTED. The allowlisted email must NEVER be rendered
-// in any user-facing UI — that would leak which account has access to the
-// system. If you need a public message about the lockdown, use a generic
-// "private testing, contact info@blueclawgroup.com" line instead.
