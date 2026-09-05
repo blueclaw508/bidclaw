@@ -1,6 +1,12 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Building2, Calculator, ChevronRight, Settings as SettingsIcon } from 'lucide-react'
+import {
+  Building2,
+  Calculator,
+  ChevronRight,
+  Settings as SettingsIcon,
+  Sparkles,
+} from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { loadEntitlements, type Entitlements } from '@/lib/entitlements'
 
@@ -97,6 +103,33 @@ function SubscriptionSummary() {
             ? 'Your free proposal has been used. Subscribe to build and send more.'
             : `Your free trial covers ${ent.proposalLimit} proposal. It prints with a PREVIEW watermark and can\u2019t be sent until you subscribe.`}
         </p>
+      )}
+
+      {/* Pro is a paying customer with nowhere to go. Until this shipped,
+          the whole plan card ended at "Unlimited proposals" — no button, no
+          mention that a tier with Jamie in it even exists. This is the one
+          place a Pro subscriber can find the AI upgrade. */}
+      {ent.subscribed && ent.plan === 'pro' && (
+        <div className="rounded-lg border border-brand-gold/40 bg-brand-gold/5 p-3.5">
+          <p className="flex items-center gap-1.5 text-sm font-bold text-brand-gold-dark">
+            <Sparkles className="h-4 w-4" />
+            Add Jamie, the AI estimator
+          </p>
+          <p className="mt-1 text-xs text-gray-600">
+            Describe the job — or hand her the plans — and Jamie builds the
+            work areas and the takeoff against{' '}
+            <em>your</em> catalog, your kits and your KYN rates. She learns
+            from every correction you make, so she gets closer to your numbers
+            with each estimate. You approve every line before it lands.
+          </p>
+          <button
+            type="button"
+            onClick={() => setUpgradeOpen(true)}
+            className="mt-3 rounded-lg bg-brand-gold px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-brand-gold-dark"
+          >
+            Upgrade to Pro + Jamie
+          </button>
+        </div>
       )}
 
       {!ent.subscribed && (
