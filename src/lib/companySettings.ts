@@ -212,23 +212,39 @@ export async function createCompanyDivision(
   return data as CompanyDivision
 }
 
-export async function renameCompanyDivision(
+/**
+ * Patch a division: its name, or its own markups (0040). A NULL markup
+ * means "inherit the company's", so clearing a field is a real state, not
+ * an error.
+ */
+export async function updateCompanyDivision(
   id: string,
-  name: string
+  patch: Partial<
+    Pick<CompanyDivision, 'name' | 'markup_materials_percent' | 'markup_subs_percent'>
+  >
 ): Promise<CompanyDivision> {
+  const body = { ...patch }
+  if (typeof body.name === 'string') body.name = body.name.trim()
   const { data, error } = await supabase
     .from('company_divisions')
-    .update({ name: name.trim() })
+    .update(body)
     .eq('id', id)
     .select()
     .single()
   if (error || !data) {
     if (error?.code === '23505') {
-      throw new Error(`You already have a division called "${name.trim()}".`)
+      throw new Error(`You already have a division called "${body.name}".`)
     }
-    throw new Error(`Couldn't rename that division: ${error?.message ?? 'no row returned'}`)
+    throw new Error(`Couldn't update that division: ${error?.message ?? 'no row returned'}`)
   }
   return data as CompanyDivision
+}
+
+export function renameCompanyDivision(
+  id: string,
+  name: string
+): Promise<CompanyDivision> {
+  return updateCompanyDivision(id, { name })
 }
 
 /**

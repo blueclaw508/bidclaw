@@ -44,15 +44,17 @@ export interface KynDivisionPlan {
     appends: number
     untouched: number
   }
+  /** This division's own materials / subs markups — kept per division (0040). */
+  markups: { materials: number | null; subs: number | null }
   /** Markups KYN carries that BidClaw has nowhere to store. Shown, not hidden. */
   unmappedMarkups: Record<string, number>
 }
 
 /**
- * Markups are per-division in KYN and company-wide in BidClaw, so importing
- * several divisions still yields one pair. The first selected division
- * supplies it, and `fromDivision` names which — averaging them, or letting
- * the last one silently win, would both be worse than saying so.
+ * The COMPANY-WIDE fallback pair — what a work area with no division prices
+ * under. Each imported division keeps its own markups; this is only the
+ * default beneath them. The first selected division supplies it, and
+ * `fromDivision` names which.
  */
 export interface KynMarkupPlan {
   fromDivision: string

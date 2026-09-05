@@ -154,6 +154,34 @@ export interface LiveMarkupSettings {
 }
 
 /**
+ * The markups a work area actually prices with (0040): its division's,
+ * where the division has set one, else the company's.
+ *
+ * Pure and tiny on purpose. Every markup call site in the app already
+ * takes a LiveMarkupSettings, so per-division markups did not need the
+ * math to change at all — only WHICH settings object each work area is
+ * handed. This is the one place that decision is made, so the browser's
+ * live estimate and the proposal freeze cannot resolve it differently.
+ * (work_area_markups() in SQL is the same coalesce, for callers that only
+ * hold an id.)
+ */
+export function resolveMarkups(
+  company: LiveMarkupSettings,
+  division: {
+    markup_materials_percent: number | string | null
+    markup_subs_percent: number | string | null
+  } | null | undefined
+): LiveMarkupSettings {
+  if (!division) return company
+  return {
+    markup_materials_percent:
+      division.markup_materials_percent ?? company.markup_materials_percent,
+    markup_subs_percent:
+      division.markup_subs_percent ?? company.markup_subs_percent,
+  }
+}
+
+/**
  * Current settings markup % for a category. Material uses the
  * materials markup; subcontractor + other use the subs markup
  * (mirrors markupForCategory in the proposal data layer); labor +

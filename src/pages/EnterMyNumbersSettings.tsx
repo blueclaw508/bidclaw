@@ -13,7 +13,7 @@ import {
   updateCompanySettings,
   loadCompanyDivisions,
   createCompanyDivision,
-  renameCompanyDivision,
+  updateCompanyDivision,
   deleteCompanyDivision,
   addCompanyLaborType,
   deleteCompanyLaborType,
@@ -360,13 +360,23 @@ export default function EnterMyNumbersSettingsPage() {
             setRowBusy(false)
           }
         }}
-        onRename={async (id, name) => {
+        companyMarkups={{
+          materials:
+            typeof localSettings.markup_materials_percent === 'number'
+              ? localSettings.markup_materials_percent
+              : null,
+          subs:
+            typeof localSettings.markup_subs_percent === 'number'
+              ? localSettings.markup_subs_percent
+              : null,
+        }}
+        onUpdate={async (id, patch) => {
           setRowBusy(true)
           try {
-            const d = await renameCompanyDivision(id, name)
+            const d = await updateCompanyDivision(id, patch)
             setDivisions((prev) => prev.map((x) => (x.id === id ? d : x)))
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Couldn't rename that division.")
+            toast.error(err instanceof Error ? err.message : "Couldn't update that division.")
           } finally {
             setRowBusy(false)
           }

@@ -190,7 +190,9 @@ export function AddFromKitModal({
     let cancelled = false
     setModalState('loading')
     const t = setTimeout(() => {
-      previewKitLines({ kitId, inputQuantity })
+      // Pass the destination so the preview's markup is this work area's
+      // division markup (0040), matching what addLinesFromKitPreview freezes.
+      previewKitLines({ kitId, inputQuantity, proposalWorkAreaId })
         .then((lines) => {
           if (cancelled) return
           setPreviewLines(lines)
@@ -218,7 +220,7 @@ export function AddFromKitModal({
       cancelled = true
       clearTimeout(t)
     }
-  }, [open, kitId, inputQuantity, activeKits])
+  }, [open, kitId, inputQuantity, activeKits, proposalWorkAreaId])
 
   /* ---------- per-line edits ---------- */
 

@@ -18,17 +18,24 @@ import type { CompanyDivision } from '@/lib/types'
  * NULL, so they fall back to Ungrouped, still visible and still wired to
  * any kit that used them.
  */
+type DivisionPatch = Partial<
+  Pick<CompanyDivision, 'name' | 'markup_materials_percent' | 'markup_subs_percent'>
+>
+
 export function DivisionsCard({
   divisions,
+  companyMarkups,
   busy,
   onCreate,
-  onRename,
+  onUpdate,
   onDelete,
 }: {
   divisions: readonly CompanyDivision[]
+  /** The company-wide markups — shown as the inherited value on a blank field. */
+  companyMarkups: { materials: number | null; subs: number | null }
   busy: boolean
   onCreate: (name: string) => void | Promise<void>
-  onRename: (id: string, name: string) => void | Promise<void>
+  onUpdate: (id: string, patch: DivisionPatch) => void | Promise<void>
   onDelete: (id: string) => void | Promise<void>
 }) {
   const [draft, setDraft] = useState('')
@@ -71,10 +78,27 @@ export function DivisionsCard({
               disabled={busy}
               onBlur={(e) => {
                 const next = e.target.value.trim()
-                if (next !== '' && next !== d.name) void onRename(d.id, next)
+                if (next !== '' && next !== d.name) void onUpdate(d.id, { name: next })
                 else e.target.value = d.name
               }}
               className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none transition-all focus:border-slate-500 focus:ring-2 focus:ring-slate-500 disabled:opacity-60"
+            />
+            {/* This division's own markups (0040). Blank = inherit the
+                company-wide value, which is shown as the placeholder so
+                the contractor can see what "blank" currently means. */}
+            <MarkupField
+              label="Mat"
+              value={d.markup_materials_percent}
+              inherited={companyMarkups.materials}
+              disabled={busy}
+              onCommit={(v) => void onUpdate(d.id, { markup_materials_percent: v })}
+            />
+            <MarkupField
+              label="Subs"
+              value={d.markup_subs_percent}
+              inherited={companyMarkups.subs}
+              disabled={busy}
+              onCommit={(v) => void onUpdate(d.id, { markup_subs_percent: v })}
             />
             {d.kyn_year !== null && (
               <span
@@ -125,12 +149,62 @@ export function DivisionsCard({
 
         {divisions.length > 0 && (
           <p className="pt-1 text-xs text-gray-400">
-            Removing a division never removes its rates — they move to
-            Ungrouped, and any kit built on them keeps working.
+            Mat / Subs are this division's own markups; leave one blank to use
+            the company-wide value. Removing a division never removes its
+            rates — they move to Ungrouped, and any kit built on them keeps
+            working.
           </p>
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * A percent field whose EMPTY state is meaningful: it means "inherit". The
+ * inherited number rides in the placeholder, so blank never reads as zero.
+ */
+function MarkupField({
+  label,
+  value,
+  inherited,
+  disabled,
+  onCommit,
+}: {
+  label: string
+  value: number | null
+  inherited: number | null
+  disabled: boolean
+  onCommit: (value: number | null) => void
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-gray-500">
+      {label}
+      <input
+        type="number"
+        min="0"
+        step="0.1"
+        defaultValue={value ?? ''}
+        placeholder={inherited === null ? '—' : String(inherited)}
+        disabled={disabled}
+        title={
+          value === null
+            ? `Using the company-wide ${label === 'Mat' ? 'materials' : 'subs'} markup`
+            : `${label === 'Mat' ? 'Materials' : 'Subs'} markup for this division`
+        }
+        onBlur={(e) => {
+          const raw = e.target.value.trim()
+          const next = raw === '' ? null : Number(raw)
+          if (next !== null && !Number.isFinite(next)) {
+            e.target.value = value === null ? '' : String(value)
+            return
+          }
+          if (next !== value) onCommit(next)
+        }}
+        className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm text-gray-900 outline-none transition-all placeholder:text-gray-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-500 disabled:opacity-60"
+      />
+      <span className="text-gray-400">%</span>
+    </label>
   )
 }
 

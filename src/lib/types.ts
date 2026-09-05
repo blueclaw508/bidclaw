@@ -103,6 +103,12 @@ export interface WorkArea {
   status: WorkAreaStatus
   /** Estimate lifecycle: per-WA approval gates proposal generation. */
   estimate_status: EstimateStatus
+  /**
+   * Which division this work area is priced under (0040). Decides the
+   * default markup for its material / sub / other lines. NULL = company
+   * markups, which is every work area that existed before divisions.
+   */
+  division_id: string | null
   created_at: string
   updated_at: string
 }
@@ -392,6 +398,13 @@ export interface CompanyDivision {
   /** Set when this division arrived from a KYN import, so a re-import updates it. */
   kyn_year: number | null
   kyn_division_index: number | null
+  /**
+   * This division's own markups (0040). NULL = inherit the company-wide
+   * value, so a division created for its rates alone prices exactly as it
+   * did before this column existed.
+   */
+  markup_materials_percent: number | null
+  markup_subs_percent: number | null
   created_at: string
   updated_at: string
 }

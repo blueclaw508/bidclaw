@@ -30,6 +30,8 @@ import { syncLeadOnProposalGenerated, syncLeadStageForProposalStatus } from '@/l
 import {
   categoryBearsMarkup,
   effectiveMarkupPercent,
+  resolveMarkups,
+  type LiveMarkupSettings,
   lineBase,
   lineMarkup,
   lineTotal,
@@ -504,16 +506,28 @@ export async function generateProposalFromEstimates(input: {
     throw new Error('No approved work areas — approve at least one estimate first.')
   }
 
-  // 2 — current settings markups (frozen into the lines below)
-  const { data: settings, error: sErr } = await supabase
-    .from('company_settings')
-    .select('markup_materials_percent, markup_subs_percent')
-    .single()
+  // 2 — current markups (frozen into the lines below). Company-wide, plus
+  //     every division so each work area freezes under ITS division's
+  //     markups (0040) — the same resolveMarkups() the live estimate used,
+  //     so the proposal matches what the screen showed.
+  const [{ data: settings, error: sErr }, { data: divisionRows }] =
+    await Promise.all([
+      supabase
+        .from('company_settings')
+        .select('markup_materials_percent, markup_subs_percent')
+        .single(),
+      supabase
+        .from('company_divisions')
+        .select('id, markup_materials_percent, markup_subs_percent'),
+    ])
   if (sErr || !settings) {
     throw new Error(
       `Couldn't load settings for markup freeze: ${sErr?.message ?? 'missing'}`
     )
   }
+  const divisionById = new Map(
+    (divisionRows ?? []).map((d) => [d.id as string, d])
+  )
 
   // 3 — proposal shell
   const { data: proposal, error: pErr } = await supabase
@@ -553,6 +567,10 @@ export async function generateProposalFromEstimates(input: {
     const lineRows: Array<Record<string, unknown>> = []
     approvedWAs.forEach((wa, idx) => {
       const pwaId = pwaIdByPosition.get(idx)!
+      const waMarkups = resolveMarkups(
+        settings,
+        wa.division_id ? divisionById.get(wa.division_id) : null
+      )
       const sorted = [...(wa.work_area_lines ?? [])].sort(
         (a, b) => a.sort_order - b.sort_order
       )
@@ -575,7 +593,7 @@ export async function generateProposalFromEstimates(input: {
           frozen_equipment_rate: null,
           // Freeze the line's EFFECTIVE markup (per-line override wins over the
           // company live markup) so the proposal matches the approved estimate.
-          frozen_markup_percent: effectiveMarkupPercent(l, settings),
+          frozen_markup_percent: effectiveMarkupPercent(l, waMarkups),
           price_override:
             l.price_override === null ? null : Number(l.price_override),
           frozen_kit_factor: null,
@@ -1028,6 +1046,46 @@ function kitTypeToCategory(t: 'Labor' | 'Material' | 'Equipment' | 'Sub' | 'Othe
 }
 
 /**
+ * The markups a PROPOSAL work area prices with (0040).
+ *
+ * A proposal work area is a frozen copy that still remembers which live
+ * work area it came from, and that work area may sit in a division with
+ * its own markups. work_area_markups() resolves division-then-company on
+ * the server so this agrees with the freeze to the cent. Falls back to
+ * the company's markups when the link is gone (source work area deleted)
+ * — the line still needs a number, and the company's is the honest one.
+ */
+async function markupsForProposalWorkArea(
+  proposalWorkAreaId: string
+): Promise<LiveMarkupSettings> {
+  const { data: pwa } = await supabase
+    .from('proposal_work_areas')
+    .select('work_area_id')
+    .eq('id', proposalWorkAreaId)
+    .maybeSingle()
+  if (pwa?.work_area_id) {
+    const { data } = await supabase.rpc('work_area_markups', {
+      p_work_area_id: pwa.work_area_id as string,
+    })
+    const row = (Array.isArray(data) ? data[0] : data) as
+      | { markup_materials_percent: number | null; markup_subs_percent: number | null }
+      | null
+      | undefined
+    if (row) return row
+  }
+  const { data: settings, error } = await supabase
+    .from('company_settings')
+    .select('markup_materials_percent, markup_subs_percent')
+    .single()
+  if (error || !settings) {
+    throw new Error(
+      `Couldn't load settings for markup snapshot: ${error?.message ?? 'missing'}`
+    )
+  }
+  return settings
+}
+
+/**
  * Resolve markup percent for a category from current settings.
  * Labor + equipment get 0 (KYN methodology — rates already include
  * margin). Material uses markup_materials_percent. Sub + other use
@@ -1035,7 +1093,7 @@ function kitTypeToCategory(t: 'Labor' | 'Material' | 'Equipment' | 'Sub' | 'Othe
  */
 function markupForCategory(
   category: ProposalLineCategory,
-  settings: { markup_materials_percent: number | null; markup_subs_percent: number | null }
+  settings: LiveMarkupSettings
 ): number {
   switch (category) {
     case 'material':
@@ -1064,6 +1122,12 @@ function markupForCategory(
 export async function previewKitLines(input: {
   kitId: string
   inputQuantity: number
+  /**
+   * When the preview is for lines going INTO a proposal work area, pass it
+   * so the markup shown is that work area's division markup (0040) rather
+   * than the company default. Omit for a context-free preview.
+   */
+  proposalWorkAreaId?: string
 }): Promise<KitPreviewLine[]> {
   if (!Number.isFinite(input.inputQuantity) || input.inputQuantity <= 0) {
     throw new Error('Input quantity must be a positive number.')
@@ -1072,19 +1136,23 @@ export async function previewKitLines(input: {
   const kit = await loadKit(input.kitId)
   if (!kit) throw new Error('Kit not found.')
 
-  const [{ data: settings, error: sErr }, resolvedLines] = await Promise.all([
-    supabase
-      .from('company_settings')
-      .select('markup_materials_percent, markup_subs_percent')
-      .single(),
+  const [settings, resolvedLines] = await Promise.all([
+    input.proposalWorkAreaId
+      ? markupsForProposalWorkArea(input.proposalWorkAreaId)
+      : supabase
+          .from('company_settings')
+          .select('markup_materials_percent, markup_subs_percent')
+          .single()
+          .then(({ data, error }) => {
+            if (error || !data) {
+              throw new Error(
+                `Couldn't load company settings for markup snapshot: ${error?.message ?? 'missing'}`
+              )
+            }
+            return data as LiveMarkupSettings
+          }),
     Promise.all(kit.lines.map((l) => resolveKitLineReference(l))),
   ])
-
-  if (sErr || !settings) {
-    throw new Error(
-      `Couldn't load company settings for markup snapshot: ${sErr?.message ?? 'missing'}`
-    )
-  }
 
   const broken = resolvedLines.filter((r) => r.reference_missing)
   if (broken.length > 0) {
@@ -1274,15 +1342,8 @@ export async function addCustomLine(input: {
     throw new Error('Unit cost must be 0 or greater.')
   }
 
-  const { data: settings, error: sErr } = await supabase
-    .from('company_settings')
-    .select('markup_materials_percent, markup_subs_percent')
-    .single()
-  if (sErr || !settings) {
-    throw new Error(
-      `Couldn't load settings for markup snapshot: ${sErr?.message ?? 'missing'}`
-    )
-  }
+  // This work area's markups — its division's where it has one (0040).
+  const settings = await markupsForProposalWorkArea(input.proposalWorkAreaId)
 
   const sortOrder = await nextLineSortOrder(input.proposalWorkAreaId)
   // catalogItemId is accepted today as a traceability hint; we don't

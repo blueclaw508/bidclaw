@@ -276,6 +276,18 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
                   counts={p.equipment}
                   note="Hourly charge derived from KYN's ownership-cost model — purchase price, salvage, life, hours, fuel and repairs — using KYN's own formula."
                 />
+                <p className="text-xs text-gray-600">
+                  <span className="font-semibold text-gray-800">
+                    This division's markups:{' '}
+                  </span>
+                  {p.markups.materials !== null
+                    ? `materials ${p.markups.materials}%`
+                    : 'materials — inherits company'}
+                  {', '}
+                  {p.markups.subs !== null
+                    ? `subs ${p.markups.subs}%`
+                    : 'subs — inherits company'}
+                </p>
                 {Object.keys(p.unmappedMarkups).length > 0 && (
                   <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
                     <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -294,7 +306,9 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
             ))}
 
             <div className="border-t border-gray-200 pt-3 text-xs text-gray-600">
-              <span className="font-semibold text-gray-800">Markups: </span>
+              <span className="font-semibold text-gray-800">
+                Company-wide default:{' '}
+              </span>
               {markupPlan.materials !== null
                 ? `materials ${markupPlan.materials}%`
                 : 'materials unchanged'}
@@ -302,13 +316,11 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
               {markupPlan.subs !== null
                 ? `subs ${markupPlan.subs}%`
                 : 'subs unchanged'}
-              {plans.length > 1 && (
-                <span className="text-gray-500">
-                  {' '}
-                  — taken from {markupPlan.fromDivision}. Markups are
-                  company-wide in BidClaw, so only one division's can apply.
-                </span>
-              )}
+              <span className="text-gray-500">
+                {' '}
+                — from {markupPlan.fromDivision}. Used by work areas you
+                haven't put in a division; each division above keeps its own.
+              </span>
             </div>
 
             <p className="text-xs text-gray-500">

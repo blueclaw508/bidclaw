@@ -387,14 +387,20 @@ Deno.serve(async (req: Request) => {
         appends: Math.max(0, mapped.equipment.length - inDivEquip.length),
         untouched: Math.max(0, inDivEquip.length - mapped.equipment.length),
       },
+      // This division's own markups (0040) — every imported division keeps
+      // its own pair, exactly as KYN holds them.
+      markups: {
+        materials: mapped.markupMaterials,
+        subs: mapped.markupSubs,
+      },
       unmappedMarkups: mapped.unmappedMarkups,
     }
   })
 
-  // Markups are COMPANY-level in BidClaw and per-division in KYN, so
-  // importing several divisions cannot bring several markup pairs. The
-  // first selected division supplies them, and the preview says which —
-  // silently averaging or last-write-wins would be worse than naming it.
+  // The COMPANY-WIDE pair is a fallback: it is what a work area with no
+  // division prices under. The first selected division supplies it, and
+  // the preview names which. Divisions themselves each keep their own
+  // markups (above), so nothing is averaged and nothing silently wins.
   const markupSource = chosen[0]
   const markupPlan = {
     fromDivision: markupSource.mapped.divisionName,
@@ -426,6 +432,8 @@ Deno.serve(async (req: Request) => {
             sort_order: nextDivSort,
             kyn_year: body.year,
             kyn_division_index: index,
+            markup_materials_percent: mapped.markupMaterials,
+            markup_subs_percent: mapped.markupSubs,
           })
           .select('id, name, sort_order, kyn_year, kyn_division_index')
           .single()
@@ -434,13 +442,20 @@ Deno.serve(async (req: Request) => {
         }
         target = created
         divRows.push(created)
-      } else if (target.kyn_year === null) {
-        // Matched by name on a division the contractor made themselves —
-        // record the provenance so the next import updates this one.
-        await service
+      } else {
+        // Existing division: refresh ITS markups from KYN every import, and
+        // record provenance if it was matched by name on one the contractor
+        // made by hand, so the next import finds it directly.
+        const { error } = await service
           .from('company_divisions')
-          .update({ kyn_year: body.year, kyn_division_index: index })
+          .update({
+            kyn_year: body.year,
+            kyn_division_index: index,
+            markup_materials_percent: mapped.markupMaterials,
+            markup_subs_percent: mapped.markupSubs,
+          })
           .eq('id', target.id)
+        if (error) throw new Error(`division "${mapped.divisionName}": ${error.message}`)
       }
 
       const divisionId = target.id
