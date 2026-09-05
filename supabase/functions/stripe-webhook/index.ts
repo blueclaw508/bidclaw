@@ -181,32 +181,62 @@ Deno.serve(async (req: Request) => {
         // stops resolving — a price id edited in subscription_tier_limits:
         // the customer keeps what they have and it gets logged, rather than
         // being dropped to free by a config typo.
-        if (!paidTier) {
-          console.error(
-            `stripe-webhook: ${event.type} on price ${priceId} / product ${productId} ` +
-              `matches no BidClaw tier — ignoring (not ours)`
-          )
-          return new Response('Not a BidClaw product', { status: 200 })
-        }
-
-        // From here the price IS one of ours, so the event genuinely decides
-        // this account's plan. Cancelling runs the same code path as
-        // granting — there is no separate "downgrade" branch to forget.
         const ended =
           event.type === 'customer.subscription.deleted' ||
           sub.status === 'canceled' ||
           sub.status === 'unpaid' ||
           sub.status === 'incomplete_expired'
-        const tier = ended ? 'free' : paidTier
+
+        if (!paidTier) {
+          // Not a BidClaw price. Ordinarily none of our business — but a
+          // KYN subscription ENDING is the one partner event we care about,
+          // because a KYN comp is only good while KYN is paid for. Same
+          // Stripe account, so the cancellation arrives here for free; no
+          // polling, no second credential, no nightly job.
+          //
+          // revoke_kyn_comp matches on company_settings.kyn_subscription_id,
+          // recomputes the plan rather than assuming 'free' (someone who
+          // bought BidClaw on top of their comp keeps what they paid for),
+          // and clears the promise off the invite so signing up again does
+          // not hand the comp back. It is a no-op for a subscription nobody
+          // holds a comp against, which is what almost every partner event
+          // will be.
+          if (ended) {
+            const { data: revoked, error: revokeErr } = await service.rpc(
+              'revoke_kyn_comp',
+              { p_subscription_id: sub.id }
+            )
+            if (revokeErr) {
+              // Throw so the outer catch returns 500 and Stripe retries. A
+              // dropped revoke leaves someone holding a comp they are no
+              // longer owed, which is worth a retry.
+              throw new Error(`revoke_kyn_comp failed: ${revokeErr.message}`)
+            }
+            if ((revoked as number) > 0) {
+              console.log(
+                `stripe-webhook: partner subscription ${sub.id} ended — ` +
+                  `revoked ${revoked} BidClaw comp(s)`
+              )
+            }
+          }
+          return new Response('Not a BidClaw product', { status: 200 })
+        }
+
+        // From here the price IS one of ours, so the event genuinely decides
+        // this account's plan.
 
         const periodEnd = (sub as unknown as { current_period_end?: number })
           .current_period_end
-        await service
+
+        // Record the FACTS about the Stripe subscription. Note paid_tier
+        // rather than plan: what they bought is a different question from
+        // what they are entitled to, and conflating the two is what made a
+        // cancelled subscription drop a comped contractor to free instead of
+        // back onto their KYN comp.
+        const { error: writeErr } = await service
           .from('company_settings')
           .update({
-            plan: tier,
-            // pro_ai is the only tier that includes Jamie.
-            jamie_enabled: tier === 'pro_ai',
+            paid_tier: ended ? null : paidTier,
             stripe_subscription_id: ended ? null : sub.id,
             subscription_status: ended ? 'canceled' : sub.status,
             current_period_end: periodEnd
@@ -214,6 +244,23 @@ Deno.serve(async (req: Request) => {
               : null,
           })
           .eq('user_id', userId)
+        if (writeErr) throw new Error(writeErr.message)
+
+        // Then let the database work out what that adds up to. resolve_plan
+        // knows the precedence — paid beats manual beats comp — and
+        // sync_plan writes the answer into `plan` and `jamie_enabled`, which
+        // is what the browser and the Jamie tier lookup read. Deciding it
+        // here would put a second copy of that precedence in TypeScript,
+        // free to disagree with the one in SQL.
+        const { data: effective, error: syncErr } = await service.rpc(
+          'sync_plan',
+          { p_user_id: userId }
+        )
+        if (syncErr) throw new Error(`sync_plan failed: ${syncErr.message}`)
+        console.log(
+          `stripe-webhook: ${event.type} for ${userId} — ` +
+            `paid_tier=${ended ? 'null' : paidTier}, effective plan=${effective}`
+        )
         break
       }
 

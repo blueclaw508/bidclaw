@@ -41,15 +41,18 @@ export type SubscriptionStatus =
   | 'incomplete_expired'
   | null
 
-/**
- * Statuses that still grant access. past_due is included deliberately:
- * Stripe retries a failed card for days, and cutting a paying contractor
- * off mid-job over a temporary decline costs more than the few days of
- * access it saves. Access ends where Stripe itself has given up.
+/*
+ * There used to be an ENTITLED_STATUSES set here, mirroring
+ * has_active_subscription() with the note "MUST match migration 0030".
+ * It is gone: entitlement now comes from my_plan(), which calls the very
+ * function the gates call. A rule that lives in one place cannot drift out
+ * of step with itself.
  *
- * MUST match has_active_subscription() in migration 0030.
+ * (For reference, that rule still holds inside resolve_plan(): active,
+ * trialing and past_due all grant access. past_due deliberately — Stripe
+ * retries a failed card for days, and cutting a contractor off mid-job over
+ * a temporary decline costs more than the few days of access it saves.)
  */
-const ENTITLED_STATUSES = new Set(['active', 'trialing', 'past_due'])
 
 /** The free trial: one proposal, ever. Not per month. */
 export const FREE_PROPOSAL_LIMIT = 1
@@ -89,34 +92,44 @@ async function countProposalsEverCreated(): Promise<number> {
 }
 
 export async function loadEntitlements(): Promise<Entitlements> {
-  const [{ data: cs }, everCount] = await Promise.all([
+  const [{ data: cs }, { data: resolved }, everCount] = await Promise.all([
     supabase
       .from('company_settings')
       .select(
         'plan, jamie_enabled, subscription_status, current_period_end'
       )
       .single(),
+    // THE tier, straight from the database's own resolve_plan(). Asking
+    // rather than deriving matters because a KYN comp can EXPIRE: the `plan`
+    // column is a materialised copy, correct until the moment a date passes,
+    // and a browser reading it would keep drawing "Pro" over a server that
+    // had already started refusing. my_plan() is scoped to auth.uid(), so
+    // there is no id to forge.
+    supabase.rpc('my_plan'),
     countProposalsEverCreated(),
   ])
 
-  const plan = ((cs?.plan as Plan) ?? 'free') as Plan
+  // The stored column is the fallback for the RPC being unreachable — worse
+  // to render a blank plan than a slightly stale one, and every gate that
+  // actually matters is enforced server-side regardless.
+  const plan = ((resolved as Plan | null) ??
+    (cs?.plan as Plan) ??
+    'free') as Plan
   const subscriptionStatus = (cs?.subscription_status ??
     null) as SubscriptionStatus
 
-  // Mirrors has_active_subscription(): a non-free plan whose status is
-  // either entitled or absent entirely (manually granted).
-  const subscribed =
-    plan !== 'free' &&
-    ENTITLED_STATUSES.has(subscriptionStatus ?? 'active')
+  // resolve_plan() has already applied the status rules, the manual-grant
+  // rule and the comp-expiry rule. Anything that is not 'free' is entitled,
+  // and has_active_subscription() is now literally this same comparison.
+  const subscribed = plan !== 'free'
 
   return {
     plan,
     subscriptionStatus,
     currentPeriodEnd: (cs?.current_period_end as string | null) ?? null,
     subscribed,
-    // A lapsed pro_ai account loses Jamie with everything else — the
-    // jamie_enabled column alone is not enough.
-    jamieEnabled: subscribed && !!cs?.jamie_enabled,
+    // pro_ai is the only tier that includes Jamie, however it was granted.
+    jamieEnabled: plan === 'pro_ai',
     proposalsEverCreated: everCount,
     proposalLimit: subscribed ? null : FREE_PROPOSAL_LIMIT,
     canCreateProposal: subscribed || everCount < FREE_PROPOSAL_LIMIT,
