@@ -31,8 +31,9 @@
 import Anthropic, { toFile } from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
-  evaluateFounderModeGate,
-  FOUNDER_USER_ID,
+  evaluateJamieGate,
+  tierIncludesJamie,
+  tierKeyForUser,
   type JamieUsage,
   type TierLimits,
 } from './jamieGate.ts'
@@ -923,17 +924,9 @@ Deno.serve(async (req: Request) => {
   } = await supabase.auth.getUser()
   if (authErr || !user) return json({ error: 'Not signed in.' }, 401)
 
-  // 2 — Founder fast gate (Loop Rule 8). No DB reads, no writes, no spend.
-  if (user.id !== FOUNDER_USER_ID) {
-    const denied = evaluateFounderModeGate(user.id, null, {
-      jamieEstimatesThisMonth: 0,
-      invocationsThisMonth: 0,
-      invocationsLastHour: 0,
-      imagesThisSession: 0,
-      turnsThisSession: 0,
-    })
-    return json({ error: denied.reason, code: denied.code }, 403)
-  }
+  // 2 — moved below: the tier gate needs one read (company_settings.plan)
+  // to know which limits apply, so it runs right after the service client
+  // exists. Still zero spend and zero writes on a deny.
 
   let body: {
     jamie_run_id?: string
@@ -987,6 +980,39 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
 
+  // 2 — TIER GATE. Was founder-mode: allow one UUID, deny everyone else.
+  // That was correct while nobody could pay and a bug the moment they
+  // could — a Pro + AI subscriber would have been charged $499 and then
+  // refused by the product they just bought.
+  //
+  // The plan is resolved SERVER-SIDE from company_settings, never taken
+  // from the request. The client runs the same evaluation for its button
+  // state, but this is the copy that decides whether money gets spent.
+  const { data: planRow } = await service
+    .from('company_settings')
+    .select('plan')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  const tierKey = tierKeyForUser(user.id, planRow?.plan as string | null)
+  const { data: tierLimits } = await service
+    .from('subscription_tier_limits')
+    .select('*')
+    .eq('tier', tierKey)
+    .maybeSingle()
+  const limits = tierLimits as TierLimits | null
+  // A tier without Jamie can never pass whatever the counts say. Deny here,
+  // before the run load and before the usage aggregates.
+  if (!tierIncludesJamie(limits)) {
+    const denied = evaluateJamieGate(limits, {
+      jamieEstimatesThisMonth: 0,
+      invocationsThisMonth: 0,
+      invocationsLastHour: 0,
+      imagesThisSession: 0,
+      turnsThisSession: 0,
+    })
+    return json({ error: denied.reason, code: denied.code }, 403)
+  }
+
   // 3 — Run load + ownership. 404 either way: don't leak existence.
   const { data: run } = await service
     .from('jamie_loop_runs')
@@ -1000,15 +1026,11 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'This Jamie session is finished. Start a new one.' }, 409)
   }
 
-  // 4 — Full gate (founder tier is all-NULL, but the evaluation ALWAYS
-  // runs so the code path is identical when tier-mode replaces founder-mode).
-  const { data: limits } = await service
-    .from('subscription_tier_limits')
-    .select('*')
-    .eq('tier', 'founder')
-    .maybeSingle()
+  // 4 — Full gate: this tier's thresholds against live usage. The founder
+  // tier is all-NULL (unlimited) and still evaluates, so there is no
+  // separate privileged code path to rot.
   const usage = await loadUsage(service, user.id, run, imageRefs.length)
-  const gate = evaluateFounderModeGate(user.id, limits as TierLimits | null, usage)
+  const gate = evaluateJamieGate(limits, usage)
   if (!gate.allowed) return json({ error: gate.reason, code: gate.code }, 403)
 
   // 4b — Brain context (J3). The contractor's KYN numbers, the project, the

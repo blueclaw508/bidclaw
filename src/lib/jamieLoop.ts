@@ -14,7 +14,8 @@
 
 import { supabase } from '@/lib/supabase'
 import {
-  evaluateFounderModeGate,
+  evaluateJamieGate,
+  tierIncludesJamie,
   isLegalRunTransition,
   FOUNDER_USER_ID,
   type JamieGateResult,
@@ -409,23 +410,28 @@ export async function loadJamieUsage(
 }
 
 /**
- * The gate. Founder-mode (Loop Rule 8): allow() for Ian's UUID, typed
- * deny for everyone else. Client-side this is a UX PRE-CHECK — J1's Edge
- * Function runs the same evaluation server-side before any API call.
+ * The gate. Resolves the caller's TIER and evaluates their live usage
+ * against it. Client-side this is a UX PRE-CHECK — the Edge Function runs
+ * the same evaluation server-side before any API call, so a user who edits
+ * this result in devtools gains nothing.
+ *
+ * Until Stripe shipped this was founder-mode: allow Ian, deny everyone
+ * else. Leaving it that way would have meant a Pro + AI subscriber paying
+ * $499 and then being refused by their own app.
  */
 export async function canInvokeJamie(
   userId: string,
   runId?: string
 ): Promise<JamieGateResult> {
-  // Non-founders never reach the count queries — cheap fast deny.
-  if (userId !== FOUNDER_USER_ID) {
-    return evaluateFounderModeGate(userId, null, EMPTY_USAGE)
+  const limits = await getMyTierLimits(userId)
+  // A tier that does not include Jamie can never pass, whatever the counts
+  // say — deny before spending four aggregate queries to reach the same
+  // answer. This is what keeps a free contractor's project page cheap.
+  if (!tierIncludesJamie(limits)) {
+    return evaluateJamieGate(limits, EMPTY_USAGE)
   }
-  const [limits, usage] = await Promise.all([
-    loadTierLimits('founder'),
-    loadJamieUsage(userId, runId),
-  ])
-  return evaluateFounderModeGate(userId, limits, usage)
+  const usage = await loadJamieUsage(userId, runId)
+  return evaluateJamieGate(limits, usage)
 }
 
 const EMPTY_USAGE: JamieUsage = {

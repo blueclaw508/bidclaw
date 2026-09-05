@@ -1,6 +1,7 @@
 // J0 gate + schema test harness. Run: npm run test:jamie-gate
 //
-// Part A — pure gate matrix: evaluateFounderModeGate/evaluateJamieGate
+// Part A — pure gate matrix: tierKeyForUser / tierIncludesJamie /
+//          evaluateJamieGate
 //   against the LIVE seeded subscription_tier_limits rows (not hardcoded
 //   copies), covering every deny code + the founder allow.
 // Part B — DB fixtures via service role: quota_month generated column,
@@ -11,7 +12,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import {
-  evaluateFounderModeGate,
+  tierIncludesJamie,
+  tierKeyForUser,
   evaluateJamieGate,
   isLegalRunTransition,
   FOUNDER_USER_ID,
@@ -58,11 +60,32 @@ async function main() {
   const free = tiers['free']
   const proAi = tiers['pro_ai']
 
-  let r = evaluateFounderModeGate(FOUNDER_USER_ID, founder, ZERO)
+  const pro = tiers['pro']
+  const OTHER = '00000000-0000-0000-0000-000000000001'
+
+  // ── Tier resolution (replaced founder mode when Stripe shipped) ──────
+  check('founder uuid → founder tier', tierKeyForUser(FOUNDER_USER_ID, 'free') === 'founder', tierKeyForUser(FOUNDER_USER_ID, 'free'))
+  check('plan decides the tier for everyone else', tierKeyForUser(OTHER, 'pro_ai') === 'pro_ai', tierKeyForUser(OTHER, 'pro_ai'))
+  check('no plan → free (never a crash, never a free pass)', tierKeyForUser(OTHER, null) === 'free', tierKeyForUser(OTHER, null))
+  check('blank plan → free', tierKeyForUser(OTHER, '   ') === 'free', tierKeyForUser(OTHER, '   '))
+
+  check('founder tier includes Jamie', tierIncludesJamie(founder) === true, '')
+  check('pro_ai includes Jamie', tierIncludesJamie(proAi) === true, '')
+  check('pro does NOT include Jamie', tierIncludesJamie(pro) === false, '')
+  check('free does NOT include Jamie', tierIncludesJamie(free) === false, '')
+  check('missing tier row does NOT include Jamie', tierIncludesJamie(null) === false, '')
+
+  let r = evaluateJamieGate(founder, ZERO)
   check('founder allow', r.allowed === true, JSON.stringify(r))
 
-  r = evaluateFounderModeGate('00000000-0000-0000-0000-000000000001', proAi, ZERO)
-  check('non-founder deny (founder mode)', !r.allowed && r.code === 'JAMIE_NOT_AVAILABLE', JSON.stringify(r))
+  // THE REGRESSION THIS FILE EXISTS FOR: a paying Pro + AI subscriber who
+  // is not the founder must be ALLOWED. Founder mode denied exactly this
+  // person, which would have meant charging $499 and refusing to run.
+  r = evaluateJamieGate(proAi, ZERO)
+  check('paying pro_ai subscriber is allowed', r.allowed === true, JSON.stringify(r))
+
+  r = evaluateJamieGate(pro, ZERO)
+  check('pro (no AI) → UPGRADE_REQUIRED', !r.allowed && r.code === 'UPGRADE_REQUIRED', JSON.stringify(r))
 
   r = evaluateJamieGate(free, ZERO)
   check('free tier → UPGRADE_REQUIRED', !r.allowed && r.code === 'UPGRADE_REQUIRED', JSON.stringify(r))
