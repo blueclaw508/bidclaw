@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { loadEntitlements, type Entitlements } from '@/lib/entitlements'
+import { PasswordCard } from '@/components/settings/PasswordCard'
 
 const UpgradeModal = lazy(() => import('@/components/billing/UpgradeModal'))
 
@@ -226,6 +227,8 @@ export default function SettingsPage() {
             </div>
           </div>
         </InfoSection>
+
+        <PasswordCard />
 
         <InfoSection title="Subscription" description="Your BidClaw plan.">
           <SubscriptionSummary />

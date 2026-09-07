@@ -207,16 +207,24 @@ function PricingCard({
  * ============================================================ */
 
 export function PromoScreen() {
-  const { status, user, sendMagicLink, signOut } = useAuth()
+  const { status, user, sendMagicLink, signInWithPassword, sendPasswordReset, signOut } =
+    useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const loginRef = useRef<HTMLDivElement>(null)
 
-  // ── Login section state (unchanged behavior from Phase 1) ──
+  // ── Login section state ──
+  // Password is the default. The magic link stays as the fallback — it is
+  // how a brand-new account with no password gets in the first time — and
+  // "forgot" sends a reset link that lands on the set-password page.
+  type LoginMode = 'password' | 'link' | 'forgot'
+  const [mode, setMode] = useState<LoginMode>('password')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [sent, setSent] = useState(false)
+  // Which email just went out, if any. Null = the form is showing.
+  const [sent, setSent] = useState<null | 'link' | 'reset'>(null)
 
   const callbackState = (location.state ?? {}) as {
     allowlistRejected?: boolean
@@ -247,18 +255,37 @@ export function PromoScreen() {
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const err = await sendMagicLink(email)
-    if (err) setError(err)
-    else setSent(true)
+    if (mode === 'password') {
+      const err = await signInWithPassword(email, password)
+      if (err) setError(err)
+      // Success: AuthContext flips to authenticated and the section
+      // re-renders as the signed-in card on its own.
+    } else if (mode === 'link') {
+      const err = await sendMagicLink(email)
+      if (err) setError(err)
+      else setSent('link')
+    } else {
+      const err = await sendPasswordReset(email)
+      if (err) setError(err)
+      else setSent('reset')
+    }
     setLoading(false)
+  }
+
+  const switchMode = (next: LoginMode) => {
+    setMode(next)
+    setError(null)
+    setPassword('')
   }
 
   const goToApp = () => navigate('/app/projects')
 
   const handleSignOutFromMarketing = async () => {
     await signOut()
-    setSent(false)
+    setSent(null)
     setEmail('')
+    setPassword('')
+    setMode('password')
   }
 
   /* ============================================================
@@ -660,28 +687,42 @@ export function PromoScreen() {
               </div>
               <h2 className="text-xl font-bold text-white">Check your email</h2>
               <p className="mt-2 text-sm text-blue-100">
-                We sent a sign-in link to{' '}
-                <strong className="text-white">{email}</strong>. Click it to
-                finish signing in.
+                {sent === 'reset' ? (
+                  <>
+                    We sent a password-reset link to{' '}
+                    <strong className="text-white">{email}</strong>. Open it in
+                    this browser to choose a new password.
+                  </>
+                ) : (
+                  <>
+                    We sent a sign-in link to{' '}
+                    <strong className="text-white">{email}</strong>. Click it to
+                    finish signing in.
+                  </>
+                )}
               </p>
               <button
                 type="button"
                 onClick={() => {
-                  setSent(false)
+                  setSent(null)
                   setError(null)
+                  setMode('password')
                 }}
                 className="mt-6 text-sm font-medium text-blue-200 hover:text-white"
               >
-                Use a different email
+                Back to sign in
               </button>
             </div>
           ) : (
             <>
               <h2 className="mb-1 text-center text-2xl font-bold text-white">
-                Welcome back
+                {mode === 'forgot' ? 'Reset your password' : 'Welcome back'}
               </h2>
               <p className="mb-8 text-center text-sm text-blue-100">
-                Enter your email and we'll send you a sign-in link.
+                {mode === 'password' &&
+                  'Sign in with your email and password. Know Your Numbers subscribers: your KYN login works here.'}
+                {mode === 'link' && "Enter your email and we'll send you a sign-in link."}
+                {mode === 'forgot' && "Enter your email and we'll send you a link to choose a new password."}
               </p>
 
               {bounceMessage && (
@@ -708,9 +749,36 @@ export function PromoScreen() {
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-blue-200/60 focus:border-[#C9A84C] focus:ring-2 focus:ring-[#C9A84C]/30"
                     placeholder="you@company.com"
+                    autoComplete="email"
                     autoFocus
                   />
                 </div>
+
+                {mode === 'password' && (
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <label className="block text-sm font-medium text-blue-100">
+                        Password
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => switchMode('forgot')}
+                        className="text-xs font-medium text-blue-200 hover:text-white"
+                      >
+                        Forgot password?
+                      </button>
+                    </div>
+                    <input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      className="w-full rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-blue-200/60 focus:border-[#C9A84C] focus:ring-2 focus:ring-[#C9A84C]/30"
+                      placeholder="Your password"
+                    />
+                  </div>
+                )}
 
                 {error && (
                   <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
@@ -724,9 +792,34 @@ export function PromoScreen() {
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C9A84C] py-3 text-sm font-semibold text-white shadow-lg transition-all hover:bg-[#A8872E] hover:shadow-xl disabled:opacity-50"
                 >
                   <LogIn className="h-4 w-4" />
-                  {loading ? 'Sending link…' : 'Send me a sign-in link'}
+                  {mode === 'password' && (loading ? 'Signing in…' : 'Sign in')}
+                  {mode === 'link' && (loading ? 'Sending link…' : 'Send me a sign-in link')}
+                  {mode === 'forgot' && (loading ? 'Sending link…' : 'Send reset link')}
                 </button>
               </form>
+
+              <div className="mt-4 text-center text-xs text-blue-200">
+                {mode === 'password' ? (
+                  <>
+                    No password yet?{' '}
+                    <button
+                      type="button"
+                      onClick={() => switchMode('link')}
+                      className="font-semibold text-white underline-offset-4 hover:underline"
+                    >
+                      Email me a sign-in link
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => switchMode('password')}
+                    className="font-semibold text-white underline-offset-4 hover:underline"
+                  >
+                    Back to password sign-in
+                  </button>
+                )}
+              </div>
 
               {/* Phase 1 lockdown note — INTENTIONALLY does not name the
                   allowlisted email. Disclosing the email here would tell

@@ -4,13 +4,13 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 
 /**
- * Landing page after the user clicks a magic-link email. The Supabase
- * client (detectSessionInUrl=true) is already parsing the URL and
- * exchanging the token for a session, which propagates through
+ * Landing page after the user clicks a magic-link or password-reset
+ * email. The Supabase client (detectSessionInUrl=true) is already parsing
+ * the URL and exchanging the code for a session, which propagates through
  * AuthContext. We just wait for status to settle and bounce.
  */
 export default function AuthCallback() {
-  const { status } = useAuth()
+  const { status, passwordRecovery } = useAuth()
   // Track elapsed time so we can show a clearer message if the exchange stalls.
   const [stallMs, setStallMs] = useState(0)
 
@@ -21,7 +21,9 @@ export default function AuthCallback() {
   }, [status])
 
   if (status === 'authenticated') {
-    return <Navigate to="/app/projects" replace />
+    // A recovery link brought them in: the point of the visit is a new
+    // password, so that page comes before anything else.
+    return <Navigate to={passwordRecovery ? '/auth/set-password' : '/app/projects'} replace />
   }
 
   if (status === 'forbidden') {
@@ -41,7 +43,7 @@ export default function AuthCallback() {
       <p className="text-sm font-medium text-white">Signing you in…</p>
       {stallMs > 4000 && (
         <p className="max-w-xs text-xs text-slate-400">
-          Still working — magic-link sign-in occasionally takes a few seconds.
+          Still working — email sign-in occasionally takes a few seconds.
           If this hangs past 30 seconds, return to the marketing page and
           request a new link.
         </p>

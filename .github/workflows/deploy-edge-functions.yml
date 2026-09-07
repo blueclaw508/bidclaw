@@ -10,6 +10,10 @@
 # ONE SECRET IS REQUIRED: SUPABASE_ACCESS_TOKEN
 #   Repo → Settings → Secrets and variables → Actions → New repository secret
 #   Value: a token from https://supabase.com/dashboard/account/tokens
+#   Current token: "bidclaw-github-deploy", project-scoped to bidclaw only,
+#   Project: Read + Edge Functions: Write. EXPIRES 2027-09-01 — this
+#   workflow fails with "401 Unauthorized" the day after unless a fresh
+#   token is generated and the secret updated first.
 #
 # The project ref is NOT secret — it is already in the public frontend bundle
 # as part of VITE_SUPABASE_URL — so it lives here in plain sight.
@@ -108,8 +112,14 @@ jobs:
             # would silently never activate. Its security comes from
             # constructEventAsync() verifying that signature — it refuses
             # before it writes anything.
+            #
+            # kyn-login is the other: the caller has no session yet — the
+            # password they typed IS the credential — so the gateway cannot
+            # demand a JWT. The function gates on the allowlist and on KYN
+            # accepting the password, and creates nothing the signup
+            # trigger would refuse.
             case "${fn}" in
-              stripe-webhook)
+              stripe-webhook|kyn-login)
                 supabase functions deploy "${fn}" \
                   --project-ref "${PROJECT_REF}" --no-verify-jwt
                 ;;

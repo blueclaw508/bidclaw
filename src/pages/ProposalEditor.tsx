@@ -61,10 +61,15 @@ import { categoryBearsMarkup, lineTotal } from '@/lib/money'
 import { loadCompanySettings } from '@/lib/companySettings'
 import {
   isSendGateError,
+  isTrialSendGateError,
+  TRIAL_SEND_REASON,
   loadEntitlements,
   type Entitlements,
 } from '@/lib/entitlements'
 const UpgradeModal = lazy(() => import('@/components/billing/UpgradeModal'))
+
+const SEND_GATE_REASON =
+  'Subscribe to send proposals. You can keep building and previewing this one — it just prints watermarked until you do.'
 import PaymentMilestonesEditor from '@/components/proposals/PaymentMilestonesEditor'
 import {
   parsePaymentMilestones,
@@ -149,6 +154,10 @@ export default function ProposalEditor() {
   // send gate opens. The gate itself is server-side; this is presentation.
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
+  // Which gate opened it. The plain send gate pitches a subscription; the
+  // trial-send gate (0042) pitches Jamie, because this contractor already
+  // subscribes and what they lack is Pro + AI.
+  const [upgradeReason, setUpgradeReason] = useState<string>(SEND_GATE_REASON)
 
   // P1-B: after a decline, if the project has a linked lead, offer
   // (never force) moving it to Lost. Holds the lead while the prompt
@@ -545,8 +554,13 @@ export default function ProposalEditor() {
       // to mark a proposal Sent arrives here as a raw exception. Turn it
       // into the upgrade path rather than showing them
       // "subscription_required_to_send".
-      if (isSendGateError(err)) {
+      if (isTrialSendGateError(err)) {
         setPendingTransition(null)
+        setUpgradeReason(TRIAL_SEND_REASON)
+        setUpgradeOpen(true)
+      } else if (isSendGateError(err)) {
+        setPendingTransition(null)
+        setUpgradeReason(SEND_GATE_REASON)
         setUpgradeOpen(true)
       } else {
         toast.error(err instanceof Error ? err.message : 'Status update failed.')
@@ -1172,7 +1186,7 @@ export default function ProposalEditor() {
             open={upgradeOpen}
             onClose={() => setUpgradeOpen(false)}
             currentPlan={entitlements?.plan ?? 'free'}
-            reason="Subscribe to send proposals. You can keep building and previewing this one — it just prints watermarked until you do."
+            reason={upgradeReason}
           />
         </Suspense>
       )}
