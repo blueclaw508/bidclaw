@@ -611,6 +611,8 @@ export interface Proposal {
   notes: string | null
   /** Stamped the FIRST time the proposal transitions to 'presented' (0010). */
   presented_at: string | null
+  /** First time it reached Approved, by client signature or by hand (0043). Never cleared. */
+  approved_at: string | null
   /**
    * Document-level version counter (0012). Bumped by DB triggers on
    * EVERY proposal/work-area/line mutation. The editor's save path
@@ -879,4 +881,38 @@ export interface LeadListRow extends Lead {
   project: { id: string; name: string; status: ProjectStatus } | null
   proposal_count: number
   last_presented_at: string | null
+}
+
+/* ============================================================
+ * Client approval (migration 0043)
+ * ============================================================ */
+
+/** One client link per proposal. Regenerating replaces the token. */
+export interface ProposalShare {
+  id: string
+  proposal_id: string
+  token: string
+  created_at: string
+  expires_at: string
+  revoked_at: string | null
+  view_count: number
+  last_viewed_at: string | null
+}
+
+export type SignatureDecision = 'accepted' | 'declined'
+
+/** What the client did with a shared proposal. Latest row wins. */
+export interface ProposalSignature {
+  id: string
+  proposal_id: string
+  share_id: string | null
+  decision: SignatureDecision
+  signer_name: string
+  signer_email: string | null
+  /** PNG data URL of the drawn signature; null on a decline. */
+  signature_data: string | null
+  decline_reason: string | null
+  ip_address: string | null
+  user_agent: string | null
+  signed_at: string
 }

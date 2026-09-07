@@ -23,11 +23,13 @@ import {
   FileText,
   Info,
   Layers,
+  CheckCircle2,
   Printer,
   RotateCcw,
   Save,
   Send,
   Trash2,
+  XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BlurSaveInput } from '@/components/InlineEdit'
@@ -67,6 +69,8 @@ import {
   type Entitlements,
 } from '@/lib/entitlements'
 const UpgradeModal = lazy(() => import('@/components/billing/UpgradeModal'))
+const ShareProposalModal = lazy(() => import('@/components/proposals/ShareProposalModal'))
+import { getLatestSignature } from '@/lib/proposalShares'
 
 const SEND_GATE_REASON =
   'Subscribe to send proposals. You can keep building and previewing this one — it just prints watermarked until you do.'
@@ -83,6 +87,7 @@ import type {
   PaymentMilestone,
   Project,
   ProposalLine,
+  ProposalSignature,
   ProposalWithWorkAreas,
   ProposalWorkAreaResolved,
 } from '@/lib/types'
@@ -159,6 +164,11 @@ export default function ProposalEditor() {
   // subscribes and what they lack is Pro + AI.
   const [upgradeReason, setUpgradeReason] = useState<string>(SEND_GATE_REASON)
 
+  // Client approval link (0043): the share modal, and the client's latest
+  // decision for the banner above the toolbar.
+  const [shareOpen, setShareOpen] = useState(false)
+  const [signature, setSignature] = useState<ProposalSignature | null>(null)
+
   // P1-B: after a decline, if the project has a linked lead, offer
   // (never force) moving it to Lost. Holds the lead while the prompt
   // is open; null = closed.
@@ -209,6 +219,8 @@ export default function ProposalEditor() {
       // Best-effort: a failed entitlement read must not break the editor.
       // The real gate is server-side, so the worst case is a missing banner.
       loadEntitlements().then(setEntitlements).catch(() => {})
+      // Same posture for the client's decision: the banner is presentation.
+      getLatestSignature(proposalId).then(setSignature).catch(() => {})
       setNotesDraft(p.notes ?? '')
       setTermsDraft(p.terms_and_conditions ?? resolveTerms(null, cs))
       setMilestones(resolvePaymentMilestones(p, cs))
@@ -774,7 +786,44 @@ export default function ProposalEditor() {
         />
       )}
 
-      {/* Toolbar — Save / Calculate functional; Download / Send disabled */}
+      {/* The client's answer, when they have given one (0043). */}
+      {signature && (
+        <div
+          className={`flex items-start gap-2 rounded-xl border p-4 text-sm ${
+            signature.decision === 'accepted'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              : 'border-amber-200 bg-amber-50 text-amber-900'
+          }`}
+        >
+          {signature.decision === 'accepted' ? (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <div>
+            <p className="font-semibold">
+              {signature.decision === 'accepted' ? 'Accepted' : 'Declined'} by{' '}
+              {signature.signer_name} on{' '}
+              {new Date(signature.signed_at).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+              {signature.signer_email ? ` (${signature.signer_email})` : ''}
+            </p>
+            {signature.decision === 'declined' && signature.decline_reason ? (
+              <p className="mt-0.5 whitespace-pre-wrap">{signature.decline_reason}</p>
+            ) : null}
+            {signature.decision === 'accepted' ? (
+              <p className="mt-0.5 text-xs text-emerald-800">
+                Their signature prints on the customer signature line.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Toolbar — Save / Calculate / Share functional; Download disabled */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
         <button
           type="button"
@@ -849,14 +898,21 @@ export default function ProposalEditor() {
           <Download className="h-4 w-4" />
           Download
         </button>
+        {/* 0043 — the client link. Creating one marks the proposal Sent,
+            so the send gate rules on it exactly as the status menu would. */}
         <button
           type="button"
-          disabled
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2 text-sm font-semibold text-gray-400"
-          title="Coming in Prompt 9"
+          onClick={() => setShareOpen(true)}
+          disabled={proposal.status === 'lost'}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-brand-navy bg-white px-3.5 py-2 text-sm font-semibold text-brand-navy hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+          title={
+            proposal.status === 'lost'
+              ? 'A lost proposal cannot be shared. Move it back to Draft first.'
+              : 'Get a link your client can open, sign, or decline'
+          }
         >
           <Send className="h-4 w-4" />
-          Send
+          Share with client
         </button>
       </div>
 
@@ -1187,6 +1243,33 @@ export default function ProposalEditor() {
             onClose={() => setUpgradeOpen(false)}
             currentPlan={entitlements?.plan ?? 'free'}
             reason={upgradeReason}
+          />
+        </Suspense>
+      )}
+
+      {shareOpen && proposalId && (
+        <Suspense fallback={null}>
+          <ShareProposalModal
+            open={shareOpen}
+            onClose={() => setShareOpen(false)}
+            proposalId={proposalId}
+            proposalName={proposal.name}
+            signature={signature}
+            onShared={async () => {
+              // Creating a link may have moved a draft to Sent; the
+              // editor's copy (status, lock_version) must follow.
+              const fresh = await getProposal(proposalId)
+              if (fresh) setProposal(fresh)
+            }}
+            onGateError={(err) => {
+              setShareOpen(false)
+              if (isTrialSendGateError(err)) {
+                setUpgradeReason(TRIAL_SEND_REASON)
+              } else {
+                setUpgradeReason(SEND_GATE_REASON)
+              }
+              setUpgradeOpen(true)
+            }}
           />
         </Suspense>
       )}
