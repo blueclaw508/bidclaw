@@ -353,6 +353,10 @@ export interface CompanySettings {
    * schedule can never go stale against the price it is splitting.
    */
   default_payment_milestones: PaymentMilestone[] | null
+  /** Invoice defaults (0044). Prefix is display-only; the stored number is an integer. */
+  invoice_prefix: string
+  invoice_due_days: number
+  invoice_footer_text: string | null
 
   /**
    * Jamie (AI estimating agent) entitlement — Jamie is a PAID UPGRADE.
@@ -915,4 +919,91 @@ export interface ProposalSignature {
   ip_address: string | null
   user_agent: string | null
   signed_at: string
+}
+
+/* ============================================================
+ * Invoicing (migration 0044)
+ * ============================================================ */
+
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'void'
+
+/**
+ * A bill to the client. `subtotal`, `total`, and `amount_paid` are
+ * maintained by database triggers from the lines and payments; the API
+ * cannot write them, so what the list shows is what the rows add up to.
+ */
+export interface Invoice {
+  id: string
+  user_id: string
+  project_id: string
+  proposal_id: string | null
+  invoice_number: number
+  status: InvoiceStatus
+  /** ISO date (YYYY-MM-DD). */
+  issue_date: string
+  due_date: string | null
+  /** Which milestone this bills, when it came from the payment schedule. */
+  milestone_label: string | null
+  milestone_percent: number | null
+  notes: string | null
+  terms: string | null
+  subtotal: number
+  total: number
+  amount_paid: number
+  sent_at: string | null
+  paid_at: string | null
+  voided_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface InvoiceLine {
+  id: string
+  invoice_id: string
+  /** Where this money lands for WIP. Null for a custom line. */
+  proposal_work_area_id: string | null
+  change_order_id: string | null
+  description: string
+  quantity: number
+  unit_price: number
+  /** Generated: round(quantity × unit_price, 2). */
+  amount: number
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export type PaymentMethod = 'check' | 'cash' | 'card' | 'ach' | 'other'
+
+export interface InvoicePayment {
+  id: string
+  invoice_id: string
+  amount: number
+  paid_on: string
+  method: PaymentMethod
+  reference: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface InvoiceWithDetails extends Invoice {
+  lines: InvoiceLine[]
+  payments: InvoicePayment[]
+}
+
+export type ChangeOrderStatus = 'draft' | 'approved' | 'declined'
+
+export interface ChangeOrder {
+  id: string
+  user_id: string
+  project_id: string
+  proposal_id: string | null
+  change_number: number
+  title: string
+  description: string | null
+  amount: number
+  status: ChangeOrderStatus
+  approved_at: string | null
+  created_at: string
+  updated_at: string
 }

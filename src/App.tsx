@@ -27,6 +27,8 @@ const KitDetailPage             = lazy(() => import('@/pages/KitDetail'))
 const ProposalEditorPage        = lazy(() => import('@/pages/ProposalEditor'))
 const ProposalPrintViewPage     = lazy(() => import('@/pages/ProposalPrintView'))
 const ClientProposalPage        = lazy(() => import('@/pages/ClientProposal'))
+const InvoiceEditorPage         = lazy(() => import('@/pages/InvoiceEditor'))
+const InvoicePrintViewPage      = lazy(() => import('@/pages/InvoicePrintView'))
 const LeadsPrintViewPage        = lazy(() => import('@/pages/LeadsPrintView'))
 const SettingsPage                  = lazy(() => import('@/pages/Settings'))
 const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
@@ -78,6 +80,16 @@ export default function App() {
                 }
               />
 
+              {/* Invoice print view (0044). Same shape as the proposal's. */}
+              <Route
+                path="/app/projects/:projectId/invoices/:invoiceId/print"
+                element={
+                  <RequireAuth>
+                    <InvoicePrintViewPage />
+                  </RequireAuth>
+                }
+              />
+
               {/* Leads & Bids 11x17 pipeline report. Same deal as the
                   proposal print view — inside RequireAuth, outside the
                   AppShell chrome, declared before /app so it wins. */}
@@ -117,6 +129,10 @@ export default function App() {
                 <Route
                   path="projects/:projectId/proposals/:proposalId"
                   element={<ProposalEditorPage />}
+                />
+                <Route
+                  path="projects/:projectId/invoices/:invoiceId"
+                  element={<InvoiceEditorPage />}
                 />
                 <Route path="customers"     element={<CustomersPage />} />
                 <Route path="customers/:id" element={<CustomerDetailPage />} />

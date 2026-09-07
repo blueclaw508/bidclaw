@@ -39,6 +39,7 @@ const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
 // Lazy-loaded so react-dropzone only ships when the Files tab is opened.
 const FilesTab = lazy(() => import('@/components/project/FilesTab'))
 const ProposalsTab = lazy(() => import('@/components/project/ProposalsTab'))
+const InvoicesTab = lazy(() => import('@/components/project/InvoicesTab'))
 // Only pulled in when a contractor actually clicks the locked Jamie button.
 const UpgradeModal = lazy(() => import('@/components/billing/UpgradeModal'))
 // Jamie is a full-page workspace (J4) — see src/pages/JamieWorkspace.tsx.
@@ -57,13 +58,14 @@ type ProjectDetail = Project & {
   customers: { id: string; name: string } | null
 }
 
-type TabId = 'details' | 'work_areas' | 'files' | 'proposals'
+type TabId = 'details' | 'work_areas' | 'files' | 'proposals' | 'invoices'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'details',    label: 'Details' },
   { id: 'work_areas', label: 'Work Areas' },
   { id: 'files',      label: 'Files' },
   { id: 'proposals',  label: 'Proposals' },
+  { id: 'invoices',   label: 'Invoices' },
 ]
 
 export default function ProjectDetailPage() {
@@ -402,6 +404,11 @@ export default function ProjectDetailPage() {
           {activeTab === 'proposals' && (
             <Suspense fallback={<TabLoading />}>
               <ProposalsTab project={project} />
+            </Suspense>
+          )}
+          {activeTab === 'invoices' && (
+            <Suspense fallback={<TabLoading />}>
+              <InvoicesTab project={project} />
             </Suspense>
           )}
         </div>
