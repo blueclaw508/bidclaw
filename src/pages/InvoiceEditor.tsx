@@ -34,6 +34,7 @@ import {
   PAYMENT_METHOD_LABELS,
 } from '@/lib/invoiceStatus'
 import { formatUSD, roundMoney, sumMoney } from '@/lib/money'
+import { getQboConnection, pushInvoiceToQbo, qboInvoiceUrl, type QboConnection } from '@/lib/qbo'
 import type { CompanySettings, InvoiceWithDetails, Project } from '@/lib/types'
 
 interface DraftLine {
@@ -75,6 +76,8 @@ export default function InvoiceEditor() {
   const [payOpen, setPayOpen] = useState(false)
   const [voidOpen, setVoidOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  // QuickBooks (0045): null until known; the button only shows when connected.
+  const [qbo, setQbo] = useState<QboConnection | null>(null)
 
   const prime = useCallback((inv: InvoiceWithDetails) => {
     setIssueDate(inv.issue_date)
@@ -108,6 +111,8 @@ export default function InvoiceEditor() {
       prime(inv)
       const { data: proj } = await supabase.from('projects').select('*').eq('id', inv.project_id).maybeSingle()
       setProject((proj as Project) ?? null)
+      // Best-effort: a missing connection just hides the button.
+      getQboConnection().then(setQbo).catch(() => setQbo(null))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Load failed.')
     } finally {
@@ -203,6 +208,25 @@ export default function InvoiceEditor() {
       navigate(`/app/projects/${projectId}?tab=invoices`, { replace: true })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't delete.")
+      setBusy(null)
+    }
+  }
+
+  const sendToQbo = async () => {
+    if (!invoice) return
+    setBusy('qbo')
+    try {
+      const res = await pushInvoiceToQbo(invoice.id)
+      toast.success(
+        res.payments_pushed > 0
+          ? `In QuickBooks, with ${res.payments_pushed} payment${res.payments_pushed === 1 ? '' : 's'}.`
+          : 'In QuickBooks.'
+      )
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "QuickBooks didn't accept that.")
+      await load()
+    } finally {
       setBusy(null)
     }
   }
@@ -337,6 +361,24 @@ export default function InvoiceEditor() {
             <Printer className="h-4 w-4" />
             Print / PDF
           </button>
+          {qbo && (invoice.status === 'sent' || invoice.status === 'paid') && (
+            <button
+              type="button"
+              onClick={() => void sendToQbo()}
+              disabled={busy !== null || dirty}
+              title={
+                dirty
+                  ? 'Save first'
+                  : invoice.qbo_invoice_id
+                    ? 'Push the latest lines and any new payments to QuickBooks'
+                    : `Create this invoice in QuickBooks (${qbo.company_name ?? 'connected company'})`
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#2CA01C] bg-white px-3.5 py-2 text-sm font-semibold text-[#1f7a13] hover:bg-green-50 disabled:opacity-50"
+            >
+              {busy === 'qbo' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {invoice.qbo_invoice_id ? 'Update in QuickBooks' : 'Send to QuickBooks'}
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-2">
             {invoice.status === 'draft' ? (
               <button
@@ -362,6 +404,41 @@ export default function InvoiceEditor() {
           </div>
         </div>
       </div>
+
+      {/* QuickBooks state (0045) */}
+      {(invoice.qbo_invoice_id || invoice.qbo_sync_error) && (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm ${
+            invoice.qbo_sync_error
+              ? 'border-rose-200 bg-rose-50 text-rose-900'
+              : 'border-green-200 bg-green-50 text-green-900'
+          }`}
+        >
+          {invoice.qbo_sync_error ? (
+            <>
+              <span className="font-semibold">QuickBooks refused the last push:</span> {invoice.qbo_sync_error}
+            </>
+          ) : (
+            <>
+              In QuickBooks
+              {invoice.qbo_synced_at ? ` as of ${formatDateOnly(invoice.qbo_synced_at)}` : ''}.{' '}
+              {qbo && invoice.qbo_invoice_id ? (
+                <a
+                  href={qboInvoiceUrl(qbo.environment, invoice.qbo_invoice_id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold underline"
+                >
+                  Open in QuickBooks
+                </a>
+              ) : null}
+              {invoice.payments.some((p) => !p.qbo_payment_id) && invoice.status !== 'void'
+                ? ' A payment recorded here has not been pushed yet; Update in QuickBooks sends it.'
+                : ''}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Dates + label */}
       <div className="grid grid-cols-1 gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:grid-cols-3">

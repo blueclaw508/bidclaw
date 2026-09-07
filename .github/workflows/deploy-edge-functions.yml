@@ -124,7 +124,10 @@ jobs:
             # the credential, and the function validates it against
             # proposal_shares before returning anything.
             case "${fn}" in
-              stripe-webhook|kyn-login|proposal-share)
+              # qbo-callback is the fourth: Intuit redirects the browser
+              # here after the contractor approves, with no session header.
+              # The one-time OAuth state row is the credential.
+              stripe-webhook|kyn-login|proposal-share|qbo-callback)
                 supabase functions deploy "${fn}" \
                   --project-ref "${PROJECT_REF}" --no-verify-jwt
                 ;;

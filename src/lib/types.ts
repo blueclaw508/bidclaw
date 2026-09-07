@@ -72,6 +72,8 @@ export interface Customer {
   site_address_state: string | null
   site_address_zip: string | null
   notes: string | null
+  /** QuickBooks (0045): the matching customer over there, once pushed. */
+  qbo_customer_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -953,6 +955,10 @@ export interface Invoice {
   sent_at: string | null
   paid_at: string | null
   voided_at: string | null
+  /** QuickBooks (0045): the pushed invoice's id, when it was pushed, and the last error. */
+  qbo_invoice_id: string | null
+  qbo_synced_at: string | null
+  qbo_sync_error: string | null
   created_at: string
   updated_at: string
 }
@@ -983,6 +989,8 @@ export interface InvoicePayment {
   method: PaymentMethod
   reference: string | null
   notes: string | null
+  /** QuickBooks (0045): the pushed payment's id. */
+  qbo_payment_id: string | null
   created_at: string
 }
 
