@@ -13,6 +13,7 @@ import { RouteLoading } from '@/components/RouteLoading'
 // AppShell layout is shared across every /app/* route, so loading it
 // once is fine). Everything else is lazy.
 const AuthCallback              = lazy(() => import('@/pages/AuthCallback'))
+const SetPasswordPage           = lazy(() => import('@/pages/SetPassword'))
 const LeadsPage                 = lazy(() => import('@/pages/Leads'))
 const LeadDetailPage            = lazy(() => import('@/pages/LeadDetail'))
 const ProjectsPage              = lazy(() => import('@/pages/Projects'))
@@ -44,8 +45,19 @@ export default function App() {
               <Route path="/" element={<PromoScreen />} />
               <Route path="/login" element={<PromoScreen />} />
 
-              {/* Magic-link return URL */}
+              {/* Magic-link and password-reset return URL */}
               <Route path="/auth/callback" element={<AuthCallback />} />
+
+              {/* Where a password-reset link lands. Needs a session (the
+                  reset link created one) but not the app chrome. */}
+              <Route
+                path="/auth/set-password"
+                element={
+                  <RequireAuth>
+                    <SetPasswordPage />
+                  </RequireAuth>
+                }
+              />
 
               {/* Phase 9-lite — Print view. Lives INSIDE RequireAuth but
                   OUTSIDE the AppShell chrome so the document fills the
