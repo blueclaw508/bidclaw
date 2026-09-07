@@ -379,6 +379,8 @@ interface BrainContext {
   catalog: Array<{ name: string; unit: string; category: string; cost: number }>
   projectName: string
   projectAddress: string
+  /** The customer on the project record — the one name a drawing's title block never carries. */
+  customerName: string
   existingWorkAreas: Array<{ id: string; name: string; description: string }>
   stagedWorkAreas: Array<{ id: string; name: string; description: string }>
   /** Names of the Pass 1 proposal currently waiting at Gate 1 (chat only). */
@@ -526,7 +528,11 @@ WHOLE-PROJECT MODE. You are estimating an ENTIRE project, not one work area. It 
 
 THE PROJECT:
   Name: ${ctx.projectName || '(unnamed)'}
-  Address: ${ctx.projectAddress || '(not given)'}
+  Client: ${ctx.customerName || '(not given)'}
+  Site address: ${ctx.projectAddress || '(not given)'}
+These three lines are the record. They win over anything printed on a drawing.
+
+READING DRAWINGS. Every sheet carries a title block naming who DREW it — the engineer, architect, landscape designer, surveyor or builder — with that firm's name, office address, town and phone, and often a stamp. None of that is the client, and none of it is the site. The client is the one named above; the site is the address above. Never carry a name, a firm, a town or a road off a title block into a work area, a scope, or the conversation as if it belonged to the client. Road labels on the plan itself are not proof of the site's street either: if a sheet's project name or address disagrees with the record above, say so once in plain words and go with the record.
 Work areas the CONTRACTOR already created (theirs — never modify):
 ${existing}
 
@@ -627,16 +633,18 @@ Plain contractor English, no marketing. Full detail: lifts, compaction, bag and 
 
 2) client_scope_description — THE PROPOSAL. This is the ONLY scope text that ever reaches the client. Same work, described as something they are buying rather than a set of instructions.
 
+  - SPECIFICATION VOICE, NOT A LETTER. This text sits on a signed contract, so it reads like a scope of work: no "we", "our", "you" or "your", ever. Every sentence and every bullet starts with the work verb — "Install", "Build", "Excavate", "Furnish and install", "Grade", "Plant", "Remove". Not "We will build your new driveway"; "Install a new shell/stone mix driveway and parking court, approximately 6,800 SF, per DR9.1."
+  - PLACE NAMES COME FROM THE PROJECT ADDRESS, NEVER FROM THE DRAWING. A sheet's title block carries the ENGINEER'S office address, and a road label on a plan can be a neighbor's road or the wrong one. Do not name a street unless it is the site address you were given. Say "at the street", "at the road edge", "across the front of the house". Sheet numbers are fine and useful — "per DR9.1" tells the client which drawing the work follows.
   - NEVER a cost, a price, or a fee. Not "six trailer loads with disposal fees", not "short load fee", not "plus delivery". The client side carries this description and ONE FLAT PRICE; the money is not your job here.
   - HEADLINE DIMENSIONS ONLY — the size of what they are buying: "a 400 SF flagstone patio", "22 LF of fieldstone wall", "an 8 ft fire pit", "three steps". KEEP those.
   - CUT every number the crew uses to build and a client could police you with: lift counts, compaction passes, base depths, bag counts, trailer/load counts, rebar size and spacing, machine choices, man-hours. If a client can stand over the crew with your text and demand a redo or a credit because the crew did the same job a different, equally good way, you have written it wrong.
   - Material and method stay only where the CLIENT is choosing them: "dry-laid irregular Pennsylvania flagstone", "mortared New England fieldstone", "thermal bluestone treads". That is what they picked and what they are paying for. "6 in of processed dense grade in two lifts, plate compacted" is not.
   - Never promise anything you did not bill.
-  - Two to five sentences, or a short paragraph plus a few plain bullets. Warm, confident, plain English. No marketing adjectives.
+  - Two to five sentences, or a short paragraph plus a few plain bullets. Plain, confident contract English. No marketing adjectives.
 
 Worked contrast for the same work area:
   work order: "- Excavate the patio ring to 8 in depth, 400 SF, and trench the fire pit footing ring. - Load all spoils and haul off site, six trailer loads with disposal fees. - Place processed dense grade 6 in in two lifts and plate compact each lift."
-  client: "We will excavate and haul away the existing bed, then build a compacted base for a 400 SF patio and the fire pit footing."
+  client: "Excavate and remove the existing bed, build a compacted base, and install a 400 SF flagstone patio with a fire pit footing."
 
 label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. a supplier's name for the thing, not the job it is doing: "Processed Dense Grade" not "Processed Dense Grade Gravel — 8 inch compacted base"; "Cedar 1x6 Board" not "Cedar boards for the west line". Every item you price that isn't already in the catalog gets SAVED to the contractor's catalog under this exact name and reused on their next job, so a job-specific label quietly fills their catalog with duplicates that never match again. Keep the same item spelled the same way every time.
 
@@ -1103,7 +1111,7 @@ Deno.serve(async (req: Request) => {
     service
       .from('projects')
       .select(
-        'name, site_address, site_address_line1, site_address_city, site_address_state, site_address_zip'
+        'name, site_address, site_address_line1, site_address_city, site_address_state, site_address_zip, customer:customers ( name )'
       )
       .eq('id', run.project_id)
       .maybeSingle(),
@@ -1249,6 +1257,17 @@ Deno.serve(async (req: Request) => {
         .filter(Boolean)
         .join(', ') ||
       ((project?.site_address as string) ?? ''),
+    // The embed comes back as an object for a to-one relation; guard for
+    // an array in case the FK is ever read the other way.
+    customerName: (() => {
+      const c = (project as Record<string, unknown> | null)?.customer as
+        | { name?: string }
+        | Array<{ name?: string }>
+        | null
+        | undefined
+      const one = Array.isArray(c) ? c[0] : c
+      return (one?.name as string | undefined) ?? ''
+    })(),
     existingWorkAreas: (existingWas ?? []).map((w: Record<string, unknown>) => ({
       id: w.id as string,
       name: w.name as string,

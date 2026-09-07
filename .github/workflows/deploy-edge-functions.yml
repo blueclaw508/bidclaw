@@ -118,8 +118,13 @@ jobs:
             # demand a JWT. The function gates on the allowlist and on KYN
             # accepting the password, and creates nothing the signup
             # trigger would refuse.
+            #
+            # proposal-share is the third: the client opening a proposal
+            # has no account at all. The share token in the request is
+            # the credential, and the function validates it against
+            # proposal_shares before returning anything.
             case "${fn}" in
-              stripe-webhook|kyn-login)
+              stripe-webhook|kyn-login|proposal-share)
                 supabase functions deploy "${fn}" \
                   --project-ref "${PROJECT_REF}" --no-verify-jwt
                 ;;

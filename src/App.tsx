@@ -26,6 +26,7 @@ const KitsPage                  = lazy(() => import('@/pages/Kits'))
 const KitDetailPage             = lazy(() => import('@/pages/KitDetail'))
 const ProposalEditorPage        = lazy(() => import('@/pages/ProposalEditor'))
 const ProposalPrintViewPage     = lazy(() => import('@/pages/ProposalPrintView'))
+const ClientProposalPage        = lazy(() => import('@/pages/ClientProposal'))
 const LeadsPrintViewPage        = lazy(() => import('@/pages/LeadsPrintView'))
 const SettingsPage                  = lazy(() => import('@/pages/Settings'))
 const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
@@ -58,6 +59,11 @@ export default function App() {
                   </RequireAuth>
                 }
               />
+
+              {/* Public — the client's copy of a shared proposal (0043).
+                  No session: the token in the URL is the credential, and
+                  the proposal-share function validates it. */}
+              <Route path="/p/:token" element={<ClientProposalPage />} />
 
               {/* Phase 9-lite — Print view. Lives INSIDE RequireAuth but
                   OUTSIDE the AppShell chrome so the document fills the

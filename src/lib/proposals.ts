@@ -262,7 +262,16 @@ export async function getProposal(
     throw new Error(`Couldn't load proposal: ${error.message}`)
   }
   if (!data) return null
+  return shapeProposal(data)
+}
 
+/**
+ * Turn the raw PostgREST embed (proposal + proposal_work_areas + their
+ * work_areas and proposal_lines) into the editor payload. Shared with the
+ * client-facing page, which receives the same shape from the
+ * proposal-share function rather than from a direct query.
+ */
+export function shapeProposal(data: unknown): ProposalWithWorkAreas {
   type RawWorkArea = ProposalWorkArea & {
     work_areas: {
       id: string
