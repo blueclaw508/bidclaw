@@ -341,23 +341,34 @@ export default function ProjectDetailPage() {
         {/* The upsell. Same place, same words, a lock instead of a spark —
             so the button a Pro contractor sees is the button they'll keep
             using once they buy the tier. */}
-        {jamieGate && !jamieGate.allowed && jamieGate.code === 'UPGRADE_REQUIRED' && (
-          <button
-            type="button"
-            onClick={() => setUpgradeOpen(true)}
-            title="Jamie builds the estimate from your scope — see plans"
-            className="mb-1.5 ml-auto flex items-center gap-1.5 rounded-lg border-2 border-brand-gold bg-brand-gold/5 px-3.5 py-2 text-sm font-semibold text-brand-gold-dark transition-all hover:bg-brand-gold/15"
-          >
-            <Lock className="h-3.5 w-3.5" />
-            Build with Jamie
-            <span className="rounded-full bg-brand-gold px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-              AI
-            </span>
-          </button>
-        )}
+        {jamieGate &&
+          !jamieGate.allowed &&
+          (jamieGate.code === 'UPGRADE_REQUIRED' ||
+            jamieGate.code === 'TRIAL_USED') && (
+            <button
+              type="button"
+              onClick={() => setUpgradeOpen(true)}
+              title={jamieGate.reason}
+              className="mb-1.5 ml-auto flex items-center gap-1.5 rounded-lg border-2 border-brand-gold bg-brand-gold/5 px-3.5 py-2 text-sm font-semibold text-brand-gold-dark transition-all hover:bg-brand-gold/15"
+            >
+              <Lock className="h-3.5 w-3.5" />
+              {/* TRIAL_USED is the warmer moment of the two: they have met
+                  Jamie and want her back. Say that, rather than repeating
+                  the same pitch a stranger sees. */}
+              {jamieGate.code === 'TRIAL_USED'
+                ? 'Get Jamie back'
+                : 'Build with Jamie'}
+              <span className="rounded-full bg-brand-gold px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                AI
+              </span>
+            </button>
+          )}
         {/* Already paying for Jamie, just out of room this month / hour.
             Nothing to sell them — say what happened and leave it visible. */}
-        {jamieGate && !jamieGate.allowed && jamieGate.code !== 'UPGRADE_REQUIRED' && (
+        {jamieGate &&
+          !jamieGate.allowed &&
+          jamieGate.code !== 'UPGRADE_REQUIRED' &&
+          jamieGate.code !== 'TRIAL_USED' && (
           <span
             title={jamieGate.reason}
             className="mb-1.5 ml-auto flex cursor-default items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2 text-sm font-semibold text-gray-400"
@@ -424,7 +435,11 @@ export default function ProjectDetailPage() {
             open={upgradeOpen}
             onClose={() => setUpgradeOpen(false)}
             currentPlan={plan ?? 'free'}
-            reason="Jamie reads your scope, prices it off your own catalog and rates, and hands you the takeoff to approve line by line."
+            reason={
+              jamieGate?.code === 'TRIAL_USED'
+                ? jamieGate.reason
+                : 'Jamie reads your scope, prices it off your own catalog and rates, and hands you the takeoff to approve line by line.'
+            }
           />
         </Suspense>
       )}

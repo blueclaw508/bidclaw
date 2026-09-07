@@ -128,12 +128,29 @@ export default function ProposalPrintView() {
           loadEntitlements().catch(() => null),
         ])
         if (cancelled) return
-        setWatermarked(ent?.watermarked ?? false)
         if (!p) {
           setNotFound(true)
           setLoading(false)
           return
         }
+
+        // Two independent reasons to stamp PREVIEW:
+        //
+        //  1. The account is on the free trial — the whole account is
+        //     preview-only.
+        //  2. This estimate was built by the ONE FREE JAMIE ESTIMATE, and
+        //     the account still has no AI of its own. Asked server-side,
+        //     because the browser must not be able to talk itself out of it.
+        //
+        // The second lifts by itself the moment they buy Pro + AI — the
+        // function checks their CURRENT plan — so the close is "subscribe
+        // and this estimate is yours to send", not "subscribe and redo it".
+        const { data: trialMark } = await supabase.rpc(
+          'project_needs_ai_trial_watermark',
+          { p_project_id: p.project_id }
+        )
+        if (cancelled) return
+        setWatermarked((ent?.watermarked ?? false) || trialMark === true)
         setProposal(p)
         setSettings(cs)
         setShowTotal(showsGrandTotal(p, cs))

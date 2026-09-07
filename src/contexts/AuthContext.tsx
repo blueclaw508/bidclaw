@@ -81,7 +81,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      void enforceAllowlist(s)
+      // Deferred, per Supabase's own guidance: the client holds its auth
+      // lock while this callback runs, and enforceAllowlist now makes an
+      // RPC (is_email_allowed) which needs the session — and therefore the
+      // lock — to attach a token. Calling it synchronously here is the
+      // documented deadlock. A macrotask later, the lock is released.
+      setTimeout(() => {
+        if (!cancelled) void enforceAllowlist(s)
+      }, 0)
     })
 
     return () => {

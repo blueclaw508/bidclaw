@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   DndContext,
@@ -34,7 +34,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewWorkAreaModal } from '@/components/project/NewWorkAreaModal'
 import { BlurSaveInput, BlurSaveTextarea } from '@/components/InlineEdit'
 import { WorkAreaEstimate } from '@/components/project/estimate/WorkAreaEstimate'
-import { loadCompanySettings } from '@/lib/companySettings'
+import { loadCompanySettings, loadCompanyDivisions } from '@/lib/companySettings'
 import { generateProposalFromEstimates } from '@/lib/proposals'
 import {
   loadEntitlements,
@@ -46,8 +46,9 @@ import {
   sumMoney,
   formatUSD,
   type LiveMarkupSettings,
+  resolveMarkups,
 } from '@/lib/money'
-import type { WorkArea, WorkAreaLine } from '@/lib/types'
+import type { CompanyDivision, WorkArea, WorkAreaLine } from '@/lib/types'
 
 const UpgradeModal = lazy(() =>
   import('@/components/billing/UpgradeModal').then((m) => ({
@@ -95,6 +96,10 @@ export default function WorkAreasTab({
   // settings markups the live math renders with.
   const [linesByWA, setLinesByWA] = useState<Record<string, WorkAreaLine[]>>({})
   const [settings, setSettings] = useState<LiveMarkupSettings | null>(null)
+  // The contractor's divisions (0039/0040). Each work area prices under
+  // its own division's markups, falling back to the company's — so a
+  // per-work-area resolver, not one settings object for the whole tab.
+  const [divisions, setDivisions] = useState<CompanyDivision[]>([])
   // Jamie (AI estimating agent) entitlement — paid-upgrade gate.
   const [jamieEnabled, setJamieEnabled] = useState(false)
 
@@ -137,13 +142,14 @@ export default function WorkAreasTab({
   // live against these (QC model: markup is never frozen on the line).
   useEffect(() => {
     let cancelled = false
-    loadCompanySettings()
-      .then((s) => {
+    Promise.all([loadCompanySettings(), loadCompanyDivisions().catch(() => [])])
+      .then(([s, dv]) => {
         if (!cancelled) {
           setSettings({
             markup_materials_percent: s.markup_materials_percent,
             markup_subs_percent: s.markup_subs_percent,
           })
+          setDivisions(dv)
           setJamieEnabled(!!s.jamie_enabled)
         }
       })
@@ -158,6 +164,22 @@ export default function WorkAreasTab({
     }
   }, [])
 
+  // Markups for ONE work area: its division's where set, else the
+  // company's (0040). resolveMarkups is the same function the proposal
+  // freeze uses, so the live screen and the frozen proposal agree.
+  const divisionById = useMemo(
+    () => new Map(divisions.map((d) => [d.id, d])),
+    [divisions]
+  )
+  const markupsFor = useCallback(
+    (wa: WorkArea): LiveMarkupSettings =>
+      resolveMarkups(
+        settings ?? { markup_materials_percent: 0, markup_subs_percent: 0 },
+        wa.division_id ? divisionById.get(wa.division_id) : null
+      ),
+    [settings, divisionById]
+  )
+
   // Mirror the live project estimate total up to the page rail. Only once
   // loaded + settings are in, so we never flash $0 over the DB baseline.
   useEffect(() => {
@@ -166,11 +188,11 @@ export default function WorkAreasTab({
     // so the totals rail cannot disagree with the estimate by a cent.
     const total = sumMoney(
       rows.map((wa) =>
-        sumMoney((linesByWA[wa.id] ?? []).map((l) => estimateLineTotal(l, settings)))
+        sumMoney((linesByWA[wa.id] ?? []).map((l) => estimateLineTotal(l, markupsFor(wa))))
       )
     )
     onEstimateTotalChange(total)
-  }, [rows, linesByWA, settings, loading, onEstimateTotalChange])
+  }, [rows, linesByWA, settings, loading, onEstimateTotalChange, markupsFor])
 
   const patch = useCallback(
     async (id: string, changes: Partial<WorkArea>): Promise<boolean> => {
@@ -357,7 +379,8 @@ export default function WorkAreasTab({
                   key={wa.id}
                   workArea={wa}
                   lines={linesByWA[wa.id] ?? []}
-                  settings={settings}
+                  settings={settings ? markupsFor(wa) : null}
+                  divisions={divisions}
                   jamieEnabled={jamieEnabled}
                   expanded={expandedId === wa.id}
                   onToggle={() =>
@@ -388,7 +411,7 @@ export default function WorkAreasTab({
           projectName={projectName}
           rows={rows}
           linesByWA={linesByWA}
-          settings={settings}
+          markupsFor={markupsFor}
           onApprove={(id) => patch(id, { estimate_status: 'approved' })}
         />
       )}
@@ -437,14 +460,15 @@ function ProjectEstimateTotals({
   projectName,
   rows,
   linesByWA,
-  settings,
+  markupsFor,
   onApprove,
 }: {
   projectId: string
   projectName?: string
   rows: WorkArea[]
   linesByWA: Record<string, WorkAreaLine[]>
-  settings: LiveMarkupSettings
+  /** Markups for a given work area — its division's, else the company's. */
+  markupsFor: (wa: WorkArea) => LiveMarkupSettings
   /** Approve a single work-area estimate. Returns true on success. */
   onApprove: (id: string) => Promise<boolean>
 }) {
@@ -462,7 +486,7 @@ function ProjectEstimateTotals({
   const perWA = rows.map((wa) => ({
     wa,
     total: sumMoney(
-      (linesByWA[wa.id] ?? []).map((l) => estimateLineTotal(l, settings))
+      (linesByWA[wa.id] ?? []).map((l) => estimateLineTotal(l, markupsFor(wa)))
     ),
     count: (linesByWA[wa.id] ?? []).length,
   }))
@@ -503,7 +527,7 @@ function ProjectEstimateTotals({
   const freezableCount = approvedLines.length - skippablePreview
   const approvedTotal = sumMoney(
     approvedWAs.map((w) =>
-      sumMoney((linesByWA[w.id] ?? []).map((l) => estimateLineTotal(l, settings)))
+      sumMoney((linesByWA[w.id] ?? []).map((l) => estimateLineTotal(l, markupsFor(w))))
     )
   )
 
@@ -705,6 +729,7 @@ function SortableRow({
   workArea,
   lines,
   settings,
+  divisions,
   jamieEnabled,
   expanded,
   onToggle,
@@ -714,7 +739,9 @@ function SortableRow({
 }: {
   workArea: WorkArea
   lines: WorkAreaLine[]
+  /** Already resolved for THIS work area's division (0040). */
   settings: LiveMarkupSettings | null
+  divisions: CompanyDivision[]
   jamieEnabled: boolean
   expanded: boolean
   onToggle: () => void
@@ -808,6 +835,32 @@ function SortableRow({
               className={inputClasses}
             />
           </Field>
+          {/* Division (0040). Only offered once the contractor has made
+              one — a one-crew outfit never sees this. Changing it re-prices
+              every material / sub / other line on this work area live,
+              because the markup is looked up, never stored on the line. */}
+          {divisions.length > 0 && (
+            <Field label="Division">
+              <select
+                value={workArea.division_id ?? ''}
+                onChange={(e) =>
+                  void onPatch({ division_id: e.target.value || null })
+                }
+                className={inputClasses}
+              >
+                <option value="">Company-wide markups</option>
+                {divisions.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-gray-400">
+                Sets which division's materials and subs markups this work
+                area prices with.
+              </p>
+            </Field>
+          )}
           {/* Two scopes (JAMIE-FLOW §4a/4b). The client one is what goes on
               the proposal; the work order is what the crew builds from and
               what the estimator's copy prints. They are separate because one

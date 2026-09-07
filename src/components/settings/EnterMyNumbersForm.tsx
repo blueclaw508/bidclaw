@@ -4,11 +4,14 @@ import {
   Image as ImageIcon,
   Palette,
   Percent,
+  Plus,
   ScrollText,
+  Trash2,
   Users,
   Wrench,
 } from 'lucide-react'
 import type {
+  CompanyDivision,
   CompanyEquipmentRate,
   CompanyLaborType,
   CompanySettings,
@@ -47,6 +50,23 @@ interface EnterMyNumbersFormProps {
     slotNumber: number,
     patch: Partial<CompanyEquipmentRate>
   ) => void
+  /**
+   * Add/remove rate rows. Optional so the setup wizard can leave them out —
+   * a contractor filling in their numbers for the first time is choosing
+   * values, not managing a list, and the seeded rows are enough there.
+   */
+  onAddLabor?: (divisionId: string | null) => void
+  onDeleteLabor?: (id: string) => void
+  onAddEquipment?: (divisionId: string | null) => void
+  onDeleteEquipment?: (id: string) => void
+  /**
+   * Divisions this contractor has, if any. An empty list is the normal
+   * case and renders exactly the flat list that existed before divisions:
+   * you opt in by creating one.
+   */
+  divisions?: readonly CompanyDivision[]
+  /** True while an add/delete is in flight — disables both. */
+  rowBusy?: boolean
   mode: 'wizard' | 'settings'
   onValidityChange?: (isValid: boolean) => void
 }
@@ -63,6 +83,12 @@ export function EnterMyNumbersForm({
   onLaborChange,
   equipmentRates,
   onEquipmentChange,
+  onAddLabor,
+  onDeleteLabor,
+  onAddEquipment,
+  onDeleteEquipment,
+  divisions = [],
+  rowBusy = false,
   mode,
   onValidityChange,
 }: EnterMyNumbersFormProps) {
@@ -91,13 +117,24 @@ export function EnterMyNumbersForm({
     <div className="space-y-6">
       <PdfBrandingCard value={value} onChange={onChange} />
 
-      <LaborCard laborTypes={laborTypes} onLaborChange={onLaborChange} />
+      <LaborCard
+        laborTypes={laborTypes}
+        onLaborChange={onLaborChange}
+        onAddLabor={onAddLabor}
+        onDeleteLabor={onDeleteLabor}
+        divisions={divisions}
+        busy={rowBusy}
+      />
 
       <MarkupsGrid value={value} onChange={onChange} />
 
       <EquipmentCard
         equipmentRates={equipmentRates}
         onEquipmentChange={onEquipmentChange}
+        onAddEquipment={onAddEquipment}
+        onDeleteEquipment={onDeleteEquipment}
+        divisions={divisions}
+        busy={rowBusy}
       />
 
       <TermsCard value={value} onChange={onChange} />
@@ -294,17 +331,56 @@ function ToggleRow({
   )
 }
 
+/**
+ * Split rate rows into the groups the form renders.
+ *
+ * With no divisions this returns exactly ONE group with a null id and no
+ * heading — which is how every account looked before divisions existed, and
+ * how an account that never creates one still looks. Ungrouped rows are
+ * shown last, and only when there are any, so creating a division does not
+ * leave an empty "Ungrouped" heading sitting on the page.
+ */
+function groupByDivision<T extends { division_id: string | null }>(
+  rows: readonly T[],
+  divisions: readonly CompanyDivision[]
+): Array<{ id: string | null; label: string | null; rows: T[] }> {
+  if (divisions.length === 0) {
+    return [{ id: null, label: null, rows: [...rows] }]
+  }
+  const groups = divisions.map((d) => ({
+    id: d.id as string | null,
+    label: d.name as string | null,
+    rows: rows.filter((r) => r.division_id === d.id),
+  }))
+  const loose = rows.filter(
+    (r) => r.division_id === null || !divisions.some((d) => d.id === r.division_id)
+  )
+  if (loose.length > 0) {
+    groups.push({ id: null, label: 'Ungrouped', rows: loose })
+  }
+  return groups
+}
+
 // ──────────────────────────────────────────────────────────────────────
-// Target Billable Rates — Labor (5 slots)
+// Target Billable Rates — Labor (unlimited since 0038)
 // ──────────────────────────────────────────────────────────────────────
 
 function LaborCard({
   laborTypes,
   onLaborChange,
+  onAddLabor,
+  onDeleteLabor,
+  divisions,
+  busy,
 }: {
   laborTypes: readonly CompanyLaborType[]
   onLaborChange: (slotNumber: number, patch: Partial<CompanyLaborType>) => void
+  onAddLabor?: (divisionId: string | null) => void
+  onDeleteLabor?: (id: string) => void
+  divisions: readonly CompanyDivision[]
+  busy: boolean
 }) {
+  const groups = groupByDivision(laborTypes, divisions)
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="bg-blue-50 px-6 py-4 border-b border-blue-100 flex items-center gap-3">
@@ -312,12 +388,20 @@ function LaborCard({
         <div>
           <h2 className="font-semibold text-gray-900">Target Billable Rates — Labor</h2>
           <p className="text-xs text-gray-500">
-            Up to 5 labor types with target billable rate per man hour
+            Every labor type you use, with its target billable rate per man
+            hour. Add as many as your company actually runs.
           </p>
         </div>
       </div>
-      <div className="p-6 space-y-3">
-        {laborTypes.map((lt) => (
+      <div className="p-6 space-y-5">
+        {groups.map((g) => (
+          <div key={g.id ?? 'ungrouped'} className="space-y-3">
+            {g.label && (
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                {g.label}
+              </p>
+            )}
+            {g.rows.map((lt) => (
           <div key={lt.id} className="flex items-center gap-3">
             <span className="text-xs font-medium text-gray-400 w-6 text-right">
               {lt.slot_number}.
@@ -351,6 +435,31 @@ function LaborCard({
               />
             </div>
             <span className="text-xs text-gray-400 w-8">/hr</span>
+            {onDeleteLabor && (
+            <button
+              type="button"
+              onClick={() => onDeleteLabor(lt.id)}
+              disabled={busy}
+              title="Remove this labor type"
+              aria-label={`Remove labor type ${lt.name || lt.slot_number}`}
+              className="rounded-md p-1.5 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-default disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            )}
+          </div>
+            ))}
+            {onAddLabor && (
+              <button
+                type="button"
+                onClick={() => onAddLabor(g.id)}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700 disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                Add labor type{g.label ? ` to ${g.label}` : ''}
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -452,19 +561,28 @@ function MarkupCard({
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Billable Equipment Hourly Rates (10 slots)
+// Billable Equipment Hourly Rates (unlimited since 0038)
 // ──────────────────────────────────────────────────────────────────────
 
 function EquipmentCard({
   equipmentRates,
   onEquipmentChange,
+  onAddEquipment,
+  onDeleteEquipment,
+  divisions,
+  busy,
 }: {
   equipmentRates: readonly CompanyEquipmentRate[]
   onEquipmentChange: (
     slotNumber: number,
     patch: Partial<CompanyEquipmentRate>
   ) => void
+  onAddEquipment?: (divisionId: string | null) => void
+  onDeleteEquipment?: (id: string) => void
+  divisions: readonly CompanyDivision[]
+  busy: boolean
 }) {
+  const groups = groupByDivision(equipmentRates, divisions)
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="bg-purple-50 px-6 py-4 border-b border-purple-100 flex items-center gap-3">
@@ -472,12 +590,20 @@ function EquipmentCard({
         <div>
           <h2 className="font-semibold text-gray-900">Billable Equipment Hourly Rates</h2>
           <p className="text-xs text-gray-500">
-            Up to 10 equipment types with hourly rates
+            Every machine you bill for, at its hourly rate. Add as many as
+            you own or rent.
           </p>
         </div>
       </div>
-      <div className="p-6 space-y-3">
-        {equipmentRates.map((eq) => (
+      <div className="p-6 space-y-5">
+        {groups.map((g) => (
+          <div key={g.id ?? 'ungrouped'} className="space-y-3">
+            {g.label && (
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                {g.label}
+              </p>
+            )}
+            {g.rows.map((eq) => (
           <div key={eq.id} className="flex items-center gap-3">
             <span className="text-xs font-medium text-gray-400 w-6 text-right">
               {eq.slot_number}.
@@ -511,6 +637,31 @@ function EquipmentCard({
               />
             </div>
             <span className="text-xs text-gray-400 w-8">/hr</span>
+            {onDeleteEquipment && (
+            <button
+              type="button"
+              onClick={() => onDeleteEquipment(eq.id)}
+              disabled={busy}
+              title="Remove this equipment type"
+              aria-label={`Remove equipment ${eq.name || eq.slot_number}`}
+              className="rounded-md p-1.5 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-default disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            )}
+          </div>
+            ))}
+            {onAddEquipment && (
+              <button
+                type="button"
+                onClick={() => onAddEquipment(g.id)}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-purple-400 hover:bg-purple-50/50 hover:text-purple-700 disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                Add equipment{g.label ? ` to ${g.label}` : ''}
+              </button>
+            )}
           </div>
         ))}
       </div>
