@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Maximize2,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { getDocument } from '@/lib/pdfjs'
@@ -90,6 +98,15 @@ const CALIBRATION_DOT_RADIUS = 4
  * are still disabled (Phase 6 / 7).
  */
 const PHASE5_BASE_TOOLS: readonly MeasureToolMode[] = ['select', 'calibrate', 'count']
+
+/**
+ * Zoom bounds. 4× on a wide screen at DPR 2 is an ~11,000 px canvas,
+ * inside every desktop browser's limit; 8× would not be. Below fit-to-
+ * width is allowed a little, for a tall portrait sheet.
+ */
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 4
+const ZOOM_STEP = 1.25
 
 /**
  * Tooltip shown on the Line tool when it's disabled because the page
@@ -214,6 +231,30 @@ export default function MeasureView() {
    * page renders successfully; resets when the doc/page/width changes.
    */
   const [renderInfo, setRenderInfo] = useState<RenderInfo | null>(null)
+
+  // Zoom + pan.
+  /**
+   * Zoom on top of fit-to-width: 1 = the sheet fits the container, 4 = four
+   * times that. The page is RE-RENDERED at the combined scale rather than
+   * CSS-scaled, so lines stay crisp, and renderInfo.fitScale carries the
+   * combined scale — every coordinate transform below is unchanged, and
+   * every stored measurement stays pinned to the drawing.
+   */
+  const [zoom, setZoom] = useState(1)
+  /**
+   * Where the cursor (or the viewport centre) was when a zoom was asked
+   * for, so that point stays put once the bigger page has rendered. Read
+   * and cleared by the render effect, which is the only place that knows
+   * the new size.
+   */
+  const zoomAnchorRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+  /** The combined scale of the page currently on screen, for the anchor ratio. */
+  const renderedScaleRef = useRef<number | null>(null)
+  /** Drag-to-pan bookkeeping: middle button, or Space + left button. */
+  const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+  const [panning, setPanning] = useState(false)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const spaceHeldRef = useRef(false)
 
   // Phase 3 additions
   /**
@@ -700,7 +741,9 @@ export default function MeasureView() {
       if (!canvas) return
 
       const base = page.getViewport({ scale: 1 })
-      const fitScale = containerWidth / base.width
+      // Fit-to-width, times the zoom. Everything downstream reads this
+      // one number, which is why zoom costs no other code a change.
+      const fitScale = (containerWidth / base.width) * zoom
       // Cap DPR at 2 — beyond that the canvas backing store blows up
       // with marginal visual gain (and many phones report 3+).
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -710,6 +753,21 @@ export default function MeasureView() {
       canvas.height = Math.floor(viewport.height)
       canvas.style.width = `${Math.floor(fitScale * base.width)}px`
       canvas.style.height = `${Math.floor(fitScale * base.height)}px`
+
+      // The canvas just changed size, so the scroll container can be
+      // repositioned now: keep whatever was under the cursor under the
+      // cursor. Ratio is against the scale actually on screen, not the
+      // zoom state, so batched wheel ticks and a resize both land right.
+      const anchor = zoomAnchorRef.current
+      const scroller = measureRef.current
+      const prevScale = renderedScaleRef.current
+      if (anchor && scroller && prevScale) {
+        zoomAnchorRef.current = null
+        const ratio = fitScale / prevScale
+        scroller.scrollLeft = (anchor.left + anchor.x) * ratio - anchor.x
+        scroller.scrollTop = (anchor.top + anchor.y) * ratio - anchor.y
+      }
+      renderedScaleRef.current = fitScale
 
       const ctx = canvas.getContext('2d')
       if (!ctx) return
@@ -751,7 +809,123 @@ export default function MeasureView() {
         renderTaskRef.current = null
       }
     }
-  }, [doc, pageNumber, containerWidth])
+  }, [doc, pageNumber, containerWidth, zoom])
+
+  // ──────────────────────────────────────────────────────────────────
+  // 4b. Zoom + pan input.
+  //   • Ctrl/⌘ + wheel (and trackpad pinch, which browsers report the
+  //     same way) zooms at the cursor. Plain wheel scrolls, i.e. pans.
+  //   • Middle-button drag, or Space + drag, pans. Handled on the scroll
+  //     container in the capture phase so the overlay canvas never sees
+  //     a pan as a click.
+  //   The wheel listener is attached natively: React registers wheel as
+  //   passive, and a passive listener cannot preventDefault the browser's
+  //   own page zoom.
+  // ──────────────────────────────────────────────────────────────────
+  const requestZoom = useCallback(
+    (next: number, anchor?: { x: number; y: number }) => {
+      const el = measureRef.current
+      const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next))
+      if (el) {
+        zoomAnchorRef.current = {
+          x: anchor?.x ?? el.clientWidth / 2,
+          y: anchor?.y ?? el.clientHeight / 2,
+          left: el.scrollLeft,
+          top: el.scrollTop,
+        }
+      }
+      setZoom(clamped)
+    },
+    []
+  )
+
+  useEffect(() => {
+    const el = measureRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const factor = Math.exp(-e.deltaY * 0.0015)
+      setZoom((current) => {
+        const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current * factor))
+        if (next !== current) {
+          zoomAnchorRef.current = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+            left: el.scrollLeft,
+            top: el.scrollTop,
+          }
+        }
+        return next
+      })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  useEffect(() => {
+    const isTyping = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null
+      const tag = el?.tagName
+      // Buttons too: Space on a focused button must still press it.
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        tag === 'BUTTON' ||
+        el?.isContentEditable === true
+      )
+    }
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat || isTyping(e.target)) return
+      e.preventDefault()
+      spaceHeldRef.current = true
+      setSpaceHeld(true)
+    }
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return
+      spaceHeldRef.current = false
+      setSpaceHeld(false)
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [])
+
+  const onPanPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const wantsPan = e.button === 1 || (e.button === 0 && spaceHeldRef.current)
+    if (!wantsPan) return
+    const el = e.currentTarget
+    e.preventDefault()
+    e.stopPropagation()
+    el.setPointerCapture(e.pointerId)
+    panRef.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
+    setPanning(true)
+  }, [])
+  const onPanPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current
+    if (!pan) return
+    e.preventDefault()
+    e.stopPropagation()
+    const el = e.currentTarget
+    el.scrollLeft = pan.left - (e.clientX - pan.x)
+    el.scrollTop = pan.top - (e.clientY - pan.y)
+  }, [])
+  const onPanPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!panRef.current) return
+    e.stopPropagation()
+    panRef.current = null
+    setPanning(false)
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      /* already released */
+    }
+  }, [])
 
   // ──────────────────────────────────────────────────────────────────
   // 5. Overlay render — re-runs whenever the underlying PDF render
@@ -2104,9 +2278,74 @@ export default function MeasureView() {
           />
         </div>
 
+        {/* Zoom controls — bottom-left, opposite corner from the floating
+            panels on the right. Ctrl+wheel and pinch zoom at the cursor;
+            Space+drag or middle-drag pans. */}
+        <div className="absolute bottom-5 left-5 z-10 flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+          <button
+            type="button"
+            onClick={() => requestZoom(zoom / ZOOM_STEP)}
+            disabled={zoom <= ZOOM_MIN}
+            className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+            title="Zoom out (Ctrl + scroll)"
+            aria-label="Zoom out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </button>
+          <span className="w-12 text-center text-xs font-semibold tabular-nums text-gray-700">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            type="button"
+            onClick={() => requestZoom(zoom * ZOOM_STEP)}
+            disabled={zoom >= ZOOM_MAX}
+            className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+            title="Zoom in (Ctrl + scroll)"
+            aria-label="Zoom in"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => requestZoom(1)}
+            disabled={zoom === 1}
+            className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+            title="Fit to width · Space + drag or middle-drag to pan"
+            aria-label="Fit to width"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </button>
+        </div>
+
         {/* measureRef sits inside the padding so containerWidth is the
-            actual available canvas width (parent.clientWidth - 2*12px). */}
-        <div ref={measureRef} className="flex justify-center">
+            actual available canvas width (parent.clientWidth - 2*12px).
+            It is also the scroll container: at zoom > 1 the canvas is
+            wider than this box and scrolls inside it, so the toolbar and
+            panels stay put. `safe center` keeps a fitted page centred and
+            a zoomed one scrollable from its left edge; scrollbar-gutter
+            stops the ResizeObserver seeing a width change every time a
+            scrollbar appears. */}
+        <div
+          ref={measureRef}
+          className={cn(
+            'flex items-start overflow-auto',
+            panning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : undefined
+          )}
+          style={{
+            justifyContent: 'safe center',
+            maxHeight: 'calc(100vh - 220px)',
+            minHeight: 300,
+            scrollbarGutter: 'stable',
+          }}
+          onPointerDownCapture={onPanPointerDown}
+          onPointerMoveCapture={onPanPointerMove}
+          onPointerUpCapture={onPanPointerUp}
+          onPointerCancelCapture={onPanPointerUp}
+          onMouseDownCapture={(e) => {
+            // Middle button would otherwise start the browser's autoscroll.
+            if (e.button === 1) e.preventDefault()
+          }}
+        >
           {/* Stacking container — relative positioning anchors the
               overlay above the PDF canvas. inline-block shrink-wraps to
               the PDF canvas's CSS dimensions, so the wrapper is always
