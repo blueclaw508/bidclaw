@@ -379,6 +379,8 @@ interface BrainContext {
   catalog: Array<{ name: string; unit: string; category: string; cost: number }>
   projectName: string
   projectAddress: string
+  /** The customer on the project record — the one name a drawing's title block never carries. */
+  customerName: string
   existingWorkAreas: Array<{ id: string; name: string; description: string }>
   stagedWorkAreas: Array<{ id: string; name: string; description: string }>
   /** Names of the Pass 1 proposal currently waiting at Gate 1 (chat only). */
@@ -526,7 +528,11 @@ WHOLE-PROJECT MODE. You are estimating an ENTIRE project, not one work area. It 
 
 THE PROJECT:
   Name: ${ctx.projectName || '(unnamed)'}
-  Address: ${ctx.projectAddress || '(not given)'}
+  Client: ${ctx.customerName || '(not given)'}
+  Site address: ${ctx.projectAddress || '(not given)'}
+These three lines are the record. They win over anything printed on a drawing.
+
+READING DRAWINGS. Every sheet carries a title block naming who DREW it — the engineer, architect, landscape designer, surveyor or builder — with that firm's name, office address, town and phone, and often a stamp. None of that is the client, and none of it is the site. The client is the one named above; the site is the address above. Never carry a name, a firm, a town or a road off a title block into a work area, a scope, or the conversation as if it belonged to the client. Road labels on the plan itself are not proof of the site's street either: if a sheet's project name or address disagrees with the record above, say so once in plain words and go with the record.
 Work areas the CONTRACTOR already created (theirs — never modify):
 ${existing}
 
@@ -1105,7 +1111,7 @@ Deno.serve(async (req: Request) => {
     service
       .from('projects')
       .select(
-        'name, site_address, site_address_line1, site_address_city, site_address_state, site_address_zip'
+        'name, site_address, site_address_line1, site_address_city, site_address_state, site_address_zip, customer:customers ( name )'
       )
       .eq('id', run.project_id)
       .maybeSingle(),
@@ -1251,6 +1257,17 @@ Deno.serve(async (req: Request) => {
         .filter(Boolean)
         .join(', ') ||
       ((project?.site_address as string) ?? ''),
+    // The embed comes back as an object for a to-one relation; guard for
+    // an array in case the FK is ever read the other way.
+    customerName: (() => {
+      const c = (project as Record<string, unknown> | null)?.customer as
+        | { name?: string }
+        | Array<{ name?: string }>
+        | null
+        | undefined
+      const one = Array.isArray(c) ? c[0] : c
+      return (one?.name as string | undefined) ?? ''
+    })(),
     existingWorkAreas: (existingWas ?? []).map((w: Record<string, unknown>) => ({
       id: w.id as string,
       name: w.name as string,
