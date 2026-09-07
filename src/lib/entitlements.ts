@@ -165,12 +165,33 @@ export function isSendGateError(err: unknown): boolean {
 }
 
 /**
- * A contractor-readable sentence for either gate, or null when the error
- * is something else entirely and should surface on its own terms.
+ * Tried to send / approve a proposal built with the free Jamie estimate
+ * while still on a plan without her (0042). Entitled to send in general —
+ * a comped Pro is — just not THIS one, which prints PREVIEW until they
+ * hold Pro + AI. A different sentence from the plain send gate on purpose:
+ * "subscribe" is wrong advice for someone who already does.
+ */
+export function isTrialSendGateError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    err.message.includes('ai_trial_proposal_cannot_be_sent')
+  )
+}
+
+/** The upgrade pitch for the trial-send case, shared by editor and modal. */
+export const TRIAL_SEND_REASON =
+  'This estimate was built with your free Jamie trial. Upgrade to Pro + AI to send it — the PREVIEW watermark comes off the moment you do.'
+
+/**
+ * A contractor-readable sentence for any of the gates, or null when the
+ * error is something else entirely and should surface on its own terms.
  */
 export function subscriptionErrorMessage(err: unknown): string | null {
   if (isFreeProposalUsedError(err)) {
     return 'That was your free proposal. Subscribe to build more.'
+  }
+  if (isTrialSendGateError(err)) {
+    return TRIAL_SEND_REASON
   }
   if (isSendGateError(err)) {
     return 'Subscribe to send proposals. You can keep building and previewing this one.'
