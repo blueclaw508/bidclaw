@@ -1015,3 +1015,48 @@ export interface ChangeOrder {
   created_at: string
   updated_at: string
 }
+
+/* ============================================================
+ * WIP (migration 0046)
+ * ============================================================ */
+
+export type WipPeriodStatus = 'open' | 'closed'
+
+export interface WipPeriod {
+  id: string
+  user_id: string
+  /** Month end, YYYY-MM-DD. */
+  period_end: string
+  status: WipPeriodStatus
+  closed_at: string | null
+  notes: string | null
+  qbo_journal_id: string | null
+  qbo_reversal_id: string | null
+  qbo_posted_at: string | null
+  qbo_sync_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * One line of the WIP schedule: a work area of an approved proposal, or an
+ * approved change order. `earned` and `over_under` are generated columns:
+ * earned = contract × percent; over_under = billed − earned (positive is
+ * overbilled, negative underbilled).
+ */
+export interface WipEntry {
+  id: string
+  period_id: string
+  project_id: string
+  proposal_id: string | null
+  proposal_work_area_id: string | null
+  change_order_id: string | null
+  label: string
+  contract_value: number
+  percent_complete: number
+  billed_to_date: number
+  earned: number
+  over_under: number
+  created_at: string
+  updated_at: string
+}

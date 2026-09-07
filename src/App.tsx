@@ -29,6 +29,7 @@ const ProposalPrintViewPage     = lazy(() => import('@/pages/ProposalPrintView')
 const ClientProposalPage        = lazy(() => import('@/pages/ClientProposal'))
 const InvoiceEditorPage         = lazy(() => import('@/pages/InvoiceEditor'))
 const InvoicePrintViewPage      = lazy(() => import('@/pages/InvoicePrintView'))
+const WipPage                   = lazy(() => import('@/pages/Wip'))
 const LeadsPrintViewPage        = lazy(() => import('@/pages/LeadsPrintView'))
 const SettingsPage                  = lazy(() => import('@/pages/Settings'))
 const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
@@ -139,6 +140,7 @@ export default function App() {
                 <Route path="catalog"       element={<CatalogPage />} />
                 <Route path="kits"          element={<KitsPage />} />
                 <Route path="kits/:kitId"   element={<KitDetailPage />} />
+                <Route path="wip"           element={<WipPage />} />
                 <Route path="settings"                      element={<SettingsPage />} />
                 <Route path="settings/company-profile"      element={<CompanyProfileSettingsPage />} />
                 <Route path="settings/enter-my-numbers"     element={<EnterMyNumbersSettingsPage />} />

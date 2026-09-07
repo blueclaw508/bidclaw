@@ -38,6 +38,9 @@ export type QboMappingCategory =
   | 'design'
   | 'other'
   | 'wip_offset'
+  | 'revenue'
+  | 'wip_asset'
+  | 'wip_liability'
 
 export interface QboMapping {
   item_category: QboMappingCategory
@@ -105,6 +108,17 @@ export async function pushInvoiceToQbo(invoiceId: string): Promise<{
   payments_pushed: number
 }> {
   return invoke('qbo-sync', { action: 'push_invoice', invoice_id: invoiceId })
+}
+
+/** Post a closed WIP period's journal entry and its reversal. */
+export async function postWipToQbo(periodId: string): Promise<{
+  ok: true
+  journal_id: string | null
+  reversal_id: string | null
+  lines: number
+  reversal_date: string
+}> {
+  return invoke('qbo-sync', { action: 'post_wip', period_id: periodId })
 }
 
 export function qboInvoiceUrl(environment: string, id: string): string {

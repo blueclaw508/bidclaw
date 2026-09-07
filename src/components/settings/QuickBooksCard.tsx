@@ -88,6 +88,28 @@ export function QuickBooksCard() {
     }
   }
 
+  const setAccount = async (category: 'revenue' | 'wip_asset' | 'wip_liability', id: string) => {
+    const account = status?.accounts?.find((a) => a.id === id)
+    setBusy('map')
+    try {
+      await saveQboMapping(category, { qbo_account_id: account?.id ?? null, qbo_account_name: account?.name ?? null })
+      setMappings((m) => ({
+        ...m,
+        [category]: {
+          item_category: category,
+          qbo_account_id: account?.id ?? null,
+          qbo_account_name: account?.name ?? null,
+          qbo_item_id: m[category]?.qbo_item_id ?? null,
+          qbo_item_name: m[category]?.qbo_item_name ?? null,
+        },
+      }))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't save that.")
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const setBillingItem = async (id: string) => {
     const item = status?.items?.find((i) => i.id === id)
     setBusy('map')
@@ -200,6 +222,41 @@ export function QuickBooksCard() {
               A progress-billing line is a slice of a whole work area, so one service item carries every
               line. Most contractors use one called “Contract billing” or “Construction services”; make it in
               QuickBooks under Products &amp; services if you don't have one.
+            </p>
+          </div>
+
+          <div className="max-w-md space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Month-end WIP entry</p>
+            {(
+              [
+                ['revenue', 'Contract revenue', ['Income']],
+                ['wip_asset', 'Costs & earnings in excess of billings (asset)', ['Other Current Asset']],
+                ['wip_liability', 'Billings in excess of costs & earnings (liability)', ['Other Current Liability']],
+              ] as Array<['revenue' | 'wip_asset' | 'wip_liability', string, string[]]>
+            ).map(([cat, label, types]) => (
+              <div key={cat}>
+                <label className="mb-1 block text-xs font-medium text-gray-700">{label}</label>
+                <select
+                  value={mappings[cat]?.qbo_account_id ?? ''}
+                  onChange={(e) => void setAccount(cat, e.target.value)}
+                  disabled={busy === 'map'}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
+                >
+                  <option value="">Choose an account…</option>
+                  {(status.accounts ?? [])
+                    .filter((a) => types.includes(a.type))
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            ))}
+            <p className="text-xs text-gray-500">
+              The WIP entry books earned-but-unbilled work to the asset and billed-but-unearned work to the
+              liability, against contract revenue, dated month end and reversed the next day. Your CPA will
+              recognise the two balance sheet accounts; make them in QuickBooks if they don't exist yet.
             </p>
           </div>
         </div>
