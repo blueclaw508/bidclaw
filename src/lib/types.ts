@@ -1060,3 +1060,33 @@ export interface WipEntry {
   created_at: string
   updated_at: string
 }
+
+/* ============================================================
+ * Job costs (migration 0047)
+ * ============================================================ */
+
+export type JobCostCategory = 'labor' | 'material' | 'equipment' | 'subcontractor' | 'other'
+
+/** One expense line pulled from QuickBooks, landed on a project (or not yet). */
+export interface JobCost {
+  id: string
+  user_id: string
+  project_id: string | null
+  customer_id: string | null
+  project_pinned: boolean
+  qbo_txn_type: 'Purchase' | 'Bill' | 'JournalEntry'
+  qbo_txn_id: string
+  qbo_line_id: string
+  qbo_customer_ref: string | null
+  txn_date: string
+  vendor_name: string | null
+  account_id: string | null
+  account_name: string | null
+  category: JobCostCategory
+  category_pinned: boolean
+  description: string | null
+  amount: number
+  pulled_at: string
+  created_at: string
+  updated_at: string
+}

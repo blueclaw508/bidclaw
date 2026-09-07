@@ -40,6 +40,7 @@ const WorkAreasTab = lazy(() => import('@/components/project/WorkAreasTab'))
 const FilesTab = lazy(() => import('@/components/project/FilesTab'))
 const ProposalsTab = lazy(() => import('@/components/project/ProposalsTab'))
 const InvoicesTab = lazy(() => import('@/components/project/InvoicesTab'))
+const JobCostTab = lazy(() => import('@/components/project/JobCostTab'))
 // Only pulled in when a contractor actually clicks the locked Jamie button.
 const UpgradeModal = lazy(() => import('@/components/billing/UpgradeModal'))
 // Jamie is a full-page workspace (J4) — see src/pages/JamieWorkspace.tsx.
@@ -58,7 +59,7 @@ type ProjectDetail = Project & {
   customers: { id: string; name: string } | null
 }
 
-type TabId = 'details' | 'work_areas' | 'files' | 'proposals' | 'invoices'
+type TabId = 'details' | 'work_areas' | 'files' | 'proposals' | 'invoices' | 'job_cost'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'details',    label: 'Details' },
@@ -66,6 +67,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'files',      label: 'Files' },
   { id: 'proposals',  label: 'Proposals' },
   { id: 'invoices',   label: 'Invoices' },
+  { id: 'job_cost',   label: 'Job Cost' },
 ]
 
 export default function ProjectDetailPage() {
@@ -409,6 +411,11 @@ export default function ProjectDetailPage() {
           {activeTab === 'invoices' && (
             <Suspense fallback={<TabLoading />}>
               <InvoicesTab project={project} />
+            </Suspense>
+          )}
+          {activeTab === 'job_cost' && (
+            <Suspense fallback={<TabLoading />}>
+              <JobCostTab project={project} />
             </Suspense>
           )}
         </div>

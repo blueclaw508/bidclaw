@@ -121,6 +121,19 @@ export async function postWipToQbo(periodId: string): Promise<{
   return invoke('qbo-sync', { action: 'post_wip', period_id: periodId })
 }
 
+/** Pull expense lines coded to customers and jobs, for a date range. */
+export async function pullCostsFromQbo(from: string, to: string): Promise<{
+  ok: true
+  lines: number
+  assigned: number
+  unassigned: number
+  removed: number
+  from: string
+  to: string
+}> {
+  return invoke('qbo-sync', { action: 'pull_costs', from, to })
+}
+
 export function qboInvoiceUrl(environment: string, id: string): string {
   const host = environment === 'production' ? 'https://app.qbo.intuit.com' : 'https://app.sandbox.qbo.intuit.com'
   return `${host}/app/invoice?txnId=${id}`

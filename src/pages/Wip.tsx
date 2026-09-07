@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { formatUSD, roundMoney, sumMoney } from '@/lib/money'
 import { formatDateOnly } from '@/lib/invoiceStatus'
 import { getQboConnection, postWipToQbo, type QboConnection } from '@/lib/qbo'
+import { costToCostPercent } from '@/lib/jobCosts'
 import {
   closePeriod,
   getPeriod,
@@ -109,6 +110,30 @@ export default function WipPage() {
       })
     } catch (err) {
       toast.error(isPeriodClosedError(err) ? 'This month is closed.' : err instanceof Error ? err.message : "Couldn't save.")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Cost-to-cost: actual ÷ estimated cost for the project (roadmap step 5),
+  // offered as the percent for every row of that project. A suggestion the
+  // person can overwrite, not a rule.
+  const suggestFromCosts = async (projectId: string, rows: WipEntryRow[]) => {
+    setBusy(`suggest-${projectId}`)
+    try {
+      const pct = await costToCostPercent(projectId)
+      if (pct === null) {
+        toast.error('No estimated cost on this project to compare against.')
+        return
+      }
+      for (const r of rows) {
+        if (r.percent_complete === pct) continue
+        const updated = await setPercentComplete(r.id, pct)
+        setEntries((es) => es.map((e) => (e.id === r.id ? { ...e, ...updated } : e)))
+      }
+      toast.success(`Set to ${pct}% from actual ÷ estimated cost.`)
+    } catch (err) {
+      toast.error(isPeriodClosedError(err) ? 'This month is closed.' : err instanceof Error ? err.message : "Couldn't suggest.")
     } finally {
       setBusy(null)
     }
@@ -315,9 +340,22 @@ export default function WipPage() {
                     <tbody key={g.id} className="border-t border-gray-200">
                       <tr className="bg-slate-50">
                         <td colSpan={6} className="px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-700">
-                          <Link to={`/app/projects/${g.id}?tab=invoices`} className="hover:underline">
-                            {g.name}
-                          </Link>
+                          <div className="flex items-center justify-between gap-3">
+                            <Link to={`/app/projects/${g.id}?tab=job_cost`} className="hover:underline">
+                              {g.name}
+                            </Link>
+                            {!closed && (
+                              <button
+                                type="button"
+                                onClick={() => void suggestFromCosts(g.id, g.rows)}
+                                disabled={busy !== null}
+                                className="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-[11px] font-semibold normal-case tracking-normal text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                title="Percent complete = actual cost ÷ estimated cost, from the Job Cost tab"
+                              >
+                                {busy === `suggest-${g.id}` ? 'Working…' : 'Suggest % from costs'}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                       {g.rows.map((r) => (

@@ -67,6 +67,8 @@ Deno.serve(async (req: Request) => {
         return json(await pushInvoice(service, user.id, String(body.invoice_id ?? '')))
       case 'post_wip':
         return json(await postWip(service, user.id, String(body.period_id ?? '')))
+      case 'pull_costs':
+        return json(await pullCosts(service, user.id, String(body.from ?? ''), String(body.to ?? '')))
       default:
         return json({ error: 'Unknown action.' }, 400)
     }
@@ -244,6 +246,214 @@ async function pushInvoice(service: SupabaseClient, userId: string, invoiceId: s
     await log(service, userId, { kind: 'invoice', entity_id: invoiceId, status: 'error', message: msg })
     throw err
   }
+}
+
+// ── pull_costs ────────────────────────────────────────────────────────
+// Expense lines coded to a customer or job in QuickBooks, landed on the
+// BidClaw project. Purchase (cash, check, card), Bill, and JournalEntry
+// debit lines on expense or cost-of-goods accounts. Idempotent by
+// transaction and line id; a hand assignment or category on a row is
+// kept across pulls; a line deleted over there disappears here on the
+// next pull of its range.
+
+const COST_ACCOUNT_TYPES = new Set(['Expense', 'Cost of Goods Sold', 'Other Expense'])
+
+function guessCategory(accountName: string, itemName: string | null): string {
+  const s = `${accountName} ${itemName ?? ''}`.toLowerCase()
+  if (/labor|labour|payroll|wage|salar|crew|foreman|overtime/.test(s)) return 'labor'
+  if (/subcontract|sub-contract|\bsubs?\b|contractor|electric|plumb|irrigat/.test(s)) return 'subcontractor'
+  if (/equipment|rental|fuel|diesel|gas\b|machine|excavator|truck/.test(s)) return 'equipment'
+  if (/material|supplies|stone|masonry|nursery|plant|lumber|concrete|gravel|loam|mulch|pipe|hardware|aggregate/.test(s)) return 'material'
+  return 'other'
+}
+
+async function qboQueryAll(conn: Connection, entity: string, where: string): Promise<Row[]> {
+  const out: Row[] = []
+  let start = 1
+  const page = 1000
+  for (;;) {
+    const res = await qbo<Row>(conn, '/query', {
+      query: { query: `select * from ${entity} ${where} startposition ${start} maxresults ${page}` },
+    })
+    const rows: Row[] = res?.QueryResponse?.[entity] ?? []
+    out.push(...rows)
+    if (rows.length < page) break
+    start += page
+  }
+  return out
+}
+
+async function pullCosts(service: SupabaseClient, userId: string, from: string, to: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+    throw new Error('Give a date range, oldest first.')
+  }
+  const conn = await loadConnection(service, userId)
+
+  // Who is who on our side.
+  const [{ data: custs }, { data: projects }, { data: maps }] = await Promise.all([
+    service.from('customers').select('id, name, qbo_customer_id').eq('user_id', userId),
+    service.from('projects').select('id, name, customer_id, status').eq('user_id', userId),
+    service.from('qbo_account_mappings').select('item_category, qbo_account_id').eq('user_id', userId),
+  ])
+  const custByQbo = new Map<string, Row>()
+  for (const c of (custs ?? []) as Row[]) if (c.qbo_customer_id) custByQbo.set(String(c.qbo_customer_id), c)
+  const projectsByCustomer = new Map<string, Row[]>()
+  for (const p of (projects ?? []) as Row[]) {
+    if (!p.customer_id || p.status === 'archived') continue
+    const list = projectsByCustomer.get(p.customer_id) ?? []
+    list.push(p)
+    projectsByCustomer.set(p.customer_id, list)
+  }
+  const mappedCategory = new Map<string, string>()
+  const mapCat: Record<string, string> = { labor: 'labor', material: 'material', equipment: 'equipment', disposal: 'other', design: 'subcontractor', other: 'other' }
+  for (const m of (maps ?? []) as Row[]) if (m.qbo_account_id && mapCat[m.item_category]) mappedCategory.set(String(m.qbo_account_id), mapCat[m.item_category])
+
+  // Who is who on their side.
+  const [qboCustomers, qboAccounts] = await Promise.all([
+    qboQueryAll(conn, 'Customer', ''),
+    qboQueryAll(conn, 'Account', ''),
+  ])
+  const qboCust = new Map<string, Row>()
+  for (const c of qboCustomers) qboCust.set(String(c.Id), c)
+  const acctType = new Map<string, { name: string; type: string }>()
+  for (const a of qboAccounts) acctType.set(String(a.Id), { name: String(a.Name ?? ''), type: String(a.AccountType ?? '') })
+
+  // Which project does a CustomerRef land on?
+  const resolveProject = (refId: string): { customer_id: string | null; project_id: string | null } => {
+    const qc = qboCust.get(refId)
+    const parentId = qc?.ParentRef?.value ? String(qc.ParentRef.value) : null
+    const ours = custByQbo.get(refId) ?? (parentId ? custByQbo.get(parentId) : undefined)
+    if (!ours) return { customer_id: null, project_id: null }
+    const candidates = projectsByCustomer.get(ours.id) ?? []
+    if (qc && parentId) {
+      const name = String(qc.DisplayName ?? '').trim().toLowerCase()
+      const hit = candidates.find((p) => String(p.name).trim().toLowerCase() === name)
+      if (hit) return { customer_id: ours.id, project_id: hit.id }
+    }
+    if (candidates.length === 1) return { customer_id: ours.id, project_id: candidates[0].id }
+    return { customer_id: ours.id, project_id: null }
+  }
+
+  const where = `where TxnDate >= '${from}' and TxnDate <= '${to}'`
+  const [purchases, bills, journals] = await Promise.all([
+    qboQueryAll(conn, 'Purchase', where),
+    qboQueryAll(conn, 'Bill', where),
+    qboQueryAll(conn, 'JournalEntry', where),
+  ])
+
+  type CostRow = Row
+  const rows: CostRow[] = []
+  const push = (
+    txnType: string,
+    txn: Row,
+    line: Row,
+    customerRef: string | undefined,
+    accountId: string | null,
+    accountNameFallback: string | null,
+    itemName: string | null,
+    vendor: string | null,
+    amount: number
+  ) => {
+    if (!customerRef || !Number.isFinite(amount) || amount === 0) return
+    const acct = accountId ? acctType.get(accountId) : undefined
+    if (acct && !COST_ACCOUNT_TYPES.has(acct.type)) return
+    const accountName = acct?.name ?? accountNameFallback ?? ''
+    const landing = resolveProject(customerRef)
+    rows.push({
+      user_id: userId,
+      project_id: landing.project_id,
+      customer_id: landing.customer_id,
+      qbo_txn_type: txnType,
+      qbo_txn_id: String(txn.Id),
+      qbo_line_id: String(line.Id ?? line.LineNum ?? '0'),
+      qbo_customer_ref: customerRef,
+      txn_date: String(txn.TxnDate),
+      vendor_name: vendor,
+      account_id: accountId,
+      account_name: accountName || null,
+      category: (accountId && mappedCategory.get(accountId)) || guessCategory(accountName, itemName),
+      description: line.Description ?? txn.PrivateNote ?? null,
+      amount: Math.round(amount * 100) / 100,
+      pulled_at: new Date().toISOString(),
+    })
+  }
+
+  for (const t of purchases) {
+    const vendor = t.EntityRef?.name ?? null
+    for (const l of (t.Line ?? []) as Row[]) {
+      const d = l.AccountBasedExpenseLineDetail ?? l.ItemBasedExpenseLineDetail
+      if (!d) continue
+      push('Purchase', t, l, d.CustomerRef?.value, d.AccountRef?.value ? String(d.AccountRef.value) : null, d.AccountRef?.name ?? null, d.ItemRef?.name ?? null, vendor, Number(l.Amount))
+    }
+  }
+  for (const t of bills) {
+    const vendor = t.VendorRef?.name ?? null
+    for (const l of (t.Line ?? []) as Row[]) {
+      const d = l.AccountBasedExpenseLineDetail ?? l.ItemBasedExpenseLineDetail
+      if (!d) continue
+      push('Bill', t, l, d.CustomerRef?.value, d.AccountRef?.value ? String(d.AccountRef.value) : null, d.AccountRef?.name ?? null, d.ItemRef?.name ?? null, vendor, Number(l.Amount))
+    }
+  }
+  for (const t of journals) {
+    for (const l of (t.Line ?? []) as Row[]) {
+      const d = l.JournalEntryLineDetail
+      if (!d || d.PostingType !== 'Debit') continue
+      if (d.Entity?.Type !== 'Customer') continue
+      push('JournalEntry', t, l, d.Entity?.EntityRef?.value, d.AccountRef?.value ? String(d.AccountRef.value) : null, d.AccountRef?.name ?? null, null, d.Entity?.EntityRef?.name ?? 'Journal entry', Number(l.Amount))
+    }
+  }
+
+  // Keep what a person pinned.
+  const { data: existing } = await service
+    .from('job_costs')
+    .select('qbo_txn_type, qbo_txn_id, qbo_line_id, project_id, project_pinned, category, category_pinned')
+    .eq('user_id', userId)
+    .gte('txn_date', from)
+    .lte('txn_date', to)
+  const pinned = new Map<string, Row>()
+  for (const e of (existing ?? []) as Row[]) pinned.set(`${e.qbo_txn_type}:${e.qbo_txn_id}:${e.qbo_line_id}`, e)
+  for (const r of rows) {
+    const e = pinned.get(`${r.qbo_txn_type}:${r.qbo_txn_id}:${r.qbo_line_id}`)
+    if (!e) continue
+    if (e.project_pinned) {
+      r.project_id = e.project_id
+      r.project_pinned = true
+    }
+    if (e.category_pinned) {
+      r.category = e.category
+      r.category_pinned = true
+    }
+  }
+
+  if (rows.length > 0) {
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await service
+        .from('job_costs')
+        .upsert(rows.slice(i, i + 500), { onConflict: 'user_id,qbo_txn_type,qbo_txn_id,qbo_line_id' })
+      if (error) throw new Error(`Could not store costs: ${error.message}`)
+    }
+  }
+  // Lines gone from QuickBooks are gone here too — but only inside the
+  // range we just read completely.
+  const seen = new Set(rows.map((r) => `${r.qbo_txn_type}:${r.qbo_txn_id}:${r.qbo_line_id}`))
+  const stale = ((existing ?? []) as Row[]).filter((e) => !seen.has(`${e.qbo_txn_type}:${e.qbo_txn_id}:${e.qbo_line_id}`))
+  for (const e of stale) {
+    await service
+      .from('job_costs')
+      .delete()
+      .eq('user_id', userId)
+      .eq('qbo_txn_type', e.qbo_txn_type)
+      .eq('qbo_txn_id', e.qbo_txn_id)
+      .eq('qbo_line_id', e.qbo_line_id)
+  }
+
+  await service
+    .from('qbo_connections')
+    .update({ costs_pulled_from: from, costs_pulled_to: to, costs_pulled_at: new Date().toISOString(), last_sync_at: new Date().toISOString(), last_error: null })
+    .eq('user_id', userId)
+  const assigned = rows.filter((r) => r.project_id).length
+  await log(service, userId, { kind: 'journal', status: 'ok', message: `pulled ${rows.length} cost lines ${from}..${to}, ${assigned} assigned` })
+  return { ok: true, lines: rows.length, assigned, unassigned: rows.length - assigned, removed: stale.length, from, to }
 }
 
 // ── post_wip ──────────────────────────────────────────────────────────
