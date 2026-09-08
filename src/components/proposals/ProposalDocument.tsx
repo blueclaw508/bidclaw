@@ -79,6 +79,15 @@ export type DocumentSettings = Pick<
   | 'default_payment_milestones'
 >
 
+/**
+ * The print stylesheet, on its own, for documents that share the .pv-*
+ * layout without being a proposal (the invoice). ProposalDocument renders
+ * it itself.
+ */
+export function PrintStyles() {
+  return <style>{PRINT_CSS}</style>
+}
+
 export function ProposalDocument({
   settings,
   proposal,
@@ -228,7 +237,7 @@ function PrintHeader({
   )
 }
 
-function CompanyLogo({
+export function CompanyLogo({
   logoUrl,
   legalName,
 }: {

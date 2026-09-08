@@ -10,6 +10,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { loadEntitlements, type Entitlements } from '@/lib/entitlements'
 import { PasswordCard } from '@/components/settings/PasswordCard'
+import { QuickBooksCard } from '@/components/settings/QuickBooksCard'
 
 const UpgradeModal = lazy(() => import('@/components/billing/UpgradeModal'))
 
@@ -234,12 +235,7 @@ export default function SettingsPage() {
           <SubscriptionSummary />
         </InfoSection>
 
-        <InfoSection
-          title="QuickBooks Integration"
-          description="Map BidClaw item categories to QuickBooks Online accounts."
-        >
-          QBO sync arrives in Phase 3.
-        </InfoSection>
+        <QuickBooksCard />
       </div>
     </div>
   )

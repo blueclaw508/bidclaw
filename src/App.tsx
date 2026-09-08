@@ -27,6 +27,9 @@ const KitDetailPage             = lazy(() => import('@/pages/KitDetail'))
 const ProposalEditorPage        = lazy(() => import('@/pages/ProposalEditor'))
 const ProposalPrintViewPage     = lazy(() => import('@/pages/ProposalPrintView'))
 const ClientProposalPage        = lazy(() => import('@/pages/ClientProposal'))
+const InvoiceEditorPage         = lazy(() => import('@/pages/InvoiceEditor'))
+const InvoicePrintViewPage      = lazy(() => import('@/pages/InvoicePrintView'))
+const WipPage                   = lazy(() => import('@/pages/Wip'))
 const LeadsPrintViewPage        = lazy(() => import('@/pages/LeadsPrintView'))
 const SettingsPage                  = lazy(() => import('@/pages/Settings'))
 const CompanyProfileSettingsPage    = lazy(() => import('@/pages/CompanyProfileSettings'))
@@ -78,6 +81,16 @@ export default function App() {
                 }
               />
 
+              {/* Invoice print view (0044). Same shape as the proposal's. */}
+              <Route
+                path="/app/projects/:projectId/invoices/:invoiceId/print"
+                element={
+                  <RequireAuth>
+                    <InvoicePrintViewPage />
+                  </RequireAuth>
+                }
+              />
+
               {/* Leads & Bids 11x17 pipeline report. Same deal as the
                   proposal print view — inside RequireAuth, outside the
                   AppShell chrome, declared before /app so it wins. */}
@@ -118,11 +131,16 @@ export default function App() {
                   path="projects/:projectId/proposals/:proposalId"
                   element={<ProposalEditorPage />}
                 />
+                <Route
+                  path="projects/:projectId/invoices/:invoiceId"
+                  element={<InvoiceEditorPage />}
+                />
                 <Route path="customers"     element={<CustomersPage />} />
                 <Route path="customers/:id" element={<CustomerDetailPage />} />
                 <Route path="catalog"       element={<CatalogPage />} />
                 <Route path="kits"          element={<KitsPage />} />
                 <Route path="kits/:kitId"   element={<KitDetailPage />} />
+                <Route path="wip"           element={<WipPage />} />
                 <Route path="settings"                      element={<SettingsPage />} />
                 <Route path="settings/company-profile"      element={<CompanyProfileSettingsPage />} />
                 <Route path="settings/enter-my-numbers"     element={<EnterMyNumbersSettingsPage />} />

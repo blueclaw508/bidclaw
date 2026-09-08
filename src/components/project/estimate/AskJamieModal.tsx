@@ -39,6 +39,13 @@ interface AskJamieModalProps {
   onClose: () => void
   workAreaId: string
   workAreaName: string
+  /**
+   * The scope the contractor already typed when they made the work area.
+   * It seeds the textarea: they wrote it once, and being asked to write it
+   * again is what made this modal feel like it had not been paying
+   * attention. They can still edit or add to it before sending.
+   */
+  workAreaDescription?: string | null
   /** For the live price preview (materials/subs markup). */
   settings: LiveMarkupSettings
   /** Insert Jamie's lines into the estimate. Parent maps + persists. */
@@ -52,11 +59,13 @@ export function AskJamieModal({
   onClose,
   workAreaId,
   workAreaName,
+  workAreaDescription,
   settings,
   onApply,
 }: AskJamieModalProps) {
+  const seeded = (workAreaDescription ?? '').trim()
   const [phase, setPhase] = useState<Phase>('input')
-  const [scope, setScope] = useState('')
+  const [scope, setScope] = useState(seeded)
   const [image, setImage] = useState<{ file: File; preview: string } | null>(null)
   const [result, setResult] = useState<JamieResult | null>(null)
   const [applying, setApplying] = useState(false)
@@ -145,7 +154,11 @@ export function AskJamieModal({
       open={open}
       onClose={applying ? () => {} : onClose}
       title="Ask Jamie"
-      description={`Describe the work in ${workAreaName}. Jamie builds the priced line-item estimate — you review before anything is added.`}
+      description={
+        seeded
+          ? `Jamie has the scope you wrote for ${workAreaName}. Add anything that changes the price — dimensions, materials, access — then let her price it. You review before anything is added.`
+          : `Describe the work in ${workAreaName}. Jamie builds the priced line-item estimate — you review before anything is added.`
+      }
       size="2xl"
     >
       {/* ── INPUT ── */}
@@ -154,17 +167,24 @@ export function AskJamieModal({
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
               Scope of work
+              {seeded && (
+                <span className="ml-2 font-medium normal-case tracking-normal text-gray-400">
+                  from this work area
+                </span>
+              )}
             </span>
             <textarea
               value={scope}
               onChange={(e) => setScope(e.target.value)}
               rows={5}
-              autoFocus
+              autoFocus={!seeded}
               placeholder="e.g. Clear the left side of the lawn (~5,000 sf), remove plant material and weeds, transplant the ornamental grasses. Then loam and rough grade for a new lawn."
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
             />
             <span className="mt-1 block text-xs text-gray-400">
-              The more detail (dimensions, materials, access), the sharper the takeoff.
+              {seeded
+                ? 'Edit or add to it. The more detail (dimensions, materials, access), the sharper the takeoff.'
+                : 'The more detail (dimensions, materials, access), the sharper the takeoff.'}
             </span>
           </label>
 

@@ -365,11 +365,11 @@ export function WorkAreaEstimate({
           <button
             type="button"
             onClick={() => setJamieOpen(true)}
-            title="Describe the work — Jamie builds the priced estimate"
+            title="Jamie builds the priced line-item estimate for this work area"
             className="flex items-center justify-center gap-2 rounded-lg bg-brand-gold px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
           >
             <Sparkles className="h-4 w-4" />
-            Ask Jamie
+            Price with Jamie
           </button>
         ) : (
           <button
@@ -454,6 +454,7 @@ export function WorkAreaEstimate({
             onClose={() => setJamieOpen(false)}
             workAreaId={workArea.id}
             workAreaName={workArea.name}
+            workAreaDescription={workArea.description}
             settings={settings}
             onApply={handleJamieApply}
           />

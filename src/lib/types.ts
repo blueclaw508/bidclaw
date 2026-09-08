@@ -72,6 +72,8 @@ export interface Customer {
   site_address_state: string | null
   site_address_zip: string | null
   notes: string | null
+  /** QuickBooks (0045): the matching customer over there, once pushed. */
+  qbo_customer_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -353,6 +355,10 @@ export interface CompanySettings {
    * schedule can never go stale against the price it is splitting.
    */
   default_payment_milestones: PaymentMilestone[] | null
+  /** Invoice defaults (0044). Prefix is display-only; the stored number is an integer. */
+  invoice_prefix: string
+  invoice_due_days: number
+  invoice_footer_text: string | null
 
   /**
    * Jamie (AI estimating agent) entitlement — Jamie is a PAID UPGRADE.
@@ -915,4 +921,172 @@ export interface ProposalSignature {
   ip_address: string | null
   user_agent: string | null
   signed_at: string
+}
+
+/* ============================================================
+ * Invoicing (migration 0044)
+ * ============================================================ */
+
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'void'
+
+/**
+ * A bill to the client. `subtotal`, `total`, and `amount_paid` are
+ * maintained by database triggers from the lines and payments; the API
+ * cannot write them, so what the list shows is what the rows add up to.
+ */
+export interface Invoice {
+  id: string
+  user_id: string
+  project_id: string
+  proposal_id: string | null
+  invoice_number: number
+  status: InvoiceStatus
+  /** ISO date (YYYY-MM-DD). */
+  issue_date: string
+  due_date: string | null
+  /** Which milestone this bills, when it came from the payment schedule. */
+  milestone_label: string | null
+  milestone_percent: number | null
+  notes: string | null
+  terms: string | null
+  subtotal: number
+  total: number
+  amount_paid: number
+  sent_at: string | null
+  paid_at: string | null
+  voided_at: string | null
+  /** QuickBooks (0045): the pushed invoice's id, when it was pushed, and the last error. */
+  qbo_invoice_id: string | null
+  qbo_synced_at: string | null
+  qbo_sync_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface InvoiceLine {
+  id: string
+  invoice_id: string
+  /** Where this money lands for WIP. Null for a custom line. */
+  proposal_work_area_id: string | null
+  change_order_id: string | null
+  description: string
+  quantity: number
+  unit_price: number
+  /** Generated: round(quantity × unit_price, 2). */
+  amount: number
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export type PaymentMethod = 'check' | 'cash' | 'card' | 'ach' | 'other'
+
+export interface InvoicePayment {
+  id: string
+  invoice_id: string
+  amount: number
+  paid_on: string
+  method: PaymentMethod
+  reference: string | null
+  notes: string | null
+  /** QuickBooks (0045): the pushed payment's id. */
+  qbo_payment_id: string | null
+  created_at: string
+}
+
+export interface InvoiceWithDetails extends Invoice {
+  lines: InvoiceLine[]
+  payments: InvoicePayment[]
+}
+
+export type ChangeOrderStatus = 'draft' | 'approved' | 'declined'
+
+export interface ChangeOrder {
+  id: string
+  user_id: string
+  project_id: string
+  proposal_id: string | null
+  change_number: number
+  title: string
+  description: string | null
+  amount: number
+  status: ChangeOrderStatus
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/* ============================================================
+ * WIP (migration 0046)
+ * ============================================================ */
+
+export type WipPeriodStatus = 'open' | 'closed'
+
+export interface WipPeriod {
+  id: string
+  user_id: string
+  /** Month end, YYYY-MM-DD. */
+  period_end: string
+  status: WipPeriodStatus
+  closed_at: string | null
+  notes: string | null
+  qbo_journal_id: string | null
+  qbo_reversal_id: string | null
+  qbo_posted_at: string | null
+  qbo_sync_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * One line of the WIP schedule: a work area of an approved proposal, or an
+ * approved change order. `earned` and `over_under` are generated columns:
+ * earned = contract × percent; over_under = billed − earned (positive is
+ * overbilled, negative underbilled).
+ */
+export interface WipEntry {
+  id: string
+  period_id: string
+  project_id: string
+  proposal_id: string | null
+  proposal_work_area_id: string | null
+  change_order_id: string | null
+  label: string
+  contract_value: number
+  percent_complete: number
+  billed_to_date: number
+  earned: number
+  over_under: number
+  created_at: string
+  updated_at: string
+}
+
+/* ============================================================
+ * Job costs (migration 0047)
+ * ============================================================ */
+
+export type JobCostCategory = 'labor' | 'material' | 'equipment' | 'subcontractor' | 'other'
+
+/** One expense line pulled from QuickBooks, landed on a project (or not yet). */
+export interface JobCost {
+  id: string
+  user_id: string
+  project_id: string | null
+  customer_id: string | null
+  project_pinned: boolean
+  qbo_txn_type: 'Purchase' | 'Bill' | 'JournalEntry'
+  qbo_txn_id: string
+  qbo_line_id: string
+  qbo_customer_ref: string | null
+  txn_date: string
+  vendor_name: string | null
+  account_id: string | null
+  account_name: string | null
+  category: JobCostCategory
+  category_pinned: boolean
+  description: string | null
+  amount: number
+  pulled_at: string
+  created_at: string
+  updated_at: string
 }

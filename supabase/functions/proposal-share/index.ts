@@ -373,6 +373,16 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'server_error', message: 'Something went wrong recording that. Try again.' }, 500)
   }
 
+  // ── The deposit invoice, the moment they sign (roadmap step 2) ──────
+  // Best-effort: a failure here must not undo an acceptance the client
+  // has just made. The contractor can create it by hand from the
+  // Invoices tab, which says so when a signed proposal has no invoice.
+  if (decision === 'accepted') {
+    await createDepositInvoice(service, proposal as Row, settings as Row | null, ownerId).catch(
+      (err) => console.warn('proposal-share: deposit invoice failed:', err?.message ?? err)
+    )
+  }
+
   // ── Tell the contractor (best-effort, only when email is configured) ──
   await notifyContractor({
     service,
@@ -389,6 +399,86 @@ Deno.serve(async (req: Request) => {
 
   return json({ ok: true, signature })
 })
+
+// The first milestone of the proposal's payment schedule, as an invoice:
+// one line per enabled work area at that percent, cents reconciled so the
+// lines add up to exactly the milestone of the total, each line allocated
+// to its work area so the WIP schedule can read billings by area. Mirrors
+// buildMilestoneLines() in src/lib/invoices.ts. Idempotent: a proposal
+// that already carries a live invoice gets nothing.
+async function createDepositInvoice(
+  service: ReturnType<typeof createClient>,
+  proposal: Row,
+  settings: Row | null,
+  ownerId: string
+) {
+  const fromProposal = Array.isArray(proposal.payment_milestones) ? proposal.payment_milestones : []
+  const fromCompany = Array.isArray(settings?.default_payment_milestones)
+    ? settings!.default_payment_milestones
+    : []
+  const schedule: Array<{ description?: string; percent?: unknown }> =
+    fromProposal.length > 0
+      ? fromProposal
+      : fromCompany.length > 0
+        ? fromCompany
+        : [{ description: 'Deposit upon acceptance', percent: 50 }]
+  const first = schedule[0]
+  const pct = Number(first?.percent)
+  if (!Number.isFinite(pct) || pct <= 0) return
+
+  const { data: existing } = await service
+    .from('invoices')
+    .select('id')
+    .eq('proposal_id', proposal.id)
+    .neq('status', 'void')
+    .limit(1)
+  if (existing && existing.length > 0) return
+
+  const areas: Row[] = (proposal.proposal_work_areas ?? []).filter((wa: Row) => wa.enabled)
+  const areaTotals = areas.map((wa) =>
+    roundMoney((wa.proposal_lines ?? []).reduce((s: number, l: Row) => s + lineTotal(l), 0))
+  )
+  const grand = roundMoney(areaTotals.reduce((s, n) => s + n, 0))
+  const target = roundMoney((grand * pct) / 100)
+  const label = (first?.description ?? '').toString().trim() || 'Deposit'
+  const pctText = Number.isInteger(pct) ? `${pct}%` : `${pct.toFixed(2).replace(/\.?0+$/, '')}%`
+
+  const lines = areas.map((wa, i) => ({
+    description: `${(wa.name_override ?? '').toString().trim() || wa.work_areas?.name || 'Work area'} — ${pctText} (${label})`,
+    quantity: 1,
+    unit_price: roundMoney((areaTotals[i] * pct) / 100),
+    proposal_work_area_id: wa.id as string,
+  }))
+  const dust = roundMoney(target - roundMoney(lines.reduce((s, l) => s + l.unit_price, 0)))
+  if (dust !== 0 && lines.length > 0) {
+    let idx = 0
+    for (let i = 1; i < lines.length; i++) if (lines[i].unit_price > lines[idx].unit_price) idx = i
+    lines[idx].unit_price = roundMoney(lines[idx].unit_price + dust)
+  }
+  const kept = lines.filter((l) => l.unit_price !== 0)
+  if (kept.length === 0) return
+
+  const { data: inv, error: invErr } = await service
+    .from('invoices')
+    .insert({
+      user_id: ownerId,
+      project_id: proposal.project_id,
+      proposal_id: proposal.id,
+      milestone_label: label,
+      milestone_percent: pct,
+      terms: (settings?.default_payment_terms as string | null) ?? null,
+    })
+    .select('id')
+    .single()
+  if (invErr) throw new Error(invErr.message)
+  const { error: lineErr } = await service.from('invoice_lines').insert(
+    kept.map((l, i) => ({ invoice_id: (inv as Row).id, ...l, sort_order: i }))
+  )
+  if (lineErr) {
+    await service.from('invoices').delete().eq('id', (inv as Row).id)
+    throw new Error(lineErr.message)
+  }
+}
 
 // Resend, when RESEND_API_KEY and RESEND_FROM are set. Without them this
 // is a no-op and the contractor sees the result in the app instead.
