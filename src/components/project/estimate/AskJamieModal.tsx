@@ -149,10 +149,63 @@ export function AskJamieModal({
 
   const grandTotal = result?.line_items.reduce((s, li) => s + previewPrice(li), 0) ?? 0
 
+  /*
+   * The actions live in the modal's pinned footer, not at the end of the
+   * body. An 18-line takeoff is taller than the screen, and when the
+   * buttons rode the bottom of that list the only way to reach "Add to
+   * estimate" was to zoom the browser out.
+   */
+  const footer =
+    phase === 'input' ? (
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleAsk()}
+          className="inline-flex items-center gap-2 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-gold-dark"
+        >
+          <Sparkles className="h-4 w-4" />
+          Ask Jamie
+        </button>
+      </div>
+    ) : phase === 'review' && result ? (
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={reset}
+          disabled={applying}
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+        >
+          <RotateCcw className="h-4 w-4" />
+          Start over
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleApply()}
+          disabled={applying}
+          className="inline-flex items-center gap-2 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark disabled:opacity-50"
+        >
+          <Sparkles className="h-4 w-4" />
+          {applying ? 'Adding…' : `Add ${result.line_items.length} lines to estimate`}
+        </button>
+      </div>
+    ) : undefined
+
   return (
     <Modal
       open={open}
       onClose={applying ? () => {} : onClose}
+      footer={footer}
+      /* A priced result cost a Jamie call, and a request in flight is
+         paying for one. Neither should die to a stray click on the
+         backdrop — Cancel, Start over and the X are still right there. */
+      dismissible={phase === 'input' || phase === 'blocked'}
       title="Ask Jamie"
       description={
         seeded
@@ -228,23 +281,6 @@ export function AskJamieModal({
             )}
           </div>
 
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleAsk()}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-gold-dark"
-            >
-              <Sparkles className="h-4 w-4" />
-              Ask Jamie
-            </button>
-          </div>
         </div>
       )}
 
@@ -373,26 +409,6 @@ export function AskJamieModal({
             </section>
           )}
 
-          <div className="flex justify-between gap-2 pt-1">
-            <button
-              type="button"
-              onClick={reset}
-              disabled={applying}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Start over
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleApply()}
-              disabled={applying}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark disabled:opacity-50"
-            >
-              <Sparkles className="h-4 w-4" />
-              {applying ? 'Adding…' : `Add ${result.line_items.length} lines to estimate`}
-            </button>
-          </div>
         </div>
       )}
     </Modal>

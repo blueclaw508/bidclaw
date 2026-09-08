@@ -8,6 +8,21 @@ interface ModalProps {
   title: string
   description?: string
   children: React.ReactNode
+  /**
+   * Actions pinned to the bottom of the card, outside the scrolling body.
+   * A long body (Jamie's 18-line takeoff, a full invoice) used to push the
+   * buttons past the bottom of the screen with no way to reach them: the
+   * page behind is scroll-locked, so the only way out was to zoom the
+   * browser out. Anything here stays on screen however long the body gets.
+   */
+  footer?: React.ReactNode
+  /**
+   * False when a stray click outside the card would throw away work the
+   * contractor cannot cheaply get back — an AI result that cost a call, a
+   * half-filled form. The X and any Cancel button still close it; only the
+   * accidental exits (backdrop, Escape) are disarmed. Defaults to true.
+   */
+  dismissible?: boolean
   /** Max width of the modal card. Defaults to 32rem (max-w-lg). */
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
 }
@@ -22,8 +37,12 @@ const SIZE_CLASSES: Record<NonNullable<ModalProps['size']>, string> = {
 
 /**
  * Branded modal shell. Centered card on a semi-opaque navy backdrop.
- * Closes on Escape, outside click, or the X button. Locks body scroll
- * while open. Initial focus moves to the first focusable element.
+ * Closes on the X button, and on Escape or an outside click while
+ * `dismissible`. Locks body scroll while open. Initial focus moves to the
+ * first focusable element.
+ *
+ * The card never grows past the viewport: the body scrolls inside it and
+ * the header and `footer` stay put.
  */
 export function Modal({
   open,
@@ -31,6 +50,8 @@ export function Modal({
   title,
   description,
   children,
+  footer,
+  dismissible = true,
   size = 'lg',
 }: ModalProps) {
   const cardRef = useRef<HTMLDivElement>(null)
@@ -41,7 +62,7 @@ export function Modal({
     document.body.style.overflow = 'hidden'
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && dismissible) onClose()
     }
     window.addEventListener('keydown', onKey)
 
@@ -57,7 +78,7 @@ export function Modal({
       document.body.style.overflow = prevOverflow
       window.removeEventListener('keydown', onKey)
     }
-  }, [open, onClose])
+  }, [open, onClose, dismissible])
 
   if (!open) return null
 
@@ -70,17 +91,17 @@ export function Modal({
     >
       <div
         className="absolute inset-0 bg-brand-navy-dark/40 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={dismissible ? onClose : undefined}
         aria-hidden="true"
       />
       <div
         ref={cardRef}
         className={cn(
-          'relative z-10 w-full overflow-hidden rounded-xl border border-brand-border bg-white shadow-2xl',
+          'relative z-10 flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-xl border border-brand-border bg-white shadow-2xl',
           SIZE_CLASSES[size]
         )}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-brand-border bg-brand-surface px-6 py-4">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-brand-border bg-brand-surface px-6 py-4">
           <div>
             <h2 id="modal-title" className="text-lg font-bold tracking-tight text-brand-text">
               {title}
@@ -98,7 +119,12 @@ export function Modal({
             <X className="h-5 w-5" />
           </button>
         </header>
-        <div className="px-6 py-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        {footer && (
+          <div className="shrink-0 border-t border-brand-border bg-brand-surface px-6 py-3">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )
