@@ -1,3 +1,4 @@
+import {QUESTION_SCHEMA, CLARIFICATION_SCHEMA, QUESTION_RULES, normalizeClarification, clarificationMatches, type JamieClarification} from '../_shared/jamieQuestions.ts'
 import { orderedConcurrentMap } from '../_shared/jamiePerformance.ts'
 import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQuote.ts'
 // jamie-chat — THE JAMIE LOOP conversational backbone (J1 plumbing + J3 brain).
@@ -69,13 +70,14 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 const NEWLINE = String.fromCharCode(10)
 
 /** The three things this function can be asked to do. */
-type JamieAction = 'chat' | 'propose_work_areas' | 'propose_lines'
+type JamieAction = 'chat' | 'clarify' | 'propose_work_areas' | 'propose_lines'
 
 // Output ceilings per action. Chat answers are short; a whole-project
 // takeoff is the biggest thing Jamie ever writes — jamie-ingest proved a
 // 20+ work-area reconstruction overruns 16k mid-JSON, so Pass 2 gets 32k.
 const MAX_TOKENS: Record<JamieAction, number> = {
   chat: 8_000,
+  clarify: 4_000,
   propose_work_areas: 16_000,
   propose_lines: 32_000,
 }
@@ -190,9 +192,11 @@ const WORK_AREA_SCHEMA = {
 const LINE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['work_areas', 'gap_questions', 'new_catalog_items'],
+  required: ['work_areas', 'gap_questions', 'new_catalog_items', 'measurement_status', 'measurement_summary'],
   properties: {
-    gap_questions: { type: 'array', items: { type: 'string' } },
+    gap_questions: { type: 'array', items: QUESTION_SCHEMA },
+    measurement_status: {type:'string',enum:['confirmed','missing','not_applicable']},
+    measurement_summary: {type:'string'},
     new_catalog_items: { type: 'array', items: { type: 'string' } },
     work_areas: {
       type: 'array',
@@ -948,7 +952,7 @@ Deno.serve(async (req: Request) => {
     ? body.proposed_work_area_ids.filter((v) => typeof v === 'string')
     : null
   if (!runId) return json({ error: 'jamie_run_id is required.' }, 400)
-  if (action !== 'chat' && action !== 'propose_work_areas' && action !== 'propose_lines') {
+  if (action !== 'chat' && action !== 'clarify' && action !== 'propose_work_areas' && action !== 'propose_lines') {
     return json({ error: 'Unknown action.' }, 400)
   }
   // Only a chat turn needs the contractor to have typed something — the two
@@ -1114,7 +1118,7 @@ Deno.serve(async (req: Request) => {
   // inserted_work_area_id nulled by the FK and must not be priced either —
   // its lines would have nowhere to land.
   let stagedWorkAreas: Array<{ id: string; name: string; description: string }> = []
-  if (action === 'propose_lines') {
+  if (action === 'propose_lines' || action === 'clarify') {
     const { data: pendingReview, error: reviewError } = await service
       .from('jamie_proposed_lines')
       .select('id, jamie_proposed_work_areas!inner(jamie_run_id)')
@@ -1146,6 +1150,13 @@ Deno.serve(async (req: Request) => {
         { error: 'Approve at least one work area before Jamie prices the job.' },
         409
       )
+    }
+  }
+
+  if(action === 'propose_lines') {
+    const latest=(history ?? []).at(-1)
+    if(latest?.role !== 'assistant' || !clarificationMatches(latest?.content?.clarification,stagedWorkAreas.map(w=>w.id))) {
+      return json({error:'Check the scope details and answer Jamie’s questions before pricing this batch.'},409)
     }
   }
 
@@ -1313,11 +1324,12 @@ Deno.serve(async (req: Request) => {
   // A pass is button-driven — it only writes a user message when the
   // contractor actually typed or attached something alongside it.
   if (text || imageRefs.length > 0) {
-    await service.from('jamie_messages').insert({
+    const {error:answerSaveError} = await service.from('jamie_messages').insert({
       jamie_run_id: run.id,
       role: 'user',
       content: { text, image_refs: imageRefs },
     })
+    if(answerSaveError) return json({error:'Could not save your answers. They remain in the form; please retry.'},500)
   }
   const { data: invRow, error: invErr } = await service
     .from('jamie_invocations')
@@ -1374,6 +1386,7 @@ Deno.serve(async (req: Request) => {
   // we still need a user turn to hang the request on.
   const PASS_PROMPT: Record<JamieAction, string> = {
     chat: '',
+    clarify: 'Check the confirmed scope and quantities for this batch. Ask individual questions for missing essentials; otherwise summarize the confirmed inputs for my review. Do not generate prices.',
     propose_work_areas:
       'Break this project into work areas now, using everything I have told you above.',
     propose_lines:
@@ -1429,6 +1442,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  const clarificationInstruction = QUESTION_RULES+'\nApproved batch: '+JSON.stringify(stagedWorkAreas)
   const structuredOutput: Record<string, unknown> =
     action === 'chat'
       ? {}
@@ -1437,7 +1451,7 @@ Deno.serve(async (req: Request) => {
             effort: 'high',
             format: {
               type: 'json_schema',
-              schema: action === 'propose_work_areas' ? WORK_AREA_SCHEMA : LINE_SCHEMA,
+              schema: action === 'clarify' ? CLARIFICATION_SCHEMA : action === 'propose_work_areas' ? WORK_AREA_SCHEMA : LINE_SCHEMA,
             },
           },
         }
@@ -1503,7 +1517,7 @@ Deno.serve(async (req: Request) => {
             system: [
               {
                 type: 'text',
-                text: systemPrompt,
+                text: systemPrompt + (action === 'clarify' || action === 'propose_lines' ? '\n'+clarificationInstruction : ''),
                 cache_control: { type: 'ephemeral' },
               },
             ],
@@ -1605,7 +1619,11 @@ Deno.serve(async (req: Request) => {
         // the catch below — the run stays where it was and nothing is half
         // staged, because each pass writes in one shot.
         let spokenText = assistantText
-        if (action === 'propose_work_areas') {
+        let clarification: JamieClarification | undefined
+        if(action === 'clarify') {
+          clarification={...normalizeClarification(JSON.parse(passText)),work_area_ids:stagedWorkAreas.map(w=>w.id)}
+          spokenText=[clarification.summary,...clarification.questions.map(q=>q.prompt)].filter(Boolean).join('\n')
+        } else if (action === 'propose_work_areas') {
           const parsed = JSON.parse(passText) as {
             summary?: string
             gap_questions?: string[]
@@ -1678,6 +1696,10 @@ Deno.serve(async (req: Request) => {
               }>
             }>
           }
+          clarification={...normalizeClarification(JSON.parse(passText)),work_area_ids:stagedWorkAreas.map(w=>w.id)}
+          if(!clarification.ready) {
+            spokenText=[clarification.summary,...clarification.questions.map(q=>q.prompt)].filter(Boolean).join('\n')
+          } else {
           // Echoed ids must be ones we actually handed her at Gate 1.
           const stagedIds = new Set(stagedWorkAreas.map((w) => w.id))
           const rows: Array<Record<string, unknown>> = []
@@ -1876,7 +1898,7 @@ Deno.serve(async (req: Request) => {
             reconciled > 0
               ? `I ran the scope back against the takeoff and found ${reconciled} thing${reconciled === 1 ? '' : 's'} the write-up promised but nothing billed — added, flagged for you to check.`
               : ''
-          const qs = parsed.gap_questions ?? []
+          const qs: string[] = []
           spokenText = [
             `${rows.length} line item${rows.length === 1 ? '' : 's'} across ${
               parsed.work_areas?.length ?? 0
@@ -1901,12 +1923,15 @@ Deno.serve(async (req: Request) => {
             remaining: remaining.length,
           })
         }
+        }
 
-        await service.from('jamie_messages').insert({
+        const {error:replySaveError} = await service.from('jamie_messages').insert({
           jamie_run_id: run.id,
           role: 'assistant',
-          content: { text: spokenText },
+          content: { text: spokenText, ...(clarification ? {clarification} : {}) },
         })
+        if(replySaveError) throw new Error('Could not save Jamie’s reply. Please retry before pricing.')
+        if(clarification) send({type:'jamie_questions',clarification})
         // Passes swallowed their deltas above — hand the panel the readable
         // version as one synthetic delta so it renders through the same path.
         if (action !== 'chat') {

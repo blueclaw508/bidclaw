@@ -238,7 +238,7 @@ function ProjectList({ rows }: { rows: ProjectRow[] }) {
       <div className="hidden grid-cols-[1fr_minmax(0,200px)_120px_120px_120px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
         <div>Project</div>
         <div>Customer</div>
-        <div>Project / proposal progress</div>
+        <div>Progress</div>
         <div>Created</div>
         <div>Updated</div>
       </div>

@@ -1,3 +1,4 @@
+import {QUESTION_SCHEMA, QUESTION_RULES, normalizeClarification} from '../_shared/jamieQuestions.ts'
 import { cachedSystemPrompt } from '../_shared/jamiePerformance.ts'
 import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQuote.ts'
 // jamie-estimate — Jamie's brain (BidClaw AI estimating agent, Phase 1).
@@ -58,7 +59,7 @@ function json(body: unknown, status = 200): Response {
 const OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['scope_description', 'client_scope_description', 'line_items', 'gap_questions', 'new_catalog_items'],
+  required: ['scope_description', 'client_scope_description', 'line_items', 'gap_questions', 'new_catalog_items', 'measurement_status', 'measurement_summary'],
   properties: {
     scope_description: { type: 'string' },
     client_scope_description: { type: 'string' },
@@ -83,7 +84,9 @@ const OUTPUT_SCHEMA = {
         },
       },
     },
-    gap_questions: { type: 'array', items: { type: 'string' } },
+    gap_questions: { type: 'array', items: QUESTION_SCHEMA },
+    measurement_status: {type:'string',enum:['confirmed','missing','not_applicable']},
+    measurement_summary: {type:'string'},
     new_catalog_items: { type: 'array', items: { type: 'string' } },
   },
 } as const
@@ -170,6 +173,8 @@ Deno.serve(async (req: Request) => {
 
   // 2. Parse input.
   let body: {
+    mode?: string
+    reviewed?: boolean
     workAreaId?: string
     workAreaName?: string
     scope?: string
@@ -180,6 +185,8 @@ Deno.serve(async (req: Request) => {
   } catch {
     return json({ error: 'Invalid request body.' }, 400)
   }
+  const priceMode = body.mode === 'price'
+  if(priceMode && body.reviewed !== true) return json({error:'Review the confirmed scope and quantities before pricing.'},409)
   const scope = (body.scope ?? '').trim()
   if (!scope) return json({ error: 'Describe the scope so Jamie has something to work with.' }, 400)
 
@@ -259,7 +266,7 @@ Deno.serve(async (req: Request) => {
         effort: 'high',
         format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
       },
-      system: cachedSystemPrompt(system),
+      system: cachedSystemPrompt(system+'\n'+QUESTION_RULES+'\n'+(priceMode?'The contractor has reviewed the clarification summary. Price only the confirmed scope.':'CLARIFICATION ONLY: return line_items: [] and new_catalog_items: []. Ask missing details or return a measurement_summary ready for review. Do not price yet.')),
       messages: [{ role: 'user', content: userContent }],
     }
     const modelStarted = performance.now()
@@ -270,7 +277,9 @@ Deno.serve(async (req: Request) => {
     if (!textBlock || textBlock.type !== 'text') {
       throw new Error('Jamie returned no estimate.')
     }
-    const parsed = prepareSingleAreaResult(JSON.parse(textBlock.text))
+    const raw = JSON.parse(textBlock.text)
+    const clarification = normalizeClarification(raw)
+    const parsed = prepareSingleAreaResult({...raw,clarification,gap_questions:clarification.questions.map(q=>q.prompt),line_items:priceMode && clarification.ready ? raw.line_items : [],new_catalog_items:priceMode && clarification.ready ? raw.new_catalog_items : []})
     for (const line of parsed.line_items) {
       if (['Labor', 'Equipment'].includes(line.category)) {
         line.price_source = 'Hourly rate shown. Check against your configured rates in My Numbers.'

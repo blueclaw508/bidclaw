@@ -1,3 +1,4 @@
+import type {JamieClarification} from '../../supabase/functions/_shared/jamieQuestions.ts'
 // Client data layer for Jamie (AI estimating agent, Phase 1).
 //
 // Thin wrapper over the `jamie-estimate` edge function: it does the KYN
@@ -22,6 +23,7 @@ export interface JamieLineItem {
 }
 
 export interface JamieResult {
+  clarification?: JamieClarification
   scope_description: string
   client_scope_description: string
   line_items: JamieLineItem[]
@@ -56,6 +58,8 @@ export function jamieCategoryToDb(c: string): ProposalLineCategory {
  * with Jamie's message on any other failure.
  */
 export async function askJamie(input: {
+  mode?: 'clarify' | 'price'
+  reviewed?: boolean
   workAreaId: string
   workAreaName: string
   scope: string
