@@ -4,7 +4,7 @@ import { ClipboardList, FileUp, Plus, Search } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
-import { StatusBadge } from '@/components/StatusBadge'
+import { ProjectProgress, type ProposalProgress } from '@/components/ProjectProgress'
 import { NewProjectModal } from '@/components/NewProjectModal'
 import { canInvokeJamie } from '@/lib/jamieLoop'
 import { PROJECT_STATUS_CONFIG, PROJECT_STATUS_ORDER } from '@/lib/statusConfig'
@@ -13,7 +13,7 @@ import type { Project, ProjectStatus } from '@/lib/types'
 // Reverse-ingestion import — lazy so pdfjs only ships when opened.
 const ImportProposalModal = lazy(() => import('@/components/ingest/ImportProposalModal'))
 
-type ProjectRow = Project & { customers: { name: string } | null }
+type ProjectRow = Project & { customers: { name: string } | null; proposals: ProposalProgress[] }
 
 // "Active" excludes archived; the default daily view.
 type StatusFilter = 'active' | 'all' | ProjectStatus
@@ -45,7 +45,7 @@ export default function ProjectsPage() {
     setLoadError(null)
     const { data, error } = await supabase
       .from('projects')
-      .select('*, customers(name)')
+      .select('*, customers(name), proposals(status, created_at)')
       .eq('user_id', user.id)
     if (error) {
       setLoadError(error.message)
@@ -238,7 +238,7 @@ function ProjectList({ rows }: { rows: ProjectRow[] }) {
       <div className="hidden grid-cols-[1fr_minmax(0,200px)_120px_120px_120px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
         <div>Project</div>
         <div>Customer</div>
-        <div>Status</div>
+        <div>Project / proposal progress</div>
         <div>Created</div>
         <div>Updated</div>
       </div>
@@ -262,7 +262,7 @@ function ProjectList({ rows }: { rows: ProjectRow[] }) {
                   {p.customers?.name ?? <span className="italic text-gray-400">Unassigned</span>}
                 </div>
                 <div>
-                  <StatusBadge kind="project" value={p.status} />
+                  <ProjectProgress status={p.status} proposals={p.proposals} />
                 </div>
                 <div className="text-sm text-gray-500">{formatShortDate(p.created_at)}</div>
                 <div className="text-sm text-gray-500">{formatShortDate(p.updated_at)}</div>
@@ -277,7 +277,7 @@ function ProjectList({ rows }: { rows: ProjectRow[] }) {
                       <div className="truncate text-xs text-gray-500">{p.site_address}</div>
                     )}
                   </div>
-                  <StatusBadge kind="project" value={p.status} className="shrink-0" />
+                  <ProjectProgress status={p.status} proposals={p.proposals} />
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500">
                   <span>{p.customers?.name ?? 'Unassigned'}</span>

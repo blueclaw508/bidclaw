@@ -56,9 +56,10 @@ function json(body: unknown, status = 200): Response {
 const OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['scope_description', 'line_items', 'gap_questions', 'new_catalog_items'],
+  required: ['scope_description', 'client_scope_description', 'line_items', 'gap_questions', 'new_catalog_items'],
   properties: {
     scope_description: { type: 'string' },
+    client_scope_description: { type: 'string' },
     line_items: {
       type: 'array',
       items: {
@@ -117,6 +118,8 @@ You estimate ONE work area at a time. The contractor gives you a scope; you prod
 FIRST CHECK WHETHER THE SCOPE CAN BE MEASURED AND PRICED. Never invent job size, dimensions, repair area, separate repair quantities, or construction method. For lift-and-relay or re-jointing work, confirm the area of each operation and the existing/proposed bedding and joint method before calculating materials or labor. If an essential input is missing, return up to three concise gap_questions, line_items: [], and new_catalog_items: []. scope_description should briefly say what needs clarification; do not give a guessed estimate or assumed quantities. The contractor will answer in the next request. Read all previous questions and answers included in the scope, use those answers, and do not ask them again. Only return priced line_items when no essential questions remain. If the contractor says they do not know a required quantity, ask for measurement rather than making one up.
 
 PRIME DIRECTIVE: Every component you mention in the scope description MUST have a matching line item, and every line item MUST be reflected in the scope. Scope and line items match 100%. If you write it, you bill it.
+
+Return TWO distinct descriptions once questions are resolved: scope_description is the detailed crew work order; client_scope_description is concise proposal-ready language describing the confirmed work, headline dimensions, supplied materials and exclusions. Client scope must not include prices, markups, labor-hour calculations, internal equipment schedules or unconfirmed assumptions. While questions remain, leave client_scope_description empty. Never return a priced takeoff with a blank client_scope_description.
 
 Work the KYN steps in order for this work area:
 1. MATERIAL TAKEOFF — every physical material that goes into the job is a line item. Stone veneer means stone AND mortar AND lath AND barrier AND fasteners AND weep screed AND corners — not just stone. Include ~10% waste on area/volume materials.

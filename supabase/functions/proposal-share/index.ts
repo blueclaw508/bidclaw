@@ -70,7 +70,7 @@ const PUBLIC_SETTINGS = [
   'company_phone', 'company_email', 'company_website', 'company_logo_path',
   'pdf_primary_color', 'pdf_footer_text',
   'pdf_show_payment_terms', 'pdf_show_images', 'pdf_show_terms_and_conditions',
-  'pdf_show_grand_total',
+  'pdf_show_grand_total', 'pdf_show_company_name',
   'default_terms_and_conditions', 'default_payment_terms', 'default_payment_milestones',
 ].join(', ')
 
@@ -325,52 +325,24 @@ Deno.serve(async (req: Request) => {
   const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim().slice(0, 64) || null
   const ua = (req.headers.get('user-agent') ?? '').slice(0, 500) || null
 
-  // Accept: status first, so the send gate rules before anything is
-  // recorded. A refusal here means the contractor's account can no longer
-  // send, which is theirs to sort out, not the client's.
-  if (decision === 'accepted') {
-    const { data: updated, error: upErr } = await service
-      .from('proposals')
-      .update({ status: 'approved' })
-      .eq('id', proposal.id)
-      .eq('status', 'sent')
-      .select('id')
-    if (upErr) {
-      console.error('proposal-share: approve failed:', upErr.message)
-      return json(
-        {
-          error: 'approve_refused',
-          message: `This proposal can't be accepted online right now. Please contact ${companyName} directly.`,
-        },
-        409
-      )
-    }
-    if (!updated || updated.length === 0) {
-      return json(
-        { error: 'proposal_unavailable', message: 'This proposal is no longer open for a decision.' },
-        409
-      )
-    }
-  }
-
-  const { data: signature, error: sigErr } = await service
-    .from('proposal_signatures')
-    .insert({
-      proposal_id: proposal.id,
-      share_id: share.id,
-      decision,
-      signer_name: signerName,
-      signer_email: signerEmail,
-      signature_data: signatureData,
-      decline_reason: declineReason,
-      ip_address: ip,
-      user_agent: ua,
-    })
-    .select('id, decision, signer_name, signer_email, signature_data, decline_reason, signed_at')
-    .single()
-  if (sigErr) {
-    console.error('proposal-share: signature insert failed:', sigErr.message)
-    return json({ error: 'server_error', message: 'Something went wrong recording that. Try again.' }, 500)
+  // One database transaction: a failed signature insert also rolls back approval.
+  const { data: signature, error: sigErr } = await service.rpc('record_proposal_decision', {
+    p_token: token,
+    p_decision: {
+      decision, signer_name: signerName, signer_email: signerEmail,
+      signature_data: signatureData, decline_reason: declineReason,
+      agree: body.agree === true, ip_address: ip, user_agent: ua,
+    },
+  })
+  if (sigErr || !signature) {
+    console.error('proposal-share: decision failed:', sigErr?.message)
+    const unavailable = sigErr?.code === 'P0001'
+    return json({
+      error: unavailable ? 'proposal_unavailable' : 'server_error',
+      message: unavailable
+        ? 'This proposal is no longer open for a decision. Refresh the page or contact your contractor.'
+        : 'Your decision could not be saved. No approval was recorded; please try again.',
+    }, unavailable ? 409 : 500)
   }
 
   // ── The deposit invoice, the moment they sign (roadmap step 2) ──────

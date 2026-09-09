@@ -195,14 +195,20 @@ export default function JamieWorkspace() {
             )
           )
           setStagedGroups([])
-        } else if (runStatus === 'awaiting_line_approval') {
+        } else if (runStatus === 'awaiting_line_approval' || runStatus === 'in_progress') {
           const groups = await listProposedLines(runId)
           if (cancelled) return
-          setStagedGroups(
-            groups
+          const pendingGroups = groups
               .map((g) => ({ ...g, lines: g.lines.filter((l) => l.status === 'pending') }))
               .filter((g) => g.lines.length > 0)
-          )
+          // Recover pending batches created before per-batch review, or when
+          // generation saved lines but its final status update was interrupted.
+          if (pendingGroups.length && runStatus === 'in_progress') {
+            await setRunStatus(runId, 'awaiting_line_approval')
+            if (cancelled) return
+            setRun((current) => current?.id === runId ? { ...current, status: 'awaiting_line_approval' } : current)
+          }
+          setStagedGroups(pendingGroups)
           setStagedWas([])
         } else {
           if (cancelled) return

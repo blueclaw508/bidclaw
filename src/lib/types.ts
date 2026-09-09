@@ -319,6 +319,7 @@ export interface CompanySettings {
   company_website: string | null
   /** Path inside the `company-assets` storage bucket. Signed URLs for display. */
   company_logo_path: string | null
+  pdf_show_company_name?: boolean
 
   // PDF branding (Enter My Numbers page)
   pdf_primary_color: string | null

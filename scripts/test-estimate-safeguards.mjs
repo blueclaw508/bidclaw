@@ -2,12 +2,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { excludeAutomaticAllowances, priceNeedsConfirmation } from '../supabase/functions/_shared/estimatePolicy.ts';
+import { excludeAutomaticAllowances, priceNeedsConfirmation, prepareSingleAreaResult, canApplySingleAreaResult } from '../supabase/functions/_shared/estimatePolicy.ts';
 
 const input = [{label:'Granite slabs'}, {label:'General Conditions & Rounding'}, {label:'Incidentals'}, {label:'Site access protection mats'}];
 assert.deepEqual(excludeAutomaticAllowances(input).map(l => l.label), ['Granite slabs','Site access protection mats']);
 assert.equal(input.length, 4, 'Filtering must not mutate source evidence');
 assert.deepEqual(excludeAutomaticAllowances([{name:'Rounding'}, {name:'Disposal'}]), [{name:'Disposal'}]);
+const guessed={gap_questions:['How many square feet?'],line_items:[{name:'Mason',qty:18,unit_cost:95}]};
+assert.deepEqual(prepareSingleAreaResult(guessed).line_items,[],'Open questions must discard guessed lines server-side and client-side');
+assert.equal(guessed.line_items.length,1,'Do not mutate original evidence');
+assert.equal(canApplySingleAreaResult(guessed),false);
+assert.equal(canApplySingleAreaResult({gap_questions:[],line_items:[]}),false);
+assert.equal(canApplySingleAreaResult({gap_questions:[],line_items:[{qty:1,unit_cost:0}]}),false);
+assert.equal(canApplySingleAreaResult({gap_questions:[],line_items:[{qty:NaN,unit_cost:95}]}),false);
+assert.equal(canApplySingleAreaResult({gap_questions:[],line_items:[{qty:6,unit_cost:95}]}),true);
 
 // Exercise the actual commit function with a database double. No paid calls or live writes.
 const source = fs.readFileSync(new URL('../src/lib/jamieLoop.ts', import.meta.url), 'utf8');
@@ -51,7 +59,7 @@ assert.deepEqual(result.statuses,['committed']);
 result = await exercise({priceConfirmed:true,saveToCatalog:true});
 assert.equal(result.writes.filter(w=>w.table==='catalog_items'&&w.operation==='insert').length,1,'Explicit catalog selection saves one item');
 result = await exercise({priceConfirmed:true},{remaining:[{id:'wa2'}]});
-assert.deepEqual(result.statuses,[],'Partial takeoff remains open for next batch');
+assert.deepEqual(result.statuses,['in_progress'],'Reviewed partial takeoff returns to the next pricing batch');
 result = await exercise({}, {needsPricing:false});
 assert.equal(result.error,undefined,'Existing confirmed prices do not need repeated confirmation');
 result = await exercise({priceConfirmed:true,unitCost:NaN});

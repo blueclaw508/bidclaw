@@ -22,6 +22,7 @@ export interface JamieLineItem {
 
 export interface JamieResult {
   scope_description: string
+  client_scope_description: string
   line_items: JamieLineItem[]
   gap_questions: string[]
   new_catalog_items: string[]

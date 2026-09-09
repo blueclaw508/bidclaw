@@ -23,6 +23,7 @@ import {
   type LiveMarkupSettings,
 } from '@/lib/money'
 import { PROPOSAL_LINE_CATEGORY_LABELS } from '@/lib/statusConfig'
+import { canApplySingleAreaResult } from '../../../../supabase/functions/_shared/estimatePolicy.ts'
 
 /**
  * "Ask Jamie" — the AI estimating agent (paid upgrade, Phase 1). The
@@ -49,7 +50,7 @@ interface AskJamieModalProps {
   /** For the live price preview (materials/subs markup). */
   settings: LiveMarkupSettings
   /** Insert Jamie's lines into the estimate. Parent maps + persists. */
-  onApply: (lines: JamieLineItem[]) => Promise<void>
+  onApply: (lines: JamieLineItem[], clientScope: string) => Promise<void>
 }
 
 type Phase = 'input' | 'loading' | 'review' | 'blocked'
@@ -71,11 +72,14 @@ export function AskJamieModal({
   const [applying, setApplying] = useState(false)
   const [blockedMsg, setBlockedMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const [answers, setAnswers] = useState<Record<number, string>>({})
+  const asking = useRef(false)
 
   const reset = () => {
     setPhase('input')
     setResult(null)
     setApplying(false)
+    setAnswers({})
   }
 
   const handleImagePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -88,21 +92,29 @@ export function AskJamieModal({
     setImage({ file: f, preview: URL.createObjectURL(f) })
   }
 
-  const handleAsk = async () => {
+  const handleAsk = async (withAnswers = false) => {
+    if (asking.current) return
+    if (withAnswers && result?.gap_questions.some((_, i) => !answers[i]?.trim())) return
     if (!scope.trim()) {
       toast.error('Tell Jamie about the work first.')
       return
     }
+    const nextScope = withAnswers && result
+      ? `${scope.trim()}\n\nClarifications from the contractor:\n${result.gap_questions.map((q, i) => `Question: ${q}\nAnswer: ${answers[i].trim()}`).join('\n\n')}`
+      : scope.trim()
+    asking.current = true
     setPhase('loading')
     try {
       const imagePayload = image ? await fileToImagePayload(image.file) : null
       const res = await askJamie({
         workAreaId,
         workAreaName,
-        scope: scope.trim(),
+        scope: nextScope,
         image: imagePayload,
       })
       setResult(res)
+      setScope(nextScope)
+      setAnswers({})
       setPhase('review')
     } catch (err) {
       if (err instanceof JamieNotEnabledError) {
@@ -111,15 +123,17 @@ export function AskJamieModal({
         return
       }
       toast.error(err instanceof Error ? err.message : 'Jamie hit a snag.')
-      setPhase('input')
+      setPhase(result ? 'review' : 'input')
+    } finally {
+      asking.current = false
     }
   }
 
   const handleApply = async () => {
-    if (!result) return
+    if (!result || applying || !canApplySingleAreaResult(result) || !result.client_scope_description?.trim()) return
     setApplying(true)
     try {
-      await onApply(result.line_items)
+      await onApply(result.line_items, result.client_scope_description.trim())
       toast.success(
         `Jamie added ${result.line_items.length} line${
           result.line_items.length === 1 ? '' : 's'
@@ -188,11 +202,11 @@ export function AskJamieModal({
         <button
           type="button"
           onClick={() => void handleApply()}
-          disabled={applying}
+          disabled={applying || !canApplySingleAreaResult(result) || !result.client_scope_description?.trim()}
           className="inline-flex items-center gap-2 rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-navy-dark disabled:opacity-50"
         >
           <Sparkles className="h-4 w-4" />
-          {applying ? 'Adding…' : `Add ${result.line_items.length} lines to estimate`}
+          {applying ? 'Adding…' : result.gap_questions.length ? 'Answer questions before pricing' : `Add ${result.line_items.length} lines to estimate`}
         </button>
       </div>
     ) : undefined
@@ -291,11 +305,10 @@ export function AskJamieModal({
             <Sparkles className="h-8 w-8 animate-pulse text-brand-gold" />
           </div>
           <p className="text-sm font-semibold text-gray-800">
-            Jamie is building your estimate…
+            Jamie is checking your scope and answers…
           </p>
           <p className="max-w-xs text-xs text-gray-500">
-            Running the material takeoff, equipment, labor hours, and pricing
-            against your catalog. This takes a few seconds.
+            Jamie asks for missing details before pricing. Your answers stay in this conversation.
           </p>
         </div>
       )}
@@ -330,7 +343,17 @@ export function AskJamieModal({
           </section>
 
           {/* Line items */}
-          <section>
+          {result.line_items.length > 0 && (
+            <label className="block text-base font-semibold text-brand-navy">
+              Client scope — goes on the proposal
+              <textarea aria-label="Client scope — goes on the proposal" rows={5}
+                value={result.client_scope_description ?? ''}
+                onChange={e => setResult(current => current ? { ...current, client_scope_description: e.target.value } : current)}
+                className="mt-2 w-full rounded-lg border border-gray-300 p-3 text-base font-normal" />
+              <span className="mt-1 block text-sm font-normal">Review before adding. This will replace the work area's client scope when you add these lines.</span>
+            </label>
+          )}
+          {result.line_items.length > 0 && <section>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
               Line items ({result.line_items.length})
             </h4>
@@ -357,11 +380,17 @@ export function AskJamieModal({
                         {li.qty} {li.unit}
                       </td>
                       <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-700">
-                        {li.unit_cost === 0 ? (
-                          <span className="text-amber-600">—</span>
-                        ) : (
-                          formatUSD(li.unit_cost)
-                        )}
+                          <input
+                            type="number" min="0.01" step="0.01"
+                            aria-label={`Unit cost for ${li.name}`}
+                            value={li.unit_cost || ''}
+                            placeholder="Enter cost"
+                            className="w-24 rounded border border-amber-400 p-2 text-base"
+                            onChange={(e) => {
+                              const cost = Number(e.target.value)
+                              if (Number.isFinite(cost)) setResult(current => current ? { ...current, line_items: current.line_items.map((line, index) => index === i ? { ...line, unit_cost: cost } : line) } : current)
+                            }}
+                          />
                       </td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums text-gray-900">
                         {formatUSD(previewPrice(li))}
@@ -379,18 +408,17 @@ export function AskJamieModal({
                 </tbody>
               </table>
             </div>
-          </section>
+          </section>}
 
           {/* New catalog items (unpriced) */}
           {result.new_catalog_items.length > 0 && (
             <section className="rounded-lg border border-amber-200 bg-amber-50 p-3">
               <h4 className="flex items-center gap-1.5 text-xs font-bold text-amber-800">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                Not in your catalog yet — you'll set the cost
+                Confirm any missing unit costs before adding
               </h4>
               <p className="mt-1 text-xs text-amber-700">
-                {result.new_catalog_items.join(', ')}. These come in at $0 — edit
-                each line's Cost after adding, and it flows through your markup.
+                {result.new_catalog_items.join(', ')}. Enter missing costs above. Nothing is automatically saved to your catalog.
               </p>
             </section>
           )}
@@ -398,14 +426,25 @@ export function AskJamieModal({
           {/* Gap questions */}
           {result.gap_questions.length > 0 && (
             <section className="rounded-lg border border-sky-200 bg-sky-50 p-3">
-              <h4 className="text-xs font-bold text-sky-800">
-                Jamie wants to confirm
+              <h4 className="text-base font-bold text-sky-800">
+                Answer before Jamie prices this work
               </h4>
-              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-sky-700">
+              <div className="mt-3 space-y-4 text-base text-sky-900">
                 {result.gap_questions.map((q, i) => (
-                  <li key={i}>{q}</li>
+                  <label className="block" key={q}>
+                    <span className="mb-1 block">{q}</span>
+                    <textarea aria-label={q} rows={2} value={answers[i] ?? ''}
+                      onChange={e => setAnswers(current => ({ ...current, [i]: e.target.value }))}
+                      className="w-full rounded border border-sky-300 bg-white p-2 text-base"
+                      placeholder="Your answer…" />
+                  </label>
                 ))}
-              </ul>
+              </div>
+              <button type="button" onClick={() => void handleAsk(true)}
+                disabled={result.gap_questions.some((_, i) => !answers[i]?.trim())}
+                className="mt-3 rounded bg-brand-navy px-4 py-2 text-base font-semibold text-white disabled:opacity-50">
+                Send answers to Jamie
+              </button>
             </section>
           )}
 

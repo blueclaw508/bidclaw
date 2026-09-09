@@ -148,6 +148,14 @@ export function CompanyProfileForm({
           </div>
         </div>
 
+        <label className="flex items-start gap-3 text-sm text-gray-700">
+          <input type="checkbox" className="mt-1" checked={value.pdf_show_company_name !== false}
+            onChange={(event) => onChange({ pdf_show_company_name: event.target.checked })} />
+          <span>Show company name on proposals
+            <span className="block text-sm text-gray-500">Uncheck to use your logo alone. Contact details still appear. Without a logo, your company name remains visible.</span>
+          </span>
+        </label>
+
         {/* Address — split into 5 fields for QBO compatibility. Visual
             treatment matches QC's single-field styling but expanded. */}
         <div className="space-y-3">

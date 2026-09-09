@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { lockBodyScroll } from '@/lib/bodyScrollLock'
 import {
   AlertCircle,
   ArrowLeft,
@@ -115,8 +116,7 @@ export function WizardModal({ open, onClose }: WizardModalProps) {
   // ── Body scroll lock + ESC handler ─────────────────────────────────
   useEffect(() => {
     if (!open) return
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const releaseScroll = lockBodyScroll()
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         void handleSkip()
@@ -124,7 +124,7 @@ export function WizardModal({ open, onClose }: WizardModalProps) {
     }
     window.addEventListener('keydown', onKey)
     return () => {
-      document.body.style.overflow = prevOverflow
+      releaseScroll()
       window.removeEventListener('keydown', onKey)
     }
     // handleSkip is stable enough via closure; including would cause a
@@ -321,7 +321,7 @@ export function WizardModal({ open, onClose }: WizardModalProps) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="app-readable fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={(e) => {
         // Only the backdrop itself (not bubbled clicks from inside).
         if (e.target === e.currentTarget) void handleSkip()
