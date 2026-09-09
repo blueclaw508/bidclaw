@@ -1,4 +1,5 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
+import { PricingReview } from './PricingReview'
 import {
   DndContext,
   KeyboardSensor,
@@ -296,6 +297,13 @@ export function WorkAreaEstimate({
 
   return (
     <div className="overflow-x-auto rounded-xl border border-blue-200 bg-blue-50/30">
+      <PricingReview lines={lines.map(line => ({
+        id: line.id, label: line.label, category: line.category, unit: line.unit,
+        quantity: line.quantity, unitCost: line.unit_cost, price: estimateLineTotal(line, settings),
+        source: line.price_override !== null ? 'Saved total override. Original price source is not recorded here.'
+          : line.catalog_item_id ? 'Linked to a catalog item. Saved estimate rate shown; supplier verification is not recorded here.'
+          : 'Saved estimate rate. Original price source is not recorded here.',
+      }))} />
       {/* Only-populated categories (QC model — no empty subsections) */}
       {PROPOSAL_LINE_CATEGORY_ORDER.map((cat) => {
         const catLines = byCategory[cat]

@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { PricingReview } from './PricingReview'
 import {
   AlertTriangle,
   ImagePlus,
@@ -353,6 +354,11 @@ export function AskJamieModal({
               <span className="mt-1 block text-sm font-normal">Review before adding. This will replace the work area's client scope when you add these lines.</span>
             </label>
           )}
+          <PricingReview lines={result.line_items.map((line, index) => ({
+            id: String(index), label: line.name, category: jamieCategoryToDb(line.category), unit: line.unit,
+            quantity: line.qty, unitCost: line.unit_cost, price: previewPrice(line),
+            source: 'Review rate. A supplier quote or catalog source is not recorded in this response; confirm against your own prices.',
+          }))} />
           {result.line_items.length > 0 && <section>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
               Line items ({result.line_items.length})
