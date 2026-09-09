@@ -69,6 +69,11 @@ jobs:
             # function directory, so a change to one only redeploys that one.
             targets=$(git diff --name-only HEAD^ HEAD -- supabase/functions/ \
               | awk -F/ 'NF>3 {print $3}' | sort -u)
+            # Shared policy changes must deploy their consumers, never a
+            # nonexistent endpoint called _shared.
+            if printf '%s\n' "$targets" | grep -qx '_shared'; then
+              targets=$(printf '%s\n' "$targets" 'jamie-chat' 'jamie-estimate' | grep -v '^_shared$' | sort -u)
+            fi
           else
             targets=''
           fi
