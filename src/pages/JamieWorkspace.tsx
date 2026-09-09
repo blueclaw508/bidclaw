@@ -208,6 +208,16 @@ export default function JamieWorkspace() {
             if (cancelled) return
             setRun((current) => current?.id === runId ? { ...current, status: 'awaiting_line_approval' } : current)
           }
+          // A previous save may have committed every line before its final
+          // status update failed. Resume without inserting those lines again.
+          if (!pendingGroups.length && runStatus === 'awaiting_line_approval' && groups.some((g) => g.lines.length > 0)) {
+            const remaining = await listWorkAreasAwaitingLines(runId)
+            if (cancelled) return
+            const status = remaining.length ? 'in_progress' : 'committed'
+            await setRunStatus(runId, status)
+            if (cancelled) return
+            setRun((current) => current?.id === runId ? { ...current, status } : current)
+          }
           setStagedGroups(pendingGroups)
           setStagedWas([])
         } else {

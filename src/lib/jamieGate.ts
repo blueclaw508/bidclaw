@@ -298,9 +298,9 @@ export type JamieRunStatus =
  * can resume back to in_progress (retry / reopened session).
  */
 export const JAMIE_RUN_TRANSITIONS: Record<JamieRunStatus, JamieRunStatus[]> = {
-  in_progress: ['awaiting_wa_approval', 'error', 'abandoned'],
+  in_progress: ['awaiting_wa_approval', 'awaiting_line_approval', 'error', 'abandoned'],
   awaiting_wa_approval: ['in_progress', 'awaiting_line_approval', 'rejected', 'error', 'abandoned'],
-  awaiting_line_approval: ['committed', 'rejected', 'error', 'abandoned'],
+  awaiting_line_approval: ['in_progress', 'committed', 'rejected', 'error', 'abandoned'],
   committed: [],
   rejected: [],
   abandoned: ['in_progress'],

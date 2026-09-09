@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { isLegalRunTransition } from '../src/lib/jamieGate.ts';
 import { excludeAutomaticAllowances, priceNeedsConfirmation, prepareSingleAreaResult, canApplySingleAreaResult } from '../supabase/functions/_shared/estimatePolicy.ts';
 
 const input = [{label:'Granite slabs'}, {label:'General Conditions & Rounding'}, {label:'Incidentals'}, {label:'Site access protection mats'}];
@@ -43,12 +44,17 @@ async function exercise(decision, {remaining = [], needsPricing = true} = {}) {
       }; return q;
     }
   };
-  const ctx = vm.createContext({supabase,priceNeedsConfirmation,listWorkAreasAwaitingLines:async()=>remaining,setRunStatus:async(_,s)=>statuses.push(s)});
+  const ctx = vm.createContext({supabase,priceNeedsConfirmation,listWorkAreasAwaitingLines:async()=>remaining,setRunStatus:async(_,s)=>{
+    assert.ok(isLegalRunTransition('awaiting_line_approval',s),'The real lifecycle must allow this batch transition');
+    statuses.push(s);
+  }});
   vm.runInContext(code+'\nglobalThis.commit = commitLineGate;',ctx);
   try { await ctx.commit('run1',[{id:'line1',approved:true,quantity:112,unitCost:195,...decision}]); return {writes,statuses}; }
   catch(error) {return {writes,statuses,error};}
 }
 let result = await exercise({});
+assert.ok(isLegalRunTransition('in_progress','awaiting_line_approval'),'Saved pending lines must be recoverable into review');
+assert.equal(isLegalRunTransition('committed','in_progress'),false,'Completed runs remain terminal');
 assert.match(result.error.message,/Confirm the price/);
 assert.equal(result.writes.length,0,'No partial estimate or catalog writes before price validation');
 result = await exercise({priceConfirmed:true});
