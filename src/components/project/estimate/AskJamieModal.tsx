@@ -357,7 +357,7 @@ export function AskJamieModal({
           <PricingReview lines={result.line_items.map((line, index) => ({
             id: String(index), label: line.name, category: jamieCategoryToDb(line.category), unit: line.unit,
             quantity: line.qty, unitCost: line.unit_cost, price: previewPrice(line),
-            source: 'Review rate. A supplier quote or catalog source is not recorded in this response; confirm against your own prices.',
+            source: line.price_source ?? 'Price source not recorded; confirm against your own prices.',
           }))} />
           {result.line_items.length > 0 && <section>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
@@ -381,6 +381,7 @@ export function AskJamieModal({
                         <div className="text-[10px] uppercase tracking-wide text-gray-400">
                           {PROPOSAL_LINE_CATEGORY_LABELS[jamieCategoryToDb(li.category)]}
                         </div>
+                        {li.price_source && <p className="mt-1 text-sm text-gray-600">{li.price_source}</p>}
                       </td>
                       <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-gray-700">
                         {li.qty} {li.unit}
@@ -394,7 +395,7 @@ export function AskJamieModal({
                             className="w-24 rounded border border-amber-400 p-2 text-base"
                             onChange={(e) => {
                               const cost = Number(e.target.value)
-                              if (Number.isFinite(cost)) setResult(current => current ? { ...current, line_items: current.line_items.map((line, index) => index === i ? { ...line, unit_cost: cost } : line) } : current)
+                              if (Number.isFinite(cost)) setResult(current => current ? { ...current, line_items: current.line_items.map((line, index) => index === i ? { ...line, unit_cost: cost, price_source: 'Unit cost entered by you in this review.' } : line) } : current)
                             }}
                           />
                       </td>

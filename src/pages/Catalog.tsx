@@ -1,3 +1,4 @@
+import { SupplierQuoteEditor } from '@/components/SupplierQuoteEditor'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
@@ -58,18 +59,22 @@ export default function CatalogPage() {
       setRows((prev) =>
         prev ? prev.map((r) => (r.id === id ? { ...r, ...changes } : r)) : prev
       )
-      const { error } = await supabase
-        .from('catalog_items')
-        .update(changes)
-        .eq('id', id)
+      let query = supabase.from('catalog_items').update(changes).eq('id', id)
+      if ('supplier_quote' in changes) {
+        const snapshot = rows?.find(row => row.id === id)
+        if (!snapshot) { void load(); return false }
+        query = query.eq('updated_at', snapshot.updated_at)
+      }
+      const { data, error } = await query.select().single()
       if (error) {
         toast.error(`Save failed: ${error.message}`)
         void load()
         return false
       }
+      setRows(prev => prev ? prev.map(row => row.id === id ? data as CatalogItem : row) : prev)
       return true
     },
-    [load]
+    [load, rows]
   )
 
   // Client-side filter + sort
@@ -370,6 +375,7 @@ function ItemRow({
               />
             </Field>
           </div>
+          <SupplierQuoteEditor key={`${item.id}:${item.updated_at}`} item={item} onSave={onPatch} />
           <div className="space-y-2.5 rounded-lg border border-gray-200 bg-white p-3">
             <label className="flex items-center gap-2 text-sm text-gray-900">
               <input

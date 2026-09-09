@@ -12,6 +12,7 @@ import type { ProposalLineCategory } from '@/lib/types'
 
 /** One line Jamie returns. Categories are title-case (her contract). */
 export interface JamieLineItem {
+  price_source?: string
   name: string
   qty: number
   unit: string

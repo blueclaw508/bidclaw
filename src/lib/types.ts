@@ -1,3 +1,4 @@
+import type { SupplierQuote } from '../../supabase/functions/_shared/supplierQuote.ts'
 // Phase-1 schema mirror. Keep these in sync with
 // supabase/migrations/0001_phase1_foundation.sql.
 // We're intentionally NOT using generated Supabase types yet — Phase 1
@@ -143,6 +144,7 @@ export interface WorkAreaLine {
 }
 
 export interface CatalogItem {
+  supplier_quote?: SupplierQuote | null
   id: string
   user_id: string
   name: string
