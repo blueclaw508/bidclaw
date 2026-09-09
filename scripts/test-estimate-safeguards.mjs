@@ -3,9 +3,12 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { isLegalRunTransition } from '../src/lib/jamieGate.ts';
-import { excludeAutomaticAllowances, priceNeedsConfirmation, prepareSingleAreaResult, canApplySingleAreaResult } from '../supabase/functions/_shared/estimatePolicy.ts';
+import { excludeAutomaticAllowances, prepareGeneratedTakeoff, priceNeedsConfirmation, prepareSingleAreaResult, canApplySingleAreaResult } from '../supabase/functions/_shared/estimatePolicy.ts';
 
 const input = [{label:'Granite slabs'}, {label:'General Conditions & Rounding'}, {label:'Incidentals'}, {label:'Site access protection mats'}];
+const generated = [{label:'Helper',qty:2},{label:'Helper placeholder',qty:0},{label:'Invalid',qty:NaN},{label:'Negative',qty:-1},{label:'General Conditions',qty:1}];
+assert.deepEqual(prepareGeneratedTakeoff(generated),[{label:'Helper',qty:2}]);
+assert.equal(generated.length,5,'Filtering does not modify the AI evidence or existing records');
 assert.deepEqual(excludeAutomaticAllowances(input).map(l => l.label), ['Granite slabs','Site access protection mats']);
 assert.equal(input.length, 4, 'Filtering must not mutate source evidence');
 assert.deepEqual(excludeAutomaticAllowances([{name:'Rounding'}, {name:'Disposal'}]), [{name:'Disposal'}]);
