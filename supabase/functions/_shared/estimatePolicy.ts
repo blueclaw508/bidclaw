@@ -12,6 +12,17 @@ export function priceNeedsConfirmation(needsPricing: boolean, confirmed: boolean
   return needsPricing && confirmed !== true
 }
 
+/** A single-area response with open questions is a clarification, not a takeoff. */
+export function prepareSingleAreaResult<T extends { gap_questions: string[]; line_items: Array<{name: string}> }>(result: T): T {
+  const questions = result.gap_questions.filter(q => q.trim())
+  return { ...result, gap_questions: questions, line_items: questions.length ? [] : excludeAutomaticAllowances(result.line_items) }
+}
+
+export function canApplySingleAreaResult(result: { gap_questions: string[]; line_items: Array<{qty: number; unit_cost: number}> } | null): boolean {
+  return !!result && result.gap_questions.length === 0 && result.line_items.length > 0 &&
+    result.line_items.every(l => Number.isFinite(l.qty) && l.qty > 0 && Number.isFinite(l.unit_cost) && l.unit_cost > 0)
+}
+
 /** Shared by both estimating entry points so their labor assumptions agree. */
 export const LABOR_BASIS_RULES = `LABOR BASIS:
 Estimate person-hours by task and labor role. Show measured quantity x person-hours per unit = person-hours, or the contractor's explicit worker count x hours per worker. State whether each production factor comes from this job's instructions, a matching company kit, or an unverified estimating assumption.
