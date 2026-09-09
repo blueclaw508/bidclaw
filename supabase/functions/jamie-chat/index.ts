@@ -1,3 +1,4 @@
+import { orderedConcurrentMap } from '../_shared/jamiePerformance.ts'
 import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQuote.ts'
 // jamie-chat — THE JAMIE LOOP conversational backbone (J1 plumbing + J3 brain).
 //
@@ -752,8 +753,7 @@ async function syncProjectFiles(
     .order('uploaded_at')
   if (!rows) return []
 
-  const out: SyncedFile[] = []
-  for (const f of rows as Array<Record<string, unknown>>) {
+  const out = await orderedConcurrentMap(rows as Array<Record<string, unknown>>, 3, async (f): Promise<SyncedFile | null> => {
     const name = String(f.file_name ?? '')
     const kind = fileKind(f.mime_type as string | null, name)
     if (!kind) {
@@ -763,14 +763,13 @@ async function syncProjectFiles(
           .update({ anthropic_sync_error: UNSUPPORTED })
           .eq('id', f.id)
       }
-      continue
+      return null
     }
     if (f.anthropic_file_id) {
-      out.push({ id: f.id as string, name, kind, fileId: f.anthropic_file_id as string })
-      continue
+      return { id: f.id as string, name, kind, fileId: f.anthropic_file_id as string }
     }
     // Already tried and failed for a non-type reason — don't retry forever.
-    if (f.anthropic_sync_error) continue
+    if (f.anthropic_sync_error) return null
 
     try {
       const { data: blob, error: dlErr } = await service.storage
@@ -791,7 +790,7 @@ async function syncProjectFiles(
           anthropic_sync_error: null,
         })
         .eq('id', f.id)
-      out.push({ id: f.id as string, name, kind, fileId: uploaded.id })
+      return { id: f.id as string, name, kind, fileId: uploaded.id }
     } catch (err) {
       await service
         .from('project_files')
@@ -800,8 +799,9 @@ async function syncProjectFiles(
         })
         .eq('id', f.id)
     }
-  }
-  return out
+    return null
+  })
+  return out.filter((file): file is SyncedFile => file !== null)
 }
 
 /** Content blocks for the synced files, newest-last, cache breakpoint on
@@ -1361,10 +1361,14 @@ Deno.serve(async (req: Request) => {
   const anthropic = new Anthropic({ apiKey })
 
   // The project's file repository — plans, bid forms, surveys, photos.
+  const filesStarted = performance.now()
   const projectFiles = await syncProjectFiles(service, anthropic, run.project_id)
+  console.info('jamie_timing', { action, phase: 'files', duration_ms: Math.round(performance.now() - filesStarted), files: projectFiles.length })
   const docBlocks = fileBlocks(projectFiles)
 
-  const systemPrompt = buildSystemPrompt(action, brainCtx, projectFiles)
+  const systemPrompt = buildSystemPrompt(action, brainCtx, projectFiles) + (action === 'chat'
+    ? '\nCHAT BREVITY: Keep routine acknowledgements and clarification replies concise (usually under 120 words). Ask at most three essential questions at once. Do not repeat the full plan, catalog, or previously answered questions. Give more detail when the contractor asks or when a material pricing/scope issue requires it. This brevity rule does not remove required tool arguments, scope details or checks.'
+    : '')
 
   // The two passes are button-driven, so when the contractor typed nothing
   // we still need a user turn to hang the request on.
@@ -1480,6 +1484,7 @@ Deno.serve(async (req: Request) => {
           web_search_requests: 0,
         }
         const runLeg = async () => {
+          const modelStarted = performance.now()
           // beta.messages — referencing a Files-API file_id needs the same
           // beta flag the upload used, on the message request too.
           const msgStream = anthropic.beta.messages.stream({
@@ -1528,6 +1533,7 @@ Deno.serve(async (req: Request) => {
             }
           }
           const m = await msgStream.finalMessage()
+          console.info('jamie_timing', { action, phase: 'model_leg', duration_ms: Math.round(performance.now() - modelStarted) })
           const mu = m.usage as unknown as Record<string, unknown> & {
             server_tool_use?: { web_search_requests?: number | null } | null
           }
