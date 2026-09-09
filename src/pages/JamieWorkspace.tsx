@@ -92,6 +92,7 @@ export default function JamieWorkspace() {
   const [run, setRun] = useState<JamieLoopRun | null>(null)
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [input, setInput] = useState('')
+  const [pricingReviewed, setPricingReviewed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [streaming, setStreaming] = useState(false)
   const [passChars, setPassChars] = useState<number | null>(null)
@@ -253,6 +254,7 @@ export default function JamieWorkspace() {
           { id: asstMsgId, role: 'assistant' as const, text: '', streaming: true },
         ])
         setInput('')
+        setPricingReviewed(false)
         await sendJamieChatMessage(
           {
             runId: activeRun.id,
@@ -313,7 +315,7 @@ export default function JamieWorkspace() {
   // review edits by automatically moving into another generation request.
   const takeoffInFlight = useRef(false)
   const buildTakeoff = useCallback(async (runId: string) => {
-    if (takeoffInFlight.current || input.trim()) return
+    if (takeoffInFlight.current || input.trim() || !pricingReviewed) return
     takeoffInFlight.current = true
     try {
       const pending = await listWorkAreasAwaitingLines(runId)
@@ -328,7 +330,7 @@ export default function JamieWorkspace() {
       setTakeoffProgress(null)
       takeoffInFlight.current = false
     }
-  }, [send, input])
+  }, [send, input, pricingReviewed])
 
   const handleWorkAreaGate = useCallback(
     async (decisions: WorkAreaDecision[], added: AddedWorkArea[]) => {
@@ -654,7 +656,7 @@ export default function JamieWorkspace() {
                   >
                     <div
                       className={cn(
-                        'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+                        'max-w-[95%] rounded-2xl px-4 py-3 text-base leading-relaxed',
                         m.role === 'user'
                           ? 'rounded-br-sm bg-blue-600 text-white'
                           : 'rounded-bl-sm bg-gray-100 text-gray-800'
@@ -667,7 +669,7 @@ export default function JamieWorkspace() {
                             {passChars !== null
                               ? passStage === 'searching' && passChars === 0
                                 ? 'Jamie is checking the assembly and current pricing on the web…'
-                                : `Jamie is working through the job${takeoffProgress ? ` — work area ${Math.min(takeoffProgress.done + 1, takeoffProgress.total)} of ${takeoffProgress.total}` : ''}${passChars > 0 ? ` — ${passChars.toLocaleString()} characters in` : '…'}`
+                                : takeoffProgress ? `Building takeoffs for ${takeoffProgress.total} work areas…` : 'Reviewing your plans and identifying work areas…'
                               : 'Jamie is reading…'}
                           </span>
                         )}
@@ -715,19 +717,39 @@ export default function JamieWorkspace() {
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                   <p className="text-sm font-semibold text-amber-900">
                     {awaitingLines.length} work area
-                    {awaitingLines.length === 1 ? '' : 's'} still {awaitingLines.length === 1 ? 'has' : 'have'} no takeoff.
+                    {awaitingLines.length === 1 ? '' : 's'} awaiting pricing.
                   </p>
-                  <p className="mt-1 text-[12px] leading-relaxed text-amber-800">
+                  <p className="mt-2 text-base leading-relaxed text-amber-900">
                     {awaitingLines.map((w) => w.name).join(', ')}. Your work areas
-                    are already on the estimate. Answer Jamie&apos;s questions in the chat
-                    before continuing. Each step prices up to two areas, then pauses for your review.
+                    have been identified. The remaining count falls as takeoffs are built;
+                    it does not mean your answers have been received. Answer below before pricing,
+                    or explicitly accept the assumptions in Jamie&apos;s latest message.
                   </p>
+                  <label htmlFor="pricing-answers" className="mt-4 block text-base font-semibold text-gray-900">Your answers to Jamie</label>
+                  <textarea
+                    id="pricing-answers"
+                    rows={4}
+                    value={input}
+                    onChange={(e) => { setInput(e.target.value); setPricingReviewed(false) }}
+                    placeholder="Answer the questions above, or tell Jamie what needs clarification…"
+                    className="mt-2 w-full rounded-lg border border-gray-400 bg-white px-3 py-3 text-base text-gray-900"
+                  />
+                  <button type="button" disabled={!input.trim() || loading}
+                    onClick={() => input.trim() && void send('chat', input.trim())}
+                    className="mt-2 rounded-lg bg-brand-navy px-4 py-3 text-base font-semibold text-white disabled:opacity-40">
+                    Send answers to Jamie
+                  </button>
+                  <label className="mt-5 flex items-start gap-3 text-base text-gray-900">
+                    <input type="checkbox" checked={pricingReviewed} disabled={!!input.trim()}
+                      onChange={(e) => setPricingReviewed(e.target.checked)} className="mt-1 h-5 w-5 shrink-0" />
+                    I have reviewed Jamie&apos;s latest response. My answers are reflected, or I accept the stated assumptions for this batch.
+                  </label>
                   <button
                     type="button"
                     onClick={() => run && void buildTakeoff(run.id)}
-                    disabled={!!input.trim()}
+                    disabled={!!input.trim() || !pricingReviewed}
                     title={input.trim() ? "Send your answer in the chat first" : undefined}
-                    className="mt-3 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
+                    className="mt-3 rounded-lg bg-brand-navy px-4 py-3 text-base font-semibold text-white shadow-sm transition-all hover:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Build the next two work areas
                   </button>
