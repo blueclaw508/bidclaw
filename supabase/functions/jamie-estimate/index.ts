@@ -13,7 +13,7 @@
 // Prime directive (BidClaw SKILL): every item in the scope description
 // MUST have a line item, and vice versa. Scope and line items match 100%.
 
-import { excludeAutomaticAllowances, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
+import { prepareSingleAreaResult, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -56,9 +56,10 @@ function json(body: unknown, status = 200): Response {
 const OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['scope_description', 'line_items', 'gap_questions', 'new_catalog_items'],
+  required: ['scope_description', 'client_scope_description', 'line_items', 'gap_questions', 'new_catalog_items'],
   properties: {
     scope_description: { type: 'string' },
+    client_scope_description: { type: 'string' },
     line_items: {
       type: 'array',
       items: {
@@ -114,7 +115,11 @@ function buildSystemPrompt(ctx: {
 
 You estimate ONE work area at a time. The contractor gives you a scope; you produce the complete, priced line-item takeoff for that ONE work area.
 
+FIRST CHECK WHETHER THE SCOPE CAN BE MEASURED AND PRICED. Never invent job size, dimensions, repair area, separate repair quantities, or construction method. For lift-and-relay or re-jointing work, confirm the area of each operation and the existing/proposed bedding and joint method before calculating materials or labor. If an essential input is missing, return up to three concise gap_questions, line_items: [], and new_catalog_items: []. scope_description should briefly say what needs clarification; do not give a guessed estimate or assumed quantities. The contractor will answer in the next request. Read all previous questions and answers included in the scope, use those answers, and do not ask them again. Only return priced line_items when no essential questions remain. If the contractor says they do not know a required quantity, ask for measurement rather than making one up.
+
 PRIME DIRECTIVE: Every component you mention in the scope description MUST have a matching line item, and every line item MUST be reflected in the scope. Scope and line items match 100%. If you write it, you bill it.
+
+Return TWO distinct descriptions once questions are resolved: scope_description is the detailed crew work order; client_scope_description is concise proposal-ready language describing the confirmed work, headline dimensions, supplied materials and exclusions. Client scope must not include prices, markups, labor-hour calculations, internal equipment schedules or unconfirmed assumptions. While questions remain, leave client_scope_description empty. Never return a priced takeoff with a blank client_scope_description.
 
 Work the KYN steps in order for this work area:
 1. MATERIAL TAKEOFF — every physical material that goes into the job is a line item. Stone veneer means stone AND mortar AND lath AND barrier AND fasteners AND weep screed AND corners — not just stone. Include ~10% waste on area/volume materials.
@@ -138,7 +143,7 @@ ${eq}
 Item catalog (base costs — markup is automatic, do not add it):
 ${cat}
 
-If something critical is ambiguous (substrate, disposal included, owned vs rented, Nantucket logistics, stone profile), add it to gap_questions — but still produce your best-estimate line items now; don't stall.
+If something critical remains ambiguous, ask before pricing. Client-supplied materials and exclusions must remain excluded. Never infer wet-set mortar work from the word re-joint; confirm the method. gap_questions must be empty before any takeoff can be added.
 
 Categories must be exactly: Materials, Equipment, Labor, Subcontractor, Other.`
 }
@@ -259,8 +264,7 @@ Deno.serve(async (req: Request) => {
     if (!textBlock || textBlock.type !== 'text') {
       throw new Error('Jamie returned no estimate.')
     }
-    const parsed = JSON.parse(textBlock.text)
-    parsed.line_items = excludeAutomaticAllowances(parsed.line_items ?? [])
+    const parsed = prepareSingleAreaResult(JSON.parse(textBlock.text))
 
     // 7. Log the run (best-effort; a log failure never blocks the estimate).
     await supabase.from('jamie_runs').insert({

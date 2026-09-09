@@ -1035,7 +1035,7 @@ export async function commitLineGate(
 
   // A reviewed batch must not close the run while approved areas await pricing.
   const remaining = await listWorkAreasAwaitingLines(runId)
-  if (remaining.length === 0) await setRunStatus(runId, 'committed')
+  await setRunStatus(runId, remaining.length === 0 ? 'committed' : 'in_progress')
   return { written, catalogAdded }
 }
 

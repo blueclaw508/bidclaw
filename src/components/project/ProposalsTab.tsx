@@ -1,3 +1,4 @@
+import type { ProposalProgress } from '@/components/ProjectProgress'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChevronRight, Copy, FileText, Trash2 } from 'lucide-react'
@@ -34,9 +35,10 @@ import type { Project, ProposalListRow } from '@/lib/types'
 
 interface ProposalsTabProps {
   project: Project
+  onProgressChange?: (proposals: ProposalProgress[]) => void
 }
 
-export default function ProposalsTab({ project }: ProposalsTabProps) {
+export default function ProposalsTab({ project, onProgressChange }: ProposalsTabProps) {
   const navigate = useNavigate()
   const [rows, setRows] = useState<ProposalListRow[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -56,12 +58,14 @@ export default function ProposalsTab({ project }: ProposalsTabProps) {
   const load = useCallback(async () => {
     setLoadError(null)
     try {
-      setRows(await listProposalsByProject(project.id))
+      const proposals = await listProposalsByProject(project.id)
+      setRows(proposals)
+      onProgressChange?.(proposals)
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Could not load proposals.')
       setRows([])
     }
-  }, [project.id])
+  }, [project.id, onProgressChange])
 
   useEffect(() => {
     void load()

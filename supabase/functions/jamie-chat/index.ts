@@ -561,6 +561,8 @@ TASK — PASS 2: BUILD THE PRICED TAKEOFF. The contractor APPROVED these work ar
 
 ${staged}
 
+This is one deliberately limited pricing batch, not the whole project. Other approved areas are handled in later batches; never ask whether their absence from this batch means they are excluded. Use answers already given in the conversation and approved scope. Do not reconfirm explicit exclusions, supplied materials, fixed hours or accepted methods. gap_questions must contain at most three genuinely unanswered questions affecting THIS batch's price or method; return [] if none. The contractor reviews this batch's actual lines before building the next one.
+
 For each work area, work in this order: material takeoff → equipment → labor hours. Leave General Conditions / Rounding empty. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is the stone, the setting material, and every accessory that assembly actually needs.
 
 WHICH accessories depends on THE SUBSTRATE, so read the scope and list from the right one of these three:
@@ -1112,17 +1114,28 @@ Deno.serve(async (req: Request) => {
   // its lines would have nowhere to land.
   let stagedWorkAreas: Array<{ id: string; name: string; description: string }> = []
   if (action === 'propose_lines') {
+    const { data: pendingReview, error: reviewError } = await service
+      .from('jamie_proposed_lines')
+      .select('id, jamie_proposed_work_areas!inner(jamie_run_id)')
+      .eq('status', 'pending')
+      .eq('jamie_proposed_work_areas.jamie_run_id', run.id)
+      .limit(1)
+    if (reviewError) return json({ error: 'Could not check the pending takeoff review. Please retry.' }, 500)
+    if (pendingReview?.length) return json({ error: 'Review and save or skip the current takeoff lines before building another batch.' }, 409)
     let stagedQuery = service
       .from('jamie_proposed_work_areas')
-      .select('id, proposed_name, proposed_description')
+      .select('id, proposed_name, proposed_description, jamie_proposed_lines(id)')
       .eq('jamie_run_id', run.id)
       .eq('status', 'approved')
       .not('inserted_work_area_id', 'is', null)
     // A chunk is always re-checked against the run: an id from another run,
     // a rejected row, or one whose work area was deleted is simply not here.
     if (chunkIds && chunkIds.length > 0) stagedQuery = stagedQuery.in('id', chunkIds)
-    const { data: staged } = await stagedQuery.order('sort_order')
-    stagedWorkAreas = (staged ?? []).map((s: Record<string, unknown>) => ({
+    const { data: staged, error: stagedError } = await stagedQuery.order('sort_order')
+    if (stagedError) return json({ error: 'Could not read the work areas awaiting pricing. Please retry.' }, 500)
+    stagedWorkAreas = (staged ?? []).filter((s: Record<string, unknown>) =>
+      !Array.isArray(s.jamie_proposed_lines) || s.jamie_proposed_lines.length === 0
+    ).map((s: Record<string, unknown>) => ({
       id: s.id as string,
       name: s.proposed_name as string,
       description: (s.proposed_description as string) ?? '',
@@ -1822,9 +1835,8 @@ Deno.serve(async (req: Request) => {
 
           const { error: lineErr } = await service.from('jamie_proposed_lines').insert(rows)
           if (lineErr) throw new Error(`couldn't stage the line items (${lineErr.message})`)
-          // Gate 2 opens only when EVERY approved work area on the run has
-          // lines. Flipping the run on the first chunk would put a half
-          // takeoff in front of the contractor to approve.
+          // Every batch opens its own line review, even while more areas
+          // remain. The contractor must review these lines before continuing.
           const { data: allApproved } = await service
             .from('jamie_proposed_work_areas')
             .select('id')
@@ -1842,11 +1854,12 @@ Deno.serve(async (req: Request) => {
             )
           )
           const remaining = approvedIds.filter((id) => !priced.has(id))
-          if (remaining.length === 0) {
-            await service
+          {
+            const { error: reviewStateError } = await service
               .from('jamie_loop_runs')
               .update({ status: 'awaiting_line_approval' })
               .eq('id', run.id)
+            if (reviewStateError) throw new Error(`Takeoff lines saved, but review could not open: ${reviewStateError.message}. Reload to resume.`)
           }
           const unpriced = rows.filter((r) => r.needs_pricing).length
           const reconLine =
@@ -1862,10 +1875,10 @@ Deno.serve(async (req: Request) => {
             // Chunked Pass 2: say what is still coming, or the contractor
             // reads a partial takeoff as the whole job.
             remaining.length
-              ? `Still to price: ${remaining.length} more work area${remaining.length === 1 ? '' : 's'}.`
+              ? `Review this batch below. ${remaining.length} more work area${remaining.length === 1 ? '' : 's'} will be priced after you save or skip these lines.`
               : '',
             unpriced
-              ? `${unpriced} of them aren't in your catalog yet — tell me what you pay and I'll save them.`
+              ? `${unpriced} prices need confirmation. Confirm or correct them below; saving to your catalog is optional.`
               : '',
             qs.length ? `\n${qs.map((q) => `- ${q}`).join('\n')}` : '',
           ]

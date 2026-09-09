@@ -88,7 +88,7 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex min-h-svh flex-col bg-brand-surface">
+    <div className="app-readable flex min-h-svh flex-col bg-brand-surface">
       {/* HEADER */}
       <header className="sticky top-0 z-40 border-b border-brand-border bg-white">
         <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-4 sm:px-6">
@@ -107,7 +107,7 @@ export function AppShell() {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden items-center gap-1 md:flex">
+          <nav className="hidden items-center gap-1 xl:flex">
             {navItems.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
@@ -128,7 +128,7 @@ export function AppShell() {
           </nav>
 
           {/* User menu (desktop) */}
-          <div className="relative hidden md:block">
+          <div className="relative hidden xl:block">
             <button
               type="button"
               onClick={() => setUserMenuOpen((v) => !v)}
@@ -164,7 +164,7 @@ export function AppShell() {
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-brand-border text-brand-text-muted md:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-brand-border text-brand-text-muted xl:hidden"
             aria-label="Toggle menu"
           >
             {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -173,7 +173,7 @@ export function AppShell() {
 
         {/* Mobile menu */}
         {menuOpen && (
-          <div className="border-t border-brand-border bg-white px-4 py-3 md:hidden">
+          <div className="border-t border-brand-border bg-white px-4 py-3 xl:hidden">
             <nav className="flex flex-col gap-1">
               {navItems.map(({ to, label, icon: Icon }) => (
                 <NavLink

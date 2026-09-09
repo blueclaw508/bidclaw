@@ -17,7 +17,7 @@ import {
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { StatusBadge } from '@/components/StatusBadge'
+import { ProjectProgress, type ProposalProgress } from '@/components/ProjectProgress'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NewCustomerModal } from '@/components/NewCustomerModal'
 import { BlurSaveTextarea } from '@/components/InlineEdit'
@@ -57,6 +57,7 @@ import type { Customer, Project, ProjectStatus } from '@/lib/types'
 
 type ProjectDetail = Project & {
   customers: { id: string; name: string } | null
+  proposals: ProposalProgress[]
 }
 
 type TabId = 'details' | 'work_areas' | 'files' | 'proposals' | 'invoices' | 'job_cost'
@@ -84,7 +85,7 @@ export default function ProjectDetailPage() {
   // choosing to lay the work areas out yourself lands on the form and not on
   // an empty tab. Read once on mount — WorkAreasTab takes it as its initial
   // state — then stripped below so a refresh doesn't pop the dialog again.
-  const [openAddOnMount] = useState(() => searchParams.get('add') === '1')
+  const [openAddOnMount, setOpenAddOnMount] = useState(() => searchParams.get('add') === '1')
 
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -191,12 +192,16 @@ export default function ProjectDetailPage() {
     void refreshCounts()
   }, [refreshCounts])
 
+  const updateProposalProgress = useCallback((proposals: ProposalProgress[]) => {
+    setProject((previous) => previous ? { ...previous, proposals } : previous)
+  }, [])
+
   const load = useCallback(async () => {
     if (!user || !projectId) return
     setLoading(true)
     const { data, error } = await supabase
       .from('projects')
-      .select('*, customers(id, name)')
+      .select('*, customers(id, name), proposals(status, created_at)')
       .eq('id', projectId)
       .maybeSingle()
     setLoading(false)
@@ -226,7 +231,7 @@ export default function ProjectDetailPage() {
         .from('projects')
         .update(changes)
         .eq('id', project.id)
-        .select('*, customers(id, name)')
+        .select('*, customers(id, name), proposals(status, created_at)')
         .single()
       if (error || !data) {
         setProject(previous)
@@ -392,6 +397,7 @@ export default function ProjectDetailPage() {
               <WorkAreasTab
                 projectId={project.id}
                 openAddOnMount={openAddOnMount}
+                onAddOpened={() => setOpenAddOnMount(false)}
                 projectName={project.name}
                 onChange={refreshCounts}
                 onEstimateTotalChange={setEstimatedValue}
@@ -405,7 +411,7 @@ export default function ProjectDetailPage() {
           )}
           {activeTab === 'proposals' && (
             <Suspense fallback={<TabLoading />}>
-              <ProposalsTab project={project} />
+              <ProposalsTab project={project} onProgressChange={updateProposalProgress} />
             </Suspense>
           )}
           {activeTab === 'invoices' && (
@@ -549,7 +555,7 @@ function ProjectHeader({
             </div>
           </div>
         </div>
-        <StatusBadge kind="project" value={project.status} className="shrink-0 self-start" />
+        <ProjectProgress status={project.status} proposals={project.proposals} />
       </div>
     </div>
   )

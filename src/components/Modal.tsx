@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { lockBodyScroll } from '@/lib/bodyScrollLock'
 
 interface ModalProps {
   open: boolean
@@ -58,8 +59,7 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const releaseScroll = lockBodyScroll()
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && dismissible) onClose()
@@ -75,7 +75,7 @@ export function Modal({
     })
 
     return () => {
-      document.body.style.overflow = prevOverflow
+      releaseScroll()
       window.removeEventListener('keydown', onKey)
     }
   }, [open, onClose, dismissible])

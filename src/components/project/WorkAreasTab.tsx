@@ -75,6 +75,7 @@ interface WorkAreasTabProps {
    * closing the dialog closes it for good.
    */
   openAddOnMount?: boolean
+  onAddOpened?: () => void
 }
 
 export default function WorkAreasTab({
@@ -83,12 +84,16 @@ export default function WorkAreasTab({
   onChange,
   onEstimateTotalChange,
   openAddOnMount = false,
+  onAddOpened,
 }: WorkAreasTabProps) {
   const navigate = useNavigate()
   const [rows, setRows] = useState<WorkArea[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [newOpen, setNewOpen] = useState(openAddOnMount)
+  useEffect(() => {
+    if (openAddOnMount) onAddOpened?.()
+  }, [openAddOnMount, onAddOpened])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkArea | null>(null)
 
@@ -902,6 +907,7 @@ function SortableRow({
                 settings={settings}
                 jamieEnabled={jamieEnabled}
                 onLinesChange={onLinesChange}
+                onClientScopeChange={scope => onPatch({ client_description: scope })}
                 onToggleApproved={() =>
                   void onPatch({
                     estimate_status:

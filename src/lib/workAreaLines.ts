@@ -34,6 +34,7 @@ export async function addWorkAreaLine(input: {
   sortOrder: number
   catalogItemId?: string | null
   sourceKitId?: string | null
+  priceOverride?: number | null
 }): Promise<WorkAreaLine> {
   const { data, error } = await supabase
     .from('work_area_lines')
@@ -44,7 +45,7 @@ export async function addWorkAreaLine(input: {
       unit: input.unit,
       quantity: input.quantity,
       unit_cost: input.unitCost,
-      price_override: null,
+      price_override: input.priceOverride ?? null,
       catalog_item_id: input.catalogItemId ?? null,
       source_kit_id: input.sourceKitId ?? null,
       sort_order: input.sortOrder,

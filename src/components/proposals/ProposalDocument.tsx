@@ -59,6 +59,7 @@ export type PrintFormat = 'detailed' | 'summary' | 'crew'
 export type DocumentSettings = Pick<
   CompanySettings,
   | 'company_legal_name'
+  | 'pdf_show_company_name'
   | 'owner_name'
   | 'company_address_line1'
   | 'company_address_line2'
@@ -189,18 +190,17 @@ function PrintHeader({
   const address = formatAddress(settings)
   const contact = [settings.company_phone, settings.company_email, settings.company_website]
     .filter(Boolean)
-    .join(' • ')
   const proposalDate = formatDate(proposal.created_at)
 
   return (
-    <header className="pv-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <header className="pv-header grid grid-cols-1 items-start gap-6 sm:grid-cols-2 print:grid-cols-2">
       {/* Left: contractor identity */}
-      <div className="flex items-start gap-4">
-        <CompanyLogo logoUrl={logoUrl} legalName={settings.company_legal_name} />
+      <div className="min-w-0 space-y-3">
+        <CompanyLogo logoUrl={logoUrl} legalName={settings.company_legal_name} large />
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900 leading-tight">
+          {(settings.pdf_show_company_name !== false || !logoUrl) && <h1 className="text-base font-semibold text-gray-900 leading-snug">
             {settings.company_legal_name?.trim() || 'Your Company Name'}
-          </h1>
+          </h1>}
           {settings.owner_name?.trim() ? (
             <p className="mt-0.5 text-sm text-gray-600">
               {settings.owner_name}
@@ -211,14 +211,14 @@ function PrintHeader({
               {address}
             </p>
           ) : null}
-          {contact ? (
-            <p className="mt-1 text-xs text-gray-600">{contact}</p>
-          ) : null}
+          <div className="mt-1 space-y-0.5 text-xs text-gray-600">
+            {contact.map((detail, index) => <p key={index} className="break-words">{detail}</p>)}
+          </div>
         </div>
       </div>
 
       {/* Right: proposal meta */}
-      <div className="text-left sm:text-right shrink-0">
+      <div className="min-w-0 text-left sm:text-right print:text-right">
         <div
           className="text-[10px] font-bold uppercase tracking-wider"
           style={{ color: accent }}
@@ -240,16 +240,18 @@ function PrintHeader({
 export function CompanyLogo({
   logoUrl,
   legalName,
+  large = false,
 }: {
   logoUrl: string | null
   legalName: string | null
+  large?: boolean
 }) {
   if (logoUrl) {
     return (
       <img
         src={logoUrl}
         alt={legalName || 'Company logo'}
-        className="h-[60px] w-[60px] shrink-0 rounded object-contain"
+        className={large ? 'h-[100px] w-[200px] max-w-full object-contain object-left' : 'h-[60px] w-[60px] shrink-0 rounded object-contain'}
       />
     )
   }

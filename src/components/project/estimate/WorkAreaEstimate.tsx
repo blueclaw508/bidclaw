@@ -113,6 +113,7 @@ interface WorkAreaEstimateProps {
   onLinesChange: (updater: (prev: WorkAreaLine[]) => WorkAreaLine[]) => void
   /** Toggle estimate_status drafting ↔ approved (R3 lifecycle). */
   onToggleApproved: () => void
+  onClientScopeChange: (scope: string) => Promise<boolean>
 }
 
 export function WorkAreaEstimate({
@@ -122,10 +123,31 @@ export function WorkAreaEstimate({
   jamieEnabled,
   onLinesChange,
   onToggleApproved,
+  onClientScopeChange,
 }: WorkAreaEstimateProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [kitOpen, setKitOpen] = useState(false)
   const [jamieOpen, setJamieOpen] = useState(false)
+  const [gcAmount, setGcAmount] = useState('')
+  const [gcSaving, setGcSaving] = useState(false)
+  const hasGeneralConditions = lines.some((line) => /general conditions|rounding/i.test(line.label))
+
+  const handleAddGeneralConditions = async () => {
+    const amount = Number(gcAmount)
+    if (gcSaving || hasGeneralConditions || !gcAmount.trim() || !Number.isFinite(amount) || amount <= 0) return
+    setGcSaving(true)
+    try {
+      const created = await addWorkAreaLine({
+        workAreaId: workArea.id, category: 'other', label: 'General Conditions / Rounding',
+        unit: 'LS', quantity: 1, unitCost: amount, priceOverride: amount,
+        sortOrder: lines.length ? Math.max(...lines.map((line) => line.sort_order)) + 1 : 0,
+      })
+      onLinesChange((prev) => [...prev, created])
+      setGcAmount('')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save General Conditions.')
+    } finally { setGcSaving(false) }
+  }
   const approved = workArea.estimate_status === 'approved'
 
   // Per-estimate dnd sensors — line drag is scoped within a category.
@@ -218,7 +240,9 @@ export function WorkAreaEstimate({
 
   /** Jamie → estimate bulk add (Phase 1). Same insert path as kits;
    *  categories map from Jamie's title-case to the DB enum. */
-  const handleJamieApply = async (items: JamieLineItem[]) => {
+  const handleJamieApply = async (items: JamieLineItem[], clientScope: string) => {
+    if (!clientScope.trim()) throw new Error('Review the client scope before adding the takeoff.')
+    if (!await onClientScopeChange(clientScope.trim())) throw new Error('Client scope could not save. No lines were added; please retry.')
     const startSort = lines.length
       ? Math.max(...lines.map((l) => l.sort_order)) + 1
       : 0
@@ -271,7 +295,7 @@ export function WorkAreaEstimate({
   /* ---------- render ---------- */
 
   return (
-    <div className="overflow-hidden rounded-xl border border-blue-200 bg-blue-50/30">
+    <div className="overflow-x-auto rounded-xl border border-blue-200 bg-blue-50/30">
       {/* Only-populated categories (QC model — no empty subsections) */}
       {PROPOSAL_LINE_CATEGORY_ORDER.map((cat) => {
         const catLines = byCategory[cat]
@@ -341,7 +365,23 @@ export function WorkAreaEstimate({
 
       {/* Add buttons — "+ Add Line Item" (QC's one entry point) + the
           BidClaw kit advantage as a secondary bulk-add. */}
-      <div className="flex gap-2 p-3">
+      {!hasGeneralConditions && (
+        <div className="flex flex-wrap items-end gap-3 border-t border-blue-100 bg-white p-4">
+          <label className="flex-1 text-sm font-semibold text-brand-text">
+            General Conditions / Rounding
+            <span className="mt-1 block text-sm font-normal text-brand-text-muted">Optional final dollar amount. Nothing is added until you enter and add an amount.</span>
+            <input aria-label="General Conditions / Rounding amount" type="number" min="0" step="0.01"
+              value={gcAmount} onChange={(event) => setGcAmount(event.target.value)} disabled={gcSaving}
+              className="mt-2 w-44 rounded-md border border-brand-border px-3 py-2" />
+          </label>
+          <button type="button" onClick={() => void handleAddGeneralConditions()}
+            disabled={gcSaving || !gcAmount.trim() || !Number.isFinite(Number(gcAmount)) || Number(gcAmount) <= 0}
+            className="rounded-md bg-brand-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            {gcSaving ? 'Adding…' : 'Add amount'}
+          </button>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2 p-3">
         <button
           type="button"
           onClick={() => setAddOpen(true)}
