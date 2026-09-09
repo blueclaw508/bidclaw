@@ -28,6 +28,7 @@
 //   4. Full gate vs tier limits + live usage counts
 //   5. Meter (invocation row, in_progress) → Anthropic → finalize
 
+import { excludeAutomaticAllowances } from '../_shared/estimatePolicy.ts'
 import Anthropic, { toFile } from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
@@ -421,16 +422,6 @@ interface BrainContext {
     timesUsed: number
     corrections: number
   }>
-  /** Where this company repeatedly corrects Jamie's QUANTITIES, as a ratio
-   *  of final/proposed. >1 = she under-calls, <1 = she pads. Only items
-   *  corrected more than once appear — one edit is a job-specific call, not
-   *  a pattern. */
-  quantityBias: Array<{
-    category: string
-    label: string
-    samples: number
-    ratio: number
-  }>
 }
 
 function buildSystemPrompt(
@@ -478,24 +469,7 @@ ${ctx.priceBook
 Price from current supplier pricing for this trade and region and flag needs_pricing.
 What they enter and correct becomes their price book for next time.`
 
-  // Quantity corrections do not port directly the way a price does — 8 mixer
-  // hours on a 600 SF patio says nothing about 2,000 SF. The RATIO carries.
-  const biasBlock = ctx.quantityBias.length
-    ? `WHERE YOUR QUANTITIES RUN WRONG FOR THIS COMPANY.
-Each line is how their final quantity compared to what you proposed, averaged
-over repeated corrections. Above 1.0 means you UNDER-called it; below 1.0
-means you PADDED it. These are this company's crews and methods, not a
-general truth — adjust toward them, and say in your reasoning when you have.
-${ctx.quantityBias
-  .map(
-    (b) =>
-      `  - ${b.label} (${b.category}): they land at ${b.ratio}x your figure` +
-      ` — ${b.ratio > 1 ? 'you under-call this' : 'you pad this'}` +
-      ` (${b.samples} corrections)`
-  )
-  .join('\n')}`
-    : ''
-
+  // Quantity edits are not normalized production history. Do not bias new jobs.
   const kitsBlock = ctx.kits.length
     ? `THIS COMPANY'S OWN KITS (their production factors — these OVERRIDE any general rule of thumb you have):` +
       NEWLINE +
@@ -558,7 +532,7 @@ means zero. There is no such thing as a line you cannot price.
 - LABOR is projected man-hours × the contractor's retail labor rate. qty = man-hours (YOUR projection, from the kit factors × the measured quantity), unit_cost = the retail labor rate from THE CONTRACTOR'S KYN NUMBERS below, used verbatim — never a rate you invented. A full crew day is 27 man-hours (3 crew × 9 hours). Round UP to a full day when you are within 20% of 27 — crews fill the day. Half day = 13-14 hours. The retail rate is already fully burdened (wage + taxes + comp + overhead + profit), so labor carries NO markup.
 - EQUIPMENT is internal rental HOURS: qty = hours, unit_cost = the equipment rate from the contractor's numbers below, VERBATIM — copy their figure exactly, never round or adjust it. If the machine a step needs is NOT in their configured rates (say the job needs a cement mixer and they have not set one), still price it at a realistic internal rental rate — never zero — but set needs_pricing TRUE on that line. Same rule for a labor type they have not configured. An invented rate must never sit in their estimate looking like a number they gave you. Every machine is its own line — cement mixer, plate compactor, skid loader, cut-off saw. Not overhead. Equipment carries no markup either; the rate already includes it.
 - MATERIALS and SUBCONTRACTORS: qty = the measured quantity from your takeoff, unit_cost = the BASE cost — what the contractor PAYS, before margin. Use the catalog cost when the item is in the catalog below. When it is not, use your own knowledge of current supplier pricing for this trade and region, and flag needs_pricing. BidClaw automatically applies the contractor's markups on top (materials ${ctx.materialsMarkup}%, subs ${ctx.subsMarkup}%) — so do NOT pre-mark-up, and do NOT put a retail/billed price in unit_cost. Name anything you priced yourself in new_catalog_items so it gets saved for next time.
-- GENERAL CONDITIONS: every work area ends with one "General Conditions & Rounding" line (category "other", qty 1, unit "EA") covering incidentals — a real dollar amount sized to the job, not zero.
+- GENERAL CONDITIONS / ROUNDING: leave empty. Do not generate allowances, rounding, or incidental plugs. The contractor may add these manually later. Never move a hidden allowance into another line.
 
 WHERE YOUR NUMBERS COME FROM — in this order, highest authority first.
 BidClaw ships blank and learns each company, so this order is the whole point:
@@ -574,7 +548,7 @@ their corrections teach you — that is how their profile gets built.
 ${kitsBlock}
 
 ${priceBookBlock}
-${biasBlock ? `\n${biasBlock}\n` : ''}
+
 THE CONTRACTOR'S KYN NUMBERS:
 Labor rates ($/hr):
 ${lt}
@@ -592,7 +566,7 @@ TASK — PASS 1: PROPOSE THE WORK AREAS. Read everything the contractor has told
 - scope_description: the step-by-step of what will actually be done, with the real quantities (SF, LF, CY, counts, depths) you were given or can read off a photo. Pass 2 rebuilds the takeoff from THIS text, so the quantities have to be in it. Do not mention anything you would not bill.
 - matches_existing_work_area_id: if one of the contractor's existing work areas above already covers this scope, put its id here so they can see the overlap. Otherwise null. NEVER propose editing theirs.
 - confidence: "high" = clear scope with real quantities; "medium" = scope clear, quantities inferred; "low" = you are guessing at scope.
-- gap_questions: the things you genuinely need answered before pricing, for THIS trade — substrate and what it is being fixed to, material spec and grade, method (wet set vs dry set, surface vs sub-surface, hand vs machine), who is doing disposal, equipment access, and any logistics that carry a premium on this job (island or ferry access, permits, restricted hours, long carries). Ask only what changes the price. Do not pad the list.
+- gap_questions: the things you genuinely need answered before pricing, for THIS trade — substrate and what it is being fixed to, material spec and grade, method (wet set vs dry set, surface vs sub-surface, hand vs machine), who is doing disposal, equipment access, and any logistics that carry a premium on this job (island or ferry access, permits, restricted hours, long carries). Ask at most three important questions at a time. Do not repeat questions already answered in the conversation. Ask only what changes the price; keep the explanation brief.
 
 ${kyn}
 
@@ -609,7 +583,7 @@ TASK — PASS 2: BUILD THE PRICED TAKEOFF. The contractor APPROVED these work ar
 
 ${staged}
 
-For each work area, work in this order: material takeoff → equipment → labor hours → general conditions. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is the stone, the setting material, and every accessory that assembly actually needs.
+For each work area, work in this order: material takeoff → equipment → labor hours. Leave General Conditions / Rounding empty. Every physical material that goes into the job is a line. A stone veneer is not "stone and labor" — it is the stone, the setting material, and every accessory that assembly actually needs.
 
 WHICH accessories depends on THE SUBSTRATE, so read the scope and list from the right one of these three:
   (a) ONTO CONCRETE, CMU OR EXISTING MASONRY — the common case. A polymer-modified adhesive mortar (Laticrete or Ardex) for the scratch coat and setting bed, plus corner pieces. NO lath, NO fasteners or screws, NO water-resistive barrier, NO weep screed. Putting lath and screws on a veneer being adhered to block bills the contractor for material they will never buy, and puts it in the scope the client reads.
@@ -1086,7 +1060,6 @@ Deno.serve(async (req: Request) => {
     { data: history },
     { data: kitRows },
     { data: priceBookRows },
-    { data: qtyBiasRows },
   ] = await Promise.all([
     service
       .from('company_settings')
@@ -1128,12 +1101,10 @@ Deno.serve(async (req: Request) => {
       .from('kits')
       .select('name, category, input_unit, jamie_notes, status, kit_lines(type, display_name, factor, factor_unit, position)')
       .eq('user_id', user.id),
-    // 0031 — what this company has actually priced, and where they keep
-    // correcting Jamie's quantities. Both are scoped to this user inside the
-    // function; a blank company gets empty arrays and Jamie falls through to
-    // trade knowledge + the web exactly as before.
+    // 0031 — this company's price history. Generic quantity corrections
+    // are deliberately excluded until normalized production data exists.
     //
-    // Swallowed deliberately. These two are the ONLY calls in this batch that
+    // Swallowed deliberately. This is the ONLY call in this batch that
     // reach for something optional — everything else is required to price at
     // all. If the migration has not run in this environment, or the RPC is
     // unreachable, a rejection here would take the whole estimate down with
@@ -1141,10 +1112,6 @@ Deno.serve(async (req: Request) => {
     // failing costs the contractor their takeoff.
     service
       .rpc('jamie_price_book', { p_user_id: user.id, p_limit: 60 })
-      .then((r) => r)
-      .catch(() => ({ data: null })),
-    service
-      .rpc('jamie_quantity_bias', { p_user_id: user.id, p_limit: 20 })
       .then((r) => r)
       .catch(() => ({ data: null })),
   ])
@@ -1302,15 +1269,7 @@ Deno.serve(async (req: Request) => {
       timesUsed: Number(r.times_used ?? 0),
       corrections: Number(r.corrections ?? 0),
     })),
-    quantityBias: ((qtyBiasRows ?? []) as Array<Record<string, unknown>>)
-      .map((r) => ({
-        category: (r.category as string) ?? '',
-        label: (r.label as string) ?? '',
-        samples: Number(r.samples ?? 0),
-        ratio: Number(r.avg_ratio ?? 1),
-      }))
-      // A ratio within 15% of 1.0 is noise, not a tendency worth prompting on.
-      .filter((r) => Number.isFinite(r.ratio) && Math.abs(1 - r.ratio) > 0.15),
+
   }
 
   // Name → catalog id, for stamping catalog_item_id on staged lines. Lower-
@@ -1711,6 +1670,7 @@ Deno.serve(async (req: Request) => {
                 .update(scopePatch)
                 .eq('id', wa.proposed_work_area_id)
             }
+            wa.line_items = excludeAutomaticAllowances(wa.line_items)
             wa.line_items.forEach((l, i) => {
               rows.push({
                 jamie_proposed_work_area_id: wa.proposed_work_area_id,

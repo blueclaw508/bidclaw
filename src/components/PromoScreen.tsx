@@ -22,6 +22,36 @@ import {
 
 // QC's hero YouTube video — reused per Ian's decision. Same video, BC branding.
 const HERO_YT_ID = 'iC3X-d3bfcU'
+const KYN_URL = 'https://kyn.blueclawgroup.com/'
+
+function KynBundleOffer() {
+  return (
+    <section aria-label="Know Your Numbers bundle" className="border-y border-brand-gold/40 bg-brand-surface px-4 py-10 sm:px-8">
+      <div className="mx-auto max-w-5xl rounded-2xl border border-brand-gold/50 bg-white p-6 sm:p-8">
+        <p className="text-xs font-bold uppercase tracking-widest text-brand-navy">Know your numbers. Put them to work.</p>
+        <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-brand-navy sm:text-3xl">
+          Get KYN for $79/month. BidClaw Pro included.
+        </h2>
+        <p className="mt-3 max-w-3xl text-base text-brand-text">
+          Build your company budget in Know Your Numbers, then bring your labor rates,
+          equipment rates, and markups into BidClaw to price your jobs.
+        </p>
+        <a href={KYN_URL} className="mt-5 inline-flex items-center gap-2 rounded-md bg-brand-navy px-6 py-3 text-sm font-bold text-white hover:bg-brand-navy-dark">
+          Get KYN + BidClaw Pro <ArrowRight className="h-4 w-4" />
+        </a>
+        <p className="mt-4 text-sm text-brand-text-muted">
+          BidClaw Pro is included while your paid KYN subscription is active.
+          Jamie AI requires a separate upgrade.
+        </p>
+        <p className="mt-2 text-sm text-brand-text-muted">
+          BidClaw access currently requires activation. After subscribing to KYN, contact{' '}
+          <a href="mailto:info@blueclawgroup.com" className="font-semibold text-brand-navy underline">info@blueclawgroup.com</a>{' '}
+          using your KYN email to activate your included Pro access.
+        </p>
+      </div>
+    </section>
+  )
+}
 
 /* ============================================================
  * Small building blocks
@@ -378,6 +408,7 @@ export function PromoScreen() {
       </section>
 
       {/* ===================== HERO VIDEO ===================== */}
+      <KynBundleOffer />
       <section className="border-b border-brand-border bg-brand-surface py-16 sm:py-20">
         <div className="mx-auto max-w-4xl px-4 sm:px-8">
           <HeroYouTube />
@@ -575,6 +606,7 @@ export function PromoScreen() {
       </section>
 
       {/* ===================== PRICING ===================== */}
+      <KynBundleOffer />
       <section className="py-20 sm:py-24">
         <div className="mx-auto max-w-7xl px-4 sm:px-8">
           <header className="mx-auto max-w-2xl text-center">
@@ -611,7 +643,7 @@ export function PromoScreen() {
               tier="Pro"
               price="$39"
               perMonth="/ month"
-              description="Everything you need to run jobs end-to-end."
+              description="BidClaw on its own, without a KYN subscription."
               features={[
                 'Everything in Free, plus:',
                 'Unlimited estimates',

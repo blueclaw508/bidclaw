@@ -13,6 +13,7 @@
 // Prime directive (BidClaw SKILL): every item in the scope description
 // MUST have a line item, and vice versa. Scope and line items match 100%.
 
+import { excludeAutomaticAllowances } from '../_shared/estimatePolicy.ts'
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -119,7 +120,7 @@ Work the KYN steps in order for this work area:
 1. MATERIAL TAKEOFF — every physical material that goes into the job is a line item. Stone veneer means stone AND mortar AND lath AND barrier AND fasteners AND weep screed AND corners — not just stone. Include ~10% waste on area/volume materials.
 2. EQUIPMENT — every piece of equipment is its own line, billed by the hour (cement mixer, grinder, plate compactor, excavator).
 3. LABOR — project man-hours. A full crew day = 27 man-hours (3 crew x 9 hrs). Round UP to a full day if within 20% of 27 hrs. Half day = 13-14 hrs.
-4. GENERAL CONDITIONS — always add one "General Conditions & Rounding" line (category Other) for incidentals/rounding.
+4. GENERAL CONDITIONS / ROUNDING — leave empty. Do not generate incidentals, rounding or allowance plugs. The contractor can add these manually later; do not hide them in another line.
 5. SCOPE NOTES — step-by-step bullets describing exactly what will be done. Every bullet maps to line items above.
 
 PRICING RULES — use THIS contractor's numbers, given below:
@@ -257,6 +258,7 @@ Deno.serve(async (req: Request) => {
       throw new Error('Jamie returned no estimate.')
     }
     const parsed = JSON.parse(textBlock.text)
+    parsed.line_items = excludeAutomaticAllowances(parsed.line_items ?? [])
 
     // 7. Log the run (best-effort; a log failure never blocks the estimate).
     await supabase.from('jamie_runs').insert({

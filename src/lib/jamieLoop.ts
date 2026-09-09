@@ -12,6 +12,7 @@
 // work_areas / work_area_lines through the existing estimate data layer
 // (J4/J6), never into proposals directly.
 
+import { priceNeedsConfirmation } from '../../supabase/functions/_shared/estimatePolicy.ts'
 import { supabase } from '@/lib/supabase'
 import {
   evaluateJamieGate,
@@ -752,6 +753,10 @@ export async function retireStagedWorkArea(workAreaId: string): Promise<void> {
 
 /** Gate 2 review payload: one entry per staged line. */
 export interface LineDecision {
+  /** Explicit confirmation, separate from accepting a generated line. */
+  priceConfirmed?: boolean
+  /** Catalog creation is separately opt-in. */
+  saveToCatalog?: boolean
   id: string
   approved: boolean
   /** Contractor's edits — Gate 2 is where catalog misses get priced. */
@@ -870,11 +875,22 @@ export async function commitLineGate(
   const { data: staged, error: loadErr } = await supabase
     .from('jamie_proposed_lines')
     .select(
-      'id, jamie_proposed_work_area_id, category, label, unit, quantity, unit_cost, catalog_item_id, kit_id, sort_order, jamie_proposed_work_areas!inner(inserted_work_area_id)'
+      'id, jamie_proposed_work_area_id, category, label, unit, quantity, unit_cost, needs_pricing, catalog_item_id, kit_id, sort_order, jamie_proposed_work_areas!inner(inserted_work_area_id)'
     )
     .in('id', approvedIds.length > 0 ? approvedIds : [NO_MATCH])
   if (loadErr) throw new Error(`Couldn't load the staged lines: ${loadErr.message}`)
 
+  // Validate the entire selection before the first estimate/catalog write.
+  for (const row of staged ?? []) {
+    const decision = byId.get(row.id)
+    if (!Number.isFinite(decision?.quantity) || (decision?.quantity ?? 0) <= 0 ||
+        !Number.isFinite(decision?.unitCost) || (decision?.unitCost ?? 0) <= 0) {
+      throw new Error(`Enter a positive quantity and unit cost for ${row.label}.`)
+    }
+    if (priceNeedsConfirmation(row.needs_pricing === true, byId.get(row.id)?.priceConfirmed)) {
+      throw new Error(`Confirm the price for ${row.label} or skip that line before adding the takeoff.`)
+    }
+  }
   let written = 0
   // Lines whose work area was never approved — or was deleted on the Work
   // Areas tab after Gate 1 — have nowhere to land. They are marked rejected
@@ -900,6 +916,7 @@ export async function commitLineGate(
     let catalogItemId = (row.catalog_item_id as string) ?? null
     if (
       !catalogItemId &&
+      d?.saveToCatalog === true &&
       userId &&
       CATALOGABLE.has(category) &&
       label &&
@@ -995,6 +1012,7 @@ export async function commitLineGate(
     .select('id, inserted_work_area_id, proposed_description, proposed_client_description')
     .eq('jamie_run_id', runId)
     .eq('status', 'approved')
+    .in('id', [...new Set((staged ?? []).map((row) => row.jamie_proposed_work_area_id))])
   for (const wa of (approvedWas ?? []) as Array<Record<string, unknown>>) {
     const waId = wa.inserted_work_area_id as string | null
     if (!waId) continue
@@ -1015,7 +1033,9 @@ export async function commitLineGate(
     await supabase.from('work_areas').update(patch).eq('id', waId)
   }
 
-  await setRunStatus(runId, 'committed')
+  // A reviewed batch must not close the run while approved areas await pricing.
+  const remaining = await listWorkAreasAwaitingLines(runId)
+  if (remaining.length === 0) await setRunStatus(runId, 'committed')
   return { written, catalogAdded }
 }
 
