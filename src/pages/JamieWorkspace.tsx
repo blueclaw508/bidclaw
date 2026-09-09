@@ -137,7 +137,15 @@ export default function JamieWorkspace() {
             .select('id, file_name, file_type, mime_type, anthropic_file_id, anthropic_sync_error')
             .eq('project_id', projectId)
             .order('uploaded_at'),
-          getActiveJamieRun(projectId),
+          (async () => {
+            const active = await getActiveJamieRun(projectId)
+            if (active) return active
+            const { data, error } = await supabase.from('jamie_loop_runs')
+              .select('*').eq('project_id', projectId).eq('status', 'committed')
+              .order('created_at', { ascending: false }).limit(1).maybeSingle()
+            if (error) throw new Error(`Couldn't load the completed estimate: ${error.message}`)
+            return data as JamieLoopRun | null
+          })(),
           supabase
             .from('company_settings')
             .select('markup_materials_percent, markup_subs_percent')
@@ -438,7 +446,7 @@ export default function JamieWorkspace() {
     messages.length > 0 &&
     !streaming &&
     !gateBusy &&
-    ((run.status === 'in_progress' && !atGate) || atWorkAreaGate)
+    ((run.status === 'in_progress' && !atGate && awaitingLines.length === 0) || atWorkAreaGate)
 
   if (!user) return null
 
@@ -751,7 +759,7 @@ export default function JamieWorkspace() {
                     title={input.trim() ? "Send your answer in the chat first" : undefined}
                     className="mt-3 rounded-lg bg-brand-navy px-4 py-3 text-base font-semibold text-white shadow-sm transition-all hover:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Build the next two work areas
+                    Build {Math.min(2, awaitingLines.length)} work area{awaitingLines.length === 1 ? '' : 's'}
                   </button>
                 </div>
               )}
@@ -773,6 +781,7 @@ export default function JamieWorkspace() {
           </div>
 
           {/* Composer — text only. Files live on the Files tab, one repository. */}
+          {run?.status !== 'committed' && (
           <div className="border-t border-gray-200 px-4 py-3 sm:px-8">
             <div className="mx-auto max-w-3xl">
               {canPropose && (
@@ -820,6 +829,7 @@ export default function JamieWorkspace() {
               </p>
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>
