@@ -358,6 +358,8 @@ interface BrainContext {
   stagedWorkAreas: Array<{ id: string; name: string; description: string }>
   /** Names of the Pass 1 proposal currently waiting at Gate 1 (chat only). */
   reviewingWorkAreas: string[]
+  /** Work areas already approved in THIS run; not unrelated manual duplicates. */
+  approvedRunWorkAreas: Array<{ name: string; hasTakeoff: boolean }>
   /** The Pass 2 takeoff waiting at Gate 2 (chat only) — so a price the
    *  contractor gives in conversation can be written to the right line. */
   reviewingLines: Array<{
@@ -481,7 +483,7 @@ THE PROJECT:
 These three lines are the record. They win over anything printed on a drawing.
 
 READING DRAWINGS. Every sheet carries a title block naming who DREW it — the engineer, architect, landscape designer, surveyor or builder — with that firm's name, office address, town and phone, and often a stamp. None of that is the client, and none of it is the site. The client is the one named above; the site is the address above. Never carry a name, a firm, a town or a road off a title block into a work area, a scope, or the conversation as if it belonged to the client. Road labels on the plan itself are not proof of the site's street either: if a sheet's project name or address disagrees with the record above, say so once in plain words and go with the record.
-Work areas the CONTRACTOR already created (theirs — never modify):
+Existing project work areas (including any created by approval in this Jamie run; the current workflow stage below identifies those):
 ${existing}
 
 THE PROJECT'S FILES:
@@ -637,9 +639,15 @@ A correction MUST be a complete revision of every pending line in each affected 
 When they give you a price or a quantity for a line — "shell mix is 48 a ton", "make the dense grade 60 tons", "mason is 95 an hour" — call set_line_prices with the matching line_id(s). That is the ONLY way a number agreed here reaches the card; saying "updated" on its own does nothing. Match on the label, put every line they mentioned in ONE call, then confirm in one short line what changed. Materials and subs take the BASE cost — what they pay — and BidClaw adds the markup. Lines marked NEEDS PRICE carry your own figure; those are the ones to ask about first. You cannot add, remove or rename lines by talking — they Skip or approve each line on the card, and can edit qty and cost there too if they would rather.`
     : ''
 
+  const chatTask = ctx.approvedRunWorkAreas.length
+    ? `TASK — CONTINUE THE APPROVED ESTIMATE. These work areas were already approved in THIS Jamie run and are on the project because of that approval:
+${ctx.approvedRunWorkAreas.map(w => `- ${w.name}: ${w.hasTakeoff ? 'takeoff already generated; review state below governs any pending changes' : 'awaiting pricing'}`).join(NEWLINE)}
+Their presence in the existing work-area list is expected, not a duplicate or a reason to repeat Pass 1. Do not offer to create duplicates, ask them to approve none, or direct them to Propose work areas again. Accept answers for the next pricing batch, retain them for the takeoff, and ask only an unanswered question that changes the price. If there are pending takeoff lines, use the revision instructions below. Otherwise, when answers are sufficient, tell them to review the response checkbox and use the Build work areas button. Do not claim the takeoff is saved by talking alone. Keep the acknowledgement to a few sentences; do not repeat every scope and exclusion.`
+    : 'TASK — SCOPE CONVERSATION. You are gathering what you need to estimate this project. Ask about what changes the price and nothing else. When you have enough to break the job into work areas, say so plainly — the contractor then hits "Propose work areas" and you run Pass 1.'
+
   return `${identity}
 
-TASK — SCOPE CONVERSATION. You are gathering what you need to estimate this project. Ask about what changes the price and nothing else. When you have enough to break the job into work areas, say so plainly — the contractor then hits "Propose work areas" and you run Pass 1.${reviewing}${reviewingTakeoff}
+${chatTask}${reviewing}${reviewingTakeoff}
 
 ${kyn}
 
@@ -1131,6 +1139,21 @@ Deno.serve(async (req: Request) => {
   // on screen, and that talking does not change it. Without this she said
   // "Done, four work areas" to a merge request and nothing moved.
   let reviewingWorkAreas: string[] = []
+  let approvedRunWorkAreas: BrainContext['approvedRunWorkAreas'] = []
+  if (action === 'chat') {
+    const { data: approved, error: approvedError } = await service
+      .from('jamie_proposed_work_areas')
+      .select('proposed_name, jamie_proposed_lines(id)')
+      .eq('jamie_run_id', run.id)
+      .eq('status', 'approved')
+      .not('inserted_work_area_id', 'is', null)
+      .order('sort_order')
+    if (approvedError) return json({ error: 'Could not read the approved estimate stage. Please retry.' }, 500)
+    approvedRunWorkAreas = (approved ?? []).map((w: Record<string, unknown>) => ({
+      name: String(w.proposed_name),
+      hasTakeoff: Array.isArray(w.jamie_proposed_lines) && w.jamie_proposed_lines.length > 0,
+    }))
+  }
   if (action === 'chat' && run.status === 'awaiting_wa_approval') {
     const { data: pending } = await service
       .from('jamie_proposed_work_areas')
@@ -1225,6 +1248,7 @@ Deno.serve(async (req: Request) => {
     })),
     stagedWorkAreas,
     reviewingWorkAreas,
+    approvedRunWorkAreas,
     reviewingLines,
     kits: ((kitRows ?? []) as Array<Record<string, unknown>>)
       .filter((k) => (k.status ?? 'active') !== 'archived')
