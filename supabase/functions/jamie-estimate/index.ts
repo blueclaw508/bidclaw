@@ -13,7 +13,7 @@
 // Prime directive (BidClaw SKILL): every item in the scope description
 // MUST have a line item, and vice versa. Scope and line items match 100%.
 
-import { excludeAutomaticAllowances, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
+import { prepareSingleAreaResult, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -114,6 +114,8 @@ function buildSystemPrompt(ctx: {
 
 You estimate ONE work area at a time. The contractor gives you a scope; you produce the complete, priced line-item takeoff for that ONE work area.
 
+FIRST CHECK WHETHER THE SCOPE CAN BE MEASURED AND PRICED. Never invent job size, dimensions, repair area, separate repair quantities, or construction method. For lift-and-relay or re-jointing work, confirm the area of each operation and the existing/proposed bedding and joint method before calculating materials or labor. If an essential input is missing, return up to three concise gap_questions, line_items: [], and new_catalog_items: []. scope_description should briefly say what needs clarification; do not give a guessed estimate or assumed quantities. The contractor will answer in the next request. Read all previous questions and answers included in the scope, use those answers, and do not ask them again. Only return priced line_items when no essential questions remain. If the contractor says they do not know a required quantity, ask for measurement rather than making one up.
+
 PRIME DIRECTIVE: Every component you mention in the scope description MUST have a matching line item, and every line item MUST be reflected in the scope. Scope and line items match 100%. If you write it, you bill it.
 
 Work the KYN steps in order for this work area:
@@ -138,7 +140,7 @@ ${eq}
 Item catalog (base costs — markup is automatic, do not add it):
 ${cat}
 
-If something critical is ambiguous (substrate, disposal included, owned vs rented, Nantucket logistics, stone profile), add it to gap_questions — but still produce your best-estimate line items now; don't stall.
+If something critical remains ambiguous, ask before pricing. Client-supplied materials and exclusions must remain excluded. Never infer wet-set mortar work from the word re-joint; confirm the method. gap_questions must be empty before any takeoff can be added.
 
 Categories must be exactly: Materials, Equipment, Labor, Subcontractor, Other.`
 }
@@ -259,8 +261,7 @@ Deno.serve(async (req: Request) => {
     if (!textBlock || textBlock.type !== 'text') {
       throw new Error('Jamie returned no estimate.')
     }
-    const parsed = JSON.parse(textBlock.text)
-    parsed.line_items = excludeAutomaticAllowances(parsed.line_items ?? [])
+    const parsed = prepareSingleAreaResult(JSON.parse(textBlock.text))
 
     // 7. Log the run (best-effort; a log failure never blocks the estimate).
     await supabase.from('jamie_runs').insert({
