@@ -1,3 +1,4 @@
+import type {JamieClarification} from '../../supabase/functions/_shared/jamieQuestions.ts'
 // SSE client for the jamie-chat Edge Function (J2). This is a THIN
 // transport: auth/gate/metering all live server-side (J1) — the panel
 // reuses the harness-proven contract exactly, no parallel client logic.
@@ -5,9 +6,10 @@
 import { supabase } from '@/lib/supabase'
 
 /** What the function is being asked to do (J3). */
-export type JamieAction = 'chat' | 'propose_work_areas' | 'propose_lines'
+export type JamieAction = 'chat' | 'clarify' | 'propose_work_areas' | 'propose_lines'
 
 export interface JamieChatCallbacks {
+  onQuestions?: (clarification:JamieClarification)=>void
   /** Streamed text as it arrives (append to the pending bubble). */
   onTextDelta: (text: string) => void
   /** jamie_done sentinel — the turn finished and metering is finalized. */
@@ -115,6 +117,7 @@ export async function sendJamieChatMessage(
          *  assembly or a price, versus writing the takeoff. */
         stage?: 'searching' | 'writing'
         gate?: 'work_areas' | 'lines'
+        clarification?: JamieClarification
         count?: number
       }
       try {
@@ -124,6 +127,8 @@ export async function sendJamieChatMessage(
       }
       if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
         cb.onTextDelta(event.delta.text ?? '')
+      } else if (event.type === 'jamie_questions' && event.clarification) {
+        cb.onQuestions?.(event.clarification)
       } else if (event.type === 'jamie_progress') {
         cb.onProgress?.(event.chars ?? 0, event.stage)
       } else if (event.type === 'jamie_staged') {

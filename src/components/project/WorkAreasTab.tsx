@@ -20,7 +20,6 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
-  Sparkles,
   FileText,
   GripVertical,
   Plus,
@@ -86,7 +85,6 @@ export default function WorkAreasTab({
   openAddOnMount = false,
   onAddOpened,
 }: WorkAreasTabProps) {
-  const navigate = useNavigate()
   const [rows, setRows] = useState<WorkArea[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -345,21 +343,10 @@ export default function WorkAreasTab({
           <h3 className="text-base font-semibold text-gray-900">No work areas yet</h3>
           <p className="mt-1 max-w-sm text-sm text-gray-500">
             Work areas break the project into discrete scopes, each with its own
-            measurements and line items. Have Jamie detect them from your plans,
-            or enter them yourself.
+            measurements and line items. Use Build with Jamie above to start from your plans,
+            or add a work area manually.
           </p>
-          {/* Both paths are first-class (flow doc §1), so neither one is a
-              ghost link under the other. Jamie's workspace asks the same
-              question; this is the other door into it. */}
           <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => navigate(`/app/projects/${projectId}/jamie`)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
-            >
-              <Sparkles className="h-4 w-4" />
-              Have Jamie detect them
-            </button>
             <button
               type="button"
               onClick={() => setNewOpen(true)}

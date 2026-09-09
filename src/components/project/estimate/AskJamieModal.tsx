@@ -1,3 +1,5 @@
+import {QuestionForm} from '@/components/jamie/QuestionForm'
+import {normalizeClarification} from '../../../../supabase/functions/_shared/jamieQuestions.ts'
 import { useRef, useState } from 'react'
 import { PricingReview } from './PricingReview'
 import {
@@ -73,14 +75,12 @@ export function AskJamieModal({
   const [applying, setApplying] = useState(false)
   const [blockedMsg, setBlockedMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
-  const [answers, setAnswers] = useState<Record<number, string>>({})
   const asking = useRef(false)
 
   const reset = () => {
     setPhase('input')
     setResult(null)
     setApplying(false)
-    setAnswers({})
   }
 
   const handleImagePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -93,21 +93,20 @@ export function AskJamieModal({
     setImage({ file: f, preview: URL.createObjectURL(f) })
   }
 
-  const handleAsk = async (withAnswers = false) => {
+  const handleAsk = async (answerText = '', price = false) => {
     if (asking.current) return
-    if (withAnswers && result?.gap_questions.some((_, i) => !answers[i]?.trim())) return
     if (!scope.trim()) {
       toast.error('Tell Jamie about the work first.')
       return
     }
-    const nextScope = withAnswers && result
-      ? `${scope.trim()}\n\nClarifications from the contractor:\n${result.gap_questions.map((q, i) => `Question: ${q}\nAnswer: ${answers[i].trim()}`).join('\n\n')}`
-      : scope.trim()
+    const nextScope = answerText ? `${scope.trim()}\n\n${answerText}` : scope.trim()
     asking.current = true
     setPhase('loading')
     try {
       const imagePayload = image ? await fileToImagePayload(image.file) : null
       const res = await askJamie({
+        mode: price ? 'price' : 'clarify',
+        reviewed: price,
         workAreaId,
         workAreaName,
         scope: nextScope,
@@ -115,8 +114,7 @@ export function AskJamieModal({
       })
       setResult(res)
       setScope(nextScope)
-      setAnswers({})
-      setPhase('review')
+        setPhase('review')
     } catch (err) {
       if (err instanceof JamieNotEnabledError) {
         setBlockedMsg(err.message)
@@ -200,7 +198,7 @@ export function AskJamieModal({
           <RotateCcw className="h-4 w-4" />
           Start over
         </button>
-        <button
+        {result.line_items.length > 0 && <button
           type="button"
           onClick={() => void handleApply()}
           disabled={applying || !canApplySingleAreaResult(result) || !result.client_scope_description?.trim()}
@@ -208,7 +206,7 @@ export function AskJamieModal({
         >
           <Sparkles className="h-4 w-4" />
           {applying ? 'Adding…' : result.gap_questions.length ? 'Answer questions before pricing' : `Add ${result.line_items.length} lines to estimate`}
-        </button>
+        </button>}
       </div>
     ) : undefined
 
@@ -333,15 +331,15 @@ export function AskJamieModal({
       {/* ── REVIEW ── */}
       {phase === 'review' && result && (
         <div className="space-y-4">
-          {/* Scope narrative */}
-          <section>
+          {/* Show the crew narrative only with a priced result. */}
+          {result.line_items.length>0 && <section>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
               Jamie's scope
             </h4>
             <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
               {result.scope_description}
             </p>
-          </section>
+          </section>}
 
           {/* Line items */}
           {result.line_items.length > 0 && (
@@ -430,30 +428,16 @@ export function AskJamieModal({
             </section>
           )}
 
-          {/* Gap questions */}
-          {result.gap_questions.length > 0 && (
-            <section className="rounded-lg border border-sky-200 bg-sky-50 p-3">
-              <h4 className="text-base font-bold text-sky-800">
-                Answer before Jamie prices this work
-              </h4>
-              <div className="mt-3 space-y-4 text-base text-sky-900">
-                {result.gap_questions.map((q, i) => (
-                  <label className="block" key={q}>
-                    <span className="mb-1 block">{q}</span>
-                    <textarea aria-label={q} rows={2} value={answers[i] ?? ''}
-                      onChange={e => setAnswers(current => ({ ...current, [i]: e.target.value }))}
-                      className="w-full rounded border border-sky-300 bg-white p-2 text-base"
-                      placeholder="Your answer…" />
-                  </label>
-                ))}
-              </div>
-              <button type="button" onClick={() => void handleAsk(true)}
-                disabled={result.gap_questions.some((_, i) => !answers[i]?.trim())}
-                className="mt-3 rounded bg-brand-navy px-4 py-2 text-base font-semibold text-white disabled:opacity-50">
-                Send answers to Jamie
-              </button>
-            </section>
-          )}
+          {result.gap_questions.length > 0 && <QuestionForm
+            key={result.gap_questions.join('|')} draftKey={`${workAreaId}:${scope}`}
+            questions={(result.clarification ?? normalizeClarification(result)).questions}
+            onSubmit={text=>handleAsk(text)} />}
+          {result.clarification?.ready && result.line_items.length===0 && <section className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-base">
+            <h4 className="font-semibold">Review the scope before pricing</h4>
+            <p className="my-3 whitespace-pre-wrap">{result.clarification.summary}</p>
+            <button type="button" className="rounded bg-brand-navy px-4 py-3 text-white" onClick={()=>void handleAsk('',true)}>Confirm scope and price</button>
+            <button type="button" className="ml-3 rounded border px-4 py-3" onClick={()=>setPhase('input')}>Correct the scope</button>
+          </section>}
 
         </div>
       )}

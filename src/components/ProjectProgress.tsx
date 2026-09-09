@@ -1,13 +1,13 @@
 import { StatusBadge } from '@/components/StatusBadge'
-import type { ProjectStatus, ProposalStatus } from '@/lib/types'
+import type { ProjectStatus } from '@/lib/types'
+import {projectMilestone,type ProposalProgress} from '@/lib/projectProgress'
+import {PROPOSAL_STATUS_CONFIG} from '@/lib/statusConfig'
 
-export type ProposalProgress = { status: ProposalStatus; created_at: string }
+export type {ProposalProgress} from '@/lib/projectProgress'
 
 /** Separate project stage from the latest proposal; never rewrite saved status. */
 export function ProjectProgress({ status, proposals = [] }: { status: ProjectStatus; proposals?: ProposalProgress[] }) {
-  const latest = [...proposals].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
-  return <div className="flex shrink-0 flex-col gap-1.5 text-xs">
-    <div className="flex items-center gap-2"><span>Project:</span><StatusBadge kind="project" value={status} /></div>
-    {latest && <div className="flex items-center gap-2"><span>Latest proposal:</span><StatusBadge kind="proposal" value={latest.status} /></div>}
-  </div>
+  const milestone=projectMilestone(status,proposals)
+  if(milestone.kind==='project') return <StatusBadge kind="project" value={milestone.status}/>
+  return <span className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-sm font-medium ring-1 ring-inset ${PROPOSAL_STATUS_CONFIG[milestone.status].className}`}>{milestone.label}</span>
 }

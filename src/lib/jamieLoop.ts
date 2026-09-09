@@ -1,3 +1,4 @@
+import type {JamieClarification} from '../../supabase/functions/_shared/jamieQuestions.ts'
 // Data layer for the Jamie LOOP (J0) — the conversational, staged,
 // two-gate estimating agent. Distinct from jamie.ts (Phase-1 single-shot
 // jamie-estimate flow, kept live until J6 supersedes it).
@@ -57,6 +58,7 @@ export type JamieMessageRole = 'user' | 'assistant'
  * private jamie-images bucket, J1), never raw base64.
  */
 export interface JamieMessageContent {
+  clarification?: JamieClarification
   text?: string
   image_refs?: string[]
 }

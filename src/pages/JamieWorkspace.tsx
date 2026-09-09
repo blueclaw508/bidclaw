@@ -1,3 +1,5 @@
+import {QuestionForm} from '@/components/jamie/QuestionForm'
+import {clarificationMatches,type JamieClarification} from '../../supabase/functions/_shared/jamieQuestions.ts'
 // Build with Jamie (J4) — the full-page estimating workspace.
 //
 // Replaces the J2 side panel. A drawer is for a helper; Jamie is the front
@@ -54,6 +56,7 @@ import { cn } from '@/lib/utils'
 import { LineGate, WorkAreaGate, type AddedWorkArea } from '@/components/jamie/GateReview'
 
 interface ThreadMessage {
+  clarification?: JamieClarification
   id: string
   role: 'user' | 'assistant'
   text: string
@@ -160,7 +163,7 @@ export default function JamieWorkspace() {
           const rows = await listJamieMessages(active.id)
           if (cancelled) return
           setMessages(
-            rows.map((m) => ({ id: m.id, role: m.role, text: m.content.text ?? '' }))
+            rows.map((m) => ({ id: m.id, role: m.role, text: m.content.text ?? '', clarification:m.content.clarification }))
           )
         }
       } catch (err) {
@@ -291,6 +294,7 @@ export default function JamieWorkspace() {
               setMessages((prev) =>
                 prev.map((m) => (m.id === asstMsgId ? { ...m, text: m.text + t } : m))
               ),
+            onQuestions: clarification => setMessages(prev=>prev.map(m=>m.id===asstMsgId ? {...m,clarification} : m)),
             onProgress: (chars, stage) => {
               setPassChars(chars)
               if (stage) setPassStage(stage)
@@ -344,6 +348,7 @@ export default function JamieWorkspace() {
     try {
       const pending = await listWorkAreasAwaitingLines(runId)
       if (!pending.length) return
+      if(!clarificationMatches(messages.at(-1)?.clarification,pending.slice(0,2).map(w=>w.id))) return
       const chunk = pending.slice(0, 2)
       setTakeoffProgress({ done: 0, total: chunk.length })
       await send('propose_lines', '', { proposedWorkAreaIds: chunk.map((c) => c.id) })
@@ -354,7 +359,7 @@ export default function JamieWorkspace() {
       setTakeoffProgress(null)
       takeoffInFlight.current = false
     }
-  }, [send, input, pricingReviewed])
+  }, [send, input, pricingReviewed, messages])
 
   const handleWorkAreaGate = useCallback(
     async (decisions: WorkAreaDecision[], added: AddedWorkArea[]) => {
@@ -464,6 +469,10 @@ export default function JamieWorkspace() {
     !gateBusy &&
     ((run.status === 'in_progress' && !atGate && awaitingLines.length === 0) || atWorkAreaGate)
 
+  const latestClarification=messages.at(-1)?.clarification
+  const nextIds=awaitingLines.slice(0,2).map(w=>w.id)
+  const relevantClarification=latestClarification && JSON.stringify([...(latestClarification.work_area_ids ?? [])].sort())===JSON.stringify([...nextIds].sort()) ? latestClarification : undefined
+  const checkDetails=(text='')=>send('clarify',text,{proposedWorkAreaIds:nextIds})
   if (!user) return null
 
   return (
@@ -687,7 +696,7 @@ export default function JamieWorkspace() {
                       )}
                     >
                       <span className="whitespace-pre-wrap">
-                        {m.text}
+                        {m.clarification ? (m.clarification.summary || 'Please answer the questions below before pricing.') : m.text}
                         {m.streaming && !m.text && (
                           <span className="text-gray-500">
                             {passChars !== null
@@ -747,36 +756,20 @@ export default function JamieWorkspace() {
                     {awaitingLines.map((w) => w.name).join(', ')}. Your work areas
                     have been identified. The remaining count falls as takeoffs are built;
                     it does not mean your answers have been received. Answer below before pricing,
-                    or explicitly accept the assumptions in Jamie&apos;s latest message.
+                    and confirm the measured quantities and scope for this batch.
                   </p>
-                  <label htmlFor="pricing-answers" className="mt-4 block text-base font-semibold text-gray-900">Your answers to Jamie</label>
-                  <textarea
-                    id="pricing-answers"
-                    rows={4}
-                    value={input}
-                    onChange={(e) => { setInput(e.target.value); setPricingReviewed(false) }}
-                    placeholder="Answer the questions above, or tell Jamie what needs clarification…"
-                    className="mt-2 w-full rounded-lg border border-gray-400 bg-white px-3 py-3 text-base text-gray-900"
-                  />
-                  <button type="button" disabled={!input.trim() || loading}
-                    onClick={() => input.trim() && void send('chat', input.trim())}
-                    className="mt-2 rounded-lg bg-brand-navy px-4 py-3 text-base font-semibold text-white disabled:opacity-40">
-                    Send answers to Jamie
-                  </button>
-                  <label className="mt-5 flex items-start gap-3 text-base text-gray-900">
-                    <input type="checkbox" checked={pricingReviewed} disabled={!!input.trim()}
-                      onChange={(e) => setPricingReviewed(e.target.checked)} className="mt-1 h-5 w-5 shrink-0" />
-                    I have reviewed Jamie&apos;s latest response. My answers are reflected, or I accept the stated assumptions for this batch.
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => run && void buildTakeoff(run.id)}
-                    disabled={!!input.trim() || !pricingReviewed}
-                    title={input.trim() ? "Send your answer in the chat first" : undefined}
-                    className="mt-3 rounded-lg bg-brand-navy px-4 py-3 text-base font-semibold text-white shadow-sm transition-all hover:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Build {Math.min(2, awaitingLines.length)} work area{awaitingLines.length === 1 ? '' : 's'}
-                  </button>
+                  {!relevantClarification && <button type="button" disabled={loading} className="mt-3 rounded bg-brand-navy px-4 py-3 text-white" onClick={()=>void checkDetails(input)}>Check scope details before pricing</button>}
+                  {relevantClarification && relevantClarification.questions.length>0 && <QuestionForm key={`${nextIds.join(':')}:${relevantClarification.questions.map(q=>q.id).join('|')}`} draftKey={`${run?.id}:${nextIds.join(':')}`} questions={relevantClarification.questions} onSubmit={text=>checkDetails(text)} />}
+                  {relevantClarification?.ready && <>
+                    <h3 className="mt-4 font-semibold">Confirm the scope for this batch</h3>
+                    <button type="button" className="mt-2 rounded border px-3 py-2" onClick={()=>void checkDetails(input)}>Recheck details</button>
+                    <p className="mt-2 whitespace-pre-wrap text-base">{relevantClarification.summary}</p>
+                    <label className="mt-4 flex gap-3 text-base"><input type="checkbox" checked={pricingReviewed} onChange={e=>setPricingReviewed(e.target.checked)} disabled={!!input.trim()} />These quantities, methods and exclusions are correct.</label>
+                    <label className="mt-3 block text-base">Corrections or additional details<textarea value={input} onChange={e=>{setInput(e.target.value);setPricingReviewed(false)}} className="mt-1 w-full rounded border p-3" /></label>
+                    {input.trim() && <button type="button" className="mt-2 rounded border px-4 py-3" onClick={()=>void checkDetails(input)}>Check my corrections</button>}
+                    <button type="button" onClick={()=>run && void buildTakeoff(run.id)} disabled={!!input.trim() || !pricingReviewed} className="mt-3 rounded bg-brand-navy px-4 py-3 text-base text-white disabled:opacity-40">Build {Math.min(2,awaitingLines.length)} work area{awaitingLines.length===1?'':'s'}</button>
+                  </>}
+
                 </div>
               )}
 
