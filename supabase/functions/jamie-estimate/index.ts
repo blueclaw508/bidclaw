@@ -13,7 +13,7 @@
 // Prime directive (BidClaw SKILL): every item in the scope description
 // MUST have a line item, and vice versa. Scope and line items match 100%.
 
-import { excludeAutomaticAllowances } from '../_shared/estimatePolicy.ts'
+import { excludeAutomaticAllowances, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
 import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -119,7 +119,7 @@ PRIME DIRECTIVE: Every component you mention in the scope description MUST have 
 Work the KYN steps in order for this work area:
 1. MATERIAL TAKEOFF — every physical material that goes into the job is a line item. Stone veneer means stone AND mortar AND lath AND barrier AND fasteners AND weep screed AND corners — not just stone. Include ~10% waste on area/volume materials.
 2. EQUIPMENT — every piece of equipment is its own line, billed by the hour (cement mixer, grinder, plate compactor, excavator).
-3. LABOR — project man-hours. A full crew day = 27 man-hours (3 crew x 9 hrs). Round UP to a full day if within 20% of 27 hrs. Half day = 13-14 hrs.
+3. LABOR — project person-hours by role and task, following the labor basis below. No automatic crew-day minimum.
 4. GENERAL CONDITIONS / ROUNDING — leave empty. Do not generate incidentals, rounding or allowance plugs. The contractor can add these manually later; do not hide them in another line.
 5. SCOPE NOTES — step-by-step bullets describing exactly what will be done. Every bullet maps to line items above.
 
@@ -127,6 +127,8 @@ PRICING RULES — use THIS contractor's numbers, given below:
 - Labor lines: qty = man-hours; unit_cost = the $/hr rate of the best-matching labor type below.
 - Equipment lines: qty = hours; unit_cost = the $/hr rate of the best-matching equipment rate below.
 - Materials / Subcontractor / Other lines: unit_cost = the BASE cost per unit. If the item is in the catalog below, use that cost. If it is NOT in the catalog, set unit_cost to 0 and add the item's name to new_catalog_items. Do NOT apply markup yourself — the app applies the contractor's markup automatically. (Materials markup ${ctx.materialsMarkup}%, Subs/Other markup ${ctx.subsMarkup}% — for your awareness only; never bake it into unit_cost.)
+
+${LABOR_BASIS_RULES}
 
 THIS CONTRACTOR'S KYN NUMBERS
 Labor rates ($/hr):
