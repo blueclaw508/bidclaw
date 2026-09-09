@@ -9,13 +9,14 @@ import {
   type KynDivisionPlan,
   type KynMarkupPlan,
   type KynModelSummary,
+  type KynImportHistory,
 } from '@/lib/kynSync'
 
 /**
  * Import My Numbers from Know Your Numbers.
  *
- * Three deliberate steps — find, preview, import — because this writes over
- * numbers the contractor may have typed themselves. Nothing is written until
+ * Three deliberate steps — find, preview, import. Existing contractor numbers
+ * are preserved and compared with the incoming KYN rates. Nothing is written until
  * they have seen the exact rate for every crew and machine, by name.
  *
  * Divisions are MULTI-SELECT and each becomes a BidClaw division, so a
@@ -23,6 +24,9 @@ import {
  * them apart instead of having them averaged into one set.
  */
 export function KynImportCard({ onImported }: { onImported: () => void }) {
+  const [previewToken,setPreviewToken] = useState<string | null>(null)
+  const [sourceVersion,setSourceVersion] = useState<string | null>(null)
+  const [imports,setImports] = useState<KynImportHistory[]>([])
   const [catalogue, setCatalogue] = useState<KynModelSummary[] | null>(null)
   const [year, setYear] = useState<number | null>(null)
   const [picked, setPicked] = useState<number[]>([])
@@ -32,6 +36,8 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
   const [notFound, setNotFound] = useState<string | null>(null)
 
   const clearPreview = () => {
+    setPreviewToken(null)
+    setSourceVersion(null)
     setPlans(null)
     setMarkupPlan(null)
   }
@@ -40,7 +46,8 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
     setBusy('find')
     setNotFound(null)
     try {
-      const { catalogue: c } = await loadKynCatalogue()
+      const { catalogue: c, imports: history } = await loadKynCatalogue()
+      setImports(history ?? [])
       setCatalogue(c)
       if (c.length > 0) {
         setYear(c[0].year)
@@ -75,6 +82,8 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
     setBusy('preview')
     try {
       const res = await previewKynImport(year, picked)
+      setPreviewToken(res.previewToken)
+      setSourceVersion(res.source.updated_at)
       setPlans(res.plans)
       setMarkupPlan(res.markupPlan)
     } catch (err) {
@@ -89,7 +98,8 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
     if (year === null || picked.length === 0) return
     setBusy('apply')
     try {
-      await applyKynImport(year, picked)
+      if (!previewToken) return
+      await applyKynImport(year, picked, previewToken)
       toast.success(
         picked.length === 1
           ? 'Your Know Your Numbers rates are in.'
@@ -97,7 +107,9 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
       )
       clearPreview()
       onImported()
+      await find()
     } catch (err) {
+      clearPreview()
       toast.error(err instanceof Error ? err.message : "Couldn't finish the import.")
     } finally {
       setBusy(null)
@@ -175,6 +187,11 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
 
         {model && (
           <>
+            {imports.length > 0 && <div className="rounded-lg bg-blue-50 p-3 text-sm">
+              <strong>Last KYN import:</strong> {imports[0].source.company} · {imports[0].source.year} · {imports[0].divisions.map(d=>d.division).join(', ')}
+              <div>Source saved {new Date(imports[0].source.updated_at).toLocaleString()} · Imported {new Date(imports[0].imported_at).toLocaleString()}</div>
+              <div>Existing rates may include manual overrides. Labor rates are per person-hour.</div>
+            </div>}
             <label className="block text-sm">
               <span className="mb-1 block font-medium text-gray-700">Year</span>
               <select
@@ -252,7 +269,7 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
         {plans && markupPlan && (
           <div className="space-y-5 rounded-lg border border-gray-200 bg-gray-50/60 p-4">
             <p className="text-sm font-semibold text-gray-900">
-              Here's exactly what will land
+              Here's exactly what will land — KYN {year} · saved {sourceVersion ? new Date(sourceVersion).toLocaleString() : ''}
             </p>
 
             {plans.map((p) => (
@@ -267,6 +284,7 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
                 </p>
                 <PreviewList
                   title="Labor types"
+                  note="Selling rate per person-hour, not for the whole crew."
                   rows={p.labor.incoming}
                   counts={p.labor}
                 />
@@ -288,6 +306,7 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
                     ? `subs ${p.markups.subs}%`
                     : 'subs — inherits company'}
                 </p>
+                {!p.isNewDivision && <p className="text-xs text-gray-600">Saved division markups are preserved. KYN proposes materials {p.incomingMarkups?.materials ?? '—'}%, subs {p.incomingMarkups?.subs ?? '—'}%.</p>}
                 {Object.keys(p.unmappedMarkups).length > 0 && (
                   <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
                     <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -316,17 +335,13 @@ export function KynImportCard({ onImported }: { onImported: () => void }) {
               {markupPlan.subs !== null
                 ? `subs ${markupPlan.subs}%`
                 : 'subs unchanged'}
-              <span className="text-gray-500">
-                {' '}
-                — from {markupPlan.fromDivision}. Used by work areas you
-                haven't put in a division; each division above keeps its own.
-              </span>
+<span className="text-gray-500"> — company defaults are preserved.</span>
             </div>
 
             <p className="text-xs text-gray-500">
-              Existing rows in each division are overwritten in order and
-              extras are added. Nothing is deleted, so kits you've already
-              built keep working.
+              Existing rates and markups stay unchanged. New names are added.
+              Compare any difference shown here before manually editing your saved rates.
+              Current estimates, proposals and kit references stay intact.
             </p>
 
             <button
@@ -352,7 +367,7 @@ function PreviewList({
   note,
 }: {
   title: string
-  rows: { name: string; rate: number }[]
+  rows: { name: string; rate: number; action?: 'keep' | 'add'; currentRate?: number | null }[]
   counts: { overwrites: number; appends: number; untouched: number }
   note?: string
 }) {
@@ -380,9 +395,11 @@ function PreviewList({
             key={`${r.name}-${i}`}
             className="flex items-baseline justify-between px-3 py-1.5 text-sm"
           >
-            <span className="truncate text-gray-800">{r.name}</span>
+            <span className="text-gray-800">{r.name}
+              <span className="block text-xs text-gray-500">{r.action === 'keep' ? `Keep saved rate; KYN proposes $${r.rate.toFixed(2)}/hr` : 'Add new rate'}</span>
+            </span>
             <span className="ml-3 shrink-0 font-semibold tabular-nums text-gray-900">
-              ${r.rate.toFixed(2)}
+              ${(r.action === 'keep' ? r.currentRate ?? r.rate : r.rate).toFixed(2)}
               <span className="ml-0.5 text-xs font-normal text-gray-400">/hr</span>
             </span>
           </li>

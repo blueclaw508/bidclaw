@@ -25,6 +25,8 @@ export interface KynModelSummary {
 export interface KynMappedRow {
   name: string
   rate: number
+  action?: 'keep' | 'add'
+  currentRate?: number | null
 }
 
 export interface KynDivisionPlan {
@@ -46,6 +48,7 @@ export interface KynDivisionPlan {
   }
   /** This division's own materials / subs markups — kept per division (0040). */
   markups: { materials: number | null; subs: number | null }
+  incomingMarkups?: { materials: number | null; subs: number | null }
   /** Markups KYN carries that BidClaw has nowhere to store. Shown, not hidden. */
   unmappedMarkups: Record<string, number>
 }
@@ -94,7 +97,8 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 /** What KYN models does this contractor have? Writes nothing. */
-export function loadKynCatalogue(): Promise<{ catalogue: KynModelSummary[] }> {
+export interface KynImportHistory { imported_at: string; source: { year:number; company:string; updated_at:string }; divisions: KynDivisionPlan[] }
+export function loadKynCatalogue(): Promise<{ catalogue: KynModelSummary[]; imports?: KynImportHistory[] }> {
   return call({ mode: 'preview' })
 }
 
@@ -104,6 +108,8 @@ export function previewKynImport(
   divisions: number[]
 ): Promise<{
   catalogue: KynModelSummary[]
+  previewToken: string
+  source: {year:number;company:string;updated_at:string}
   plans: KynDivisionPlan[]
   markupPlan: KynMarkupPlan
 }> {
@@ -111,17 +117,18 @@ export function previewKynImport(
 }
 
 /**
- * Do it. Creates a BidClaw division per KYN division, overwrites matching
- * rows inside it and appends the rest. Deletes nothing — kit lines point at
+ * Apply the exact preview. Creates missing divisions/rates and preserves
+ * existing rates and markups. Deletes nothing — kit lines point at
  * these rows, so a full replace would unlink kits already built.
  */
 export function applyKynImport(
   year: number,
-  divisions: number[]
+  divisions: number[],
+  previewToken: string
 ): Promise<{
   applied: boolean
   plans: KynDivisionPlan[]
   markupPlan: KynMarkupPlan
 }> {
-  return call({ mode: 'apply', year, divisions })
+  return call({ mode: 'apply', year, divisions, previewToken })
 }
