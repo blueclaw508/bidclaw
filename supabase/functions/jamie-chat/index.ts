@@ -28,7 +28,7 @@
 //   4. Full gate vs tier limits + live usage counts
 //   5. Meter (invocation row, in_progress) → Anthropic → finalize
 
-import { excludeAutomaticAllowances, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
+import { prepareGeneratedTakeoff, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
 import Anthropic, { toFile } from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
@@ -1690,7 +1690,7 @@ Deno.serve(async (req: Request) => {
                 .update(scopePatch)
                 .eq('id', wa.proposed_work_area_id)
             }
-            wa.line_items = excludeAutomaticAllowances(wa.line_items)
+            wa.line_items = prepareGeneratedTakeoff(wa.line_items)
             wa.line_items.forEach((l, i) => {
               rows.push({
                 jamie_proposed_work_area_id: wa.proposed_work_area_id,

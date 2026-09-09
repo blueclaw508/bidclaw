@@ -7,15 +7,20 @@ export function excludeAutomaticAllowances<T extends { label?: string; name?: st
   return lines.filter((line) => !isAutomaticAllowance(line.label ?? line.name ?? ''))
 }
 
+/** AI sometimes leaves a removed item behind with quantity zero. It is not work. */
+export function prepareGeneratedTakeoff<T extends { label?: string; name?: string; qty: number }>(lines: T[]): T[] {
+  return excludeAutomaticAllowances(lines).filter(line => Number.isFinite(line.qty) && line.qty > 0)
+}
+
 /** Approval of a takeoff does not imply confirmation of an unknown price. */
 export function priceNeedsConfirmation(needsPricing: boolean, confirmed: boolean | undefined): boolean {
   return needsPricing && confirmed !== true
 }
 
 /** A single-area response with open questions is a clarification, not a takeoff. */
-export function prepareSingleAreaResult<T extends { gap_questions: string[]; line_items: Array<{name: string}> }>(result: T): T {
+export function prepareSingleAreaResult<T extends { gap_questions: string[]; line_items: Array<{name: string; qty: number}> }>(result: T): T {
   const questions = result.gap_questions.filter(q => q.trim())
-  return { ...result, gap_questions: questions, line_items: questions.length ? [] : excludeAutomaticAllowances(result.line_items) }
+  return { ...result, gap_questions: questions, line_items: questions.length ? [] : prepareGeneratedTakeoff(result.line_items) }
 }
 
 export function canApplySingleAreaResult(result: { gap_questions: string[]; line_items: Array<{qty: number; unit_cost: number}> } | null): boolean {
