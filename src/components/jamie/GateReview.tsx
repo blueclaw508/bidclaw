@@ -5,10 +5,10 @@
 // database — both components hand a decision list up to JamieChatPanel,
 // which commits through jamieLoop.ts under the contractor's own RLS.
 //
-// Everything defaults to APPROVED. Jamie has already done the work; the
-// contractor is looking for the one line that's wrong, not ticking twenty
-// boxes to accept work they asked for.
+// Lines default to included; unknown costs need a separate confirmation,
+// and saving any new item to the catalog is always opt-in.
 
+import { priceNeedsConfirmation } from '../../../supabase/functions/_shared/estimatePolicy.ts'
 import { useMemo, useState } from 'react'
 import { Check, Loader2, Plus, Undo2, X } from 'lucide-react'
 import type {
@@ -280,6 +280,8 @@ export function LineGate({
     added: Record<string, AddedLine[]>
   ) => void
 }) {
+  const [confirmedPrices, setConfirmedPrices] = useState<Record<string, string>>({})
+  const [saveCatalog, setSaveCatalog] = useState<Record<string, boolean>>({})
   const allLines = useMemo(() => groups.flatMap((g) => g.lines), [groups])
   // The scope Pass 2 wrote FROM the takeoff. Editable here — it is what
   // the client reads and what the crew works from, so the contractor gets
@@ -375,7 +377,7 @@ export function LineGate({
   const grandTotal = groups.reduce((a, g) => a + groupTotal(g), 0)
   // Jamie's own figures, flagged for confirmation. NOT zeros — a $0 line
   // is an unfinished estimate and the schema no longer permits one.
-  const toConfirm = approved.filter((l) => l.needs_pricing).length
+  const toConfirm = approved.filter((l) => priceNeedsConfirmation(l.needs_pricing, confirmedPrices[l.id] === state[l.id]?.cost)).length
   const stillBlank = approved.filter((l) => {
     const raw = state[l.id]?.cost ?? ''
     return raw.trim() === '' || parseFloat(raw) === 0
@@ -568,6 +570,22 @@ export function LineGate({
                       )}
                       {l.reasoning}
                     </p>
+                    {l.needs_pricing && (
+                      <label className="mt-2 flex items-center gap-2 text-xs text-amber-900">
+                        <input type="checkbox" disabled={!s.approved || busy}
+                          checked={confirmedPrices[l.id] === s.cost}
+                          onChange={(e) => setConfirmedPrices((p) => ({ ...p, [l.id]: e.target.checked ? s.cost : '\u0000' }))} />
+                        I verified this unit cost
+                      </label>
+                    )}
+                    {!l.catalog_item_id && ['material', 'subcontractor', 'other'].includes(l.category) && (
+                      <label className="mt-1 flex items-center gap-2 text-xs text-gray-600">
+                        <input type="checkbox" disabled={!s.approved || busy}
+                          checked={saveCatalog[l.id] === true}
+                          onChange={(e) => setSaveCatalog((p) => ({ ...p, [l.id]: e.target.checked }))} />
+                        Save this item and cost to my catalog
+                      </label>
+                    )}
                   </div>
                 )
               })}
@@ -725,8 +743,8 @@ export function LineGate({
       {toConfirm > 0 && (
         <p className="mt-1.5 rounded-md bg-amber-100/70 px-2 py-1.5 text-[11px] text-amber-900">
           {toConfirm} line{toConfirm === 1 ? ' uses' : 's use'} Jamie&apos;s own price
-          rather than one from your catalog. Worth a look — change anything that
-          isn&apos;t what you actually pay, or tell Jamie the price in the chat.
+          that still needs confirmation. Check the actual cost, then confirm it
+          on that line or skip the line. Adding a takeoff does not save prices to your catalog.
         </p>
       )}
       {stillBlank > 0 && (
@@ -740,13 +758,15 @@ export function LineGate({
         // A zero-cost line under-bids the job, so it cannot be committed.
         // KYN is enforced here because structured output has no numeric
         // bounds — see the schema note in jamie-chat.
-        disabled={busy || commitCount === 0 || stillBlank > 0 || incompleteAdded > 0}
+        disabled={busy || commitCount === 0 || stillBlank > 0 || incompleteAdded > 0 || toConfirm > 0}
         onClick={() =>
           onCommit(
             allLines.map((l) => {
               const s = state[l.id] ?? { approved: true, qty: '', cost: '', markup: '', price: '' }
               return {
                 id: l.id,
+                priceConfirmed: confirmedPrices[l.id] === s.cost,
+                saveToCatalog: saveCatalog[l.id] === true,
                 approved: s.approved,
                 quantity: num(s.qty) ?? 0,
                 unitCost: num(s.cost) ?? 0,
@@ -777,6 +797,8 @@ export function LineGate({
         {busy && <Loader2 className="h-4 w-4 animate-spin" />}
         {commitCount === 0
           ? 'Keep at least one'
+          : toConfirm > 0
+            ? `Confirm ${toConfirm} price${toConfirm === 1 ? '' : 's'} first`
           : incompleteAdded > 0
             ? `Finish the line${incompleteAdded === 1 ? '' : 's'} you added`
             : stillBlank > 0
