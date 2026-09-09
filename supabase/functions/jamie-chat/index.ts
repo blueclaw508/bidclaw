@@ -1155,7 +1155,7 @@ Deno.serve(async (req: Request) => {
 
   if(action === 'propose_lines') {
     const latest=(history ?? []).at(-1)
-    if(latest?.role !== 'assistant' || !clarificationMatches(latest?.content?.clarification,stagedWorkAreas.map(w=>w.id))) {
+    if(latest?.role !== 'assistant' || !clarificationMatches(latest?.content?.clarification,stagedWorkAreas.map(w=>w.id),JSON.stringify([...stagedWorkAreas].sort((a,b)=>a.id.localeCompare(b.id))))) {
       return json({error:'Check the scope details and answer Jamie’s questions before pricing this batch.'},409)
     }
   }
@@ -1621,7 +1621,7 @@ Deno.serve(async (req: Request) => {
         let spokenText = assistantText
         let clarification: JamieClarification | undefined
         if(action === 'clarify') {
-          clarification={...normalizeClarification(JSON.parse(passText)),work_area_ids:stagedWorkAreas.map(w=>w.id)}
+          clarification={...normalizeClarification(JSON.parse(passText)),work_area_ids:stagedWorkAreas.map(w=>w.id),scope_signature:JSON.stringify([...stagedWorkAreas].sort((a,b)=>a.id.localeCompare(b.id)))}
           spokenText=[clarification.summary,...clarification.questions.map(q=>q.prompt)].filter(Boolean).join('\n')
         } else if (action === 'propose_work_areas') {
           const parsed = JSON.parse(passText) as {
@@ -1696,7 +1696,7 @@ Deno.serve(async (req: Request) => {
               }>
             }>
           }
-          clarification={...normalizeClarification(JSON.parse(passText)),work_area_ids:stagedWorkAreas.map(w=>w.id)}
+          clarification={...normalizeClarification(JSON.parse(passText)),work_area_ids:stagedWorkAreas.map(w=>w.id),scope_signature:JSON.stringify([...stagedWorkAreas].sort((a,b)=>a.id.localeCompare(b.id)))}
           if(!clarification.ready) {
             spokenText=[clarification.summary,...clarification.questions.map(q=>q.prompt)].filter(Boolean).join('\n')
           } else {

@@ -13,6 +13,7 @@ assert.equal(unknown.ready,false)
 const ready={...normalizeClarification({gap_questions:[],measurement_status:'confirmed',summary:'120 SF lift and relay, as measured by contractor; dry laid.'}),work_area_ids:['a','b']}
 assert.equal(clarificationMatches(ready,['b','a']),true)
 assert.equal(clarificationMatches(ready,['c']),false)
+assert.equal(clarificationMatches({...ready,scope_signature:'before'},['a','b'],'after'),false)
 assert.equal(clarificationMatches(undefined,['a']),false)
 assert.equal(normalizeClarification({gap_questions:[],measurement_status:'confirmed',summary:''}).ready,false)
 assert.match(serializeAnswers(unknown.questions,{[unknown.questions[0].id]:'120 SF'}),/Question: What is the measured repair area\?\nAnswer: 120 SF/)

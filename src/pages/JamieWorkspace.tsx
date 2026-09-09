@@ -762,6 +762,7 @@ export default function JamieWorkspace() {
                   {relevantClarification && relevantClarification.questions.length>0 && <QuestionForm key={`${nextIds.join(':')}:${relevantClarification.questions.map(q=>q.id).join('|')}`} draftKey={`${run?.id}:${nextIds.join(':')}`} questions={relevantClarification.questions} onSubmit={text=>checkDetails(text)} />}
                   {relevantClarification?.ready && <>
                     <h3 className="mt-4 font-semibold">Confirm the scope for this batch</h3>
+                    <button type="button" className="mt-2 rounded border px-3 py-2" onClick={()=>void checkDetails(input)}>Recheck details</button>
                     <p className="mt-2 whitespace-pre-wrap text-base">{relevantClarification.summary}</p>
                     <label className="mt-4 flex gap-3 text-base"><input type="checkbox" checked={pricingReviewed} onChange={e=>setPricingReviewed(e.target.checked)} disabled={!!input.trim()} />These quantities, methods and exclusions are correct.</label>
                     <label className="mt-3 block text-base">Corrections or additional details<textarea value={input} onChange={e=>{setInput(e.target.value);setPricingReviewed(false)}} className="mt-1 w-full rounded border p-3" /></label>
