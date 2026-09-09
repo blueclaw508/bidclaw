@@ -7,7 +7,7 @@
 // through the existing addWorkAreaLinesBulk (RLS-safe) at the call site.
 
 import { supabase } from '@/lib/supabase'
-import { excludeAutomaticAllowances } from '../../supabase/functions/_shared/estimatePolicy.ts'
+import { prepareSingleAreaResult } from '../../supabase/functions/_shared/estimatePolicy.ts'
 import type { ProposalLineCategory } from '@/lib/types'
 
 /** One line Jamie returns. Categories are title-case (her contract). */
@@ -84,7 +84,7 @@ export async function askJamie(input: {
   }
 
   const result = data as JamieResult
-  return { ...result, line_items: excludeAutomaticAllowances(result.line_items) }
+  return prepareSingleAreaResult(result)
 }
 
 /** Encode an image File into the base64 payload the function expects. */
