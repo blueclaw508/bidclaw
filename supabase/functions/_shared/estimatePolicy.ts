@@ -11,3 +11,12 @@ export function excludeAutomaticAllowances<T extends { label?: string; name?: st
 export function priceNeedsConfirmation(needsPricing: boolean, confirmed: boolean | undefined): boolean {
   return needsPricing && confirmed !== true
 }
+
+/** Shared by both estimating entry points so their labor assumptions agree. */
+export const LABOR_BASIS_RULES = `LABOR BASIS:
+Estimate person-hours by task and labor role. Show measured quantity x person-hours per unit = person-hours, or the contractor's explicit worker count x hours per worker. State whether each production factor comes from this job's instructions, a matching company kit, or an unverified estimating assumption.
+Never assume a fixed crew size or shift length. Never round labor up to a half-day or full-day minimum unless the contractor explicitly supplies that minimum for this job. Do not apply a minimum separately to every work area when it is a shared crew shift.
+Person-hours are not elapsed hours. Describe elapsed duration only when worker counts and scheduling are known; one mason for 6 hours plus one helper for 6 hours is 12 person-hours, not a 12-hour shift.
+Use the contractor's selling labor and equipment rates unchanged, with no extra markup. Equipment hours follow actual use, not automatically total person-hours.
+Do not transfer a one-job quantity correction into a universal production factor. Preserve this job's exclusions, client-supplied materials and approved methods.
+Before returning a takeoff, reconcile every labor quantity, line explanation, crew instruction and stated total. Flag assumed production factors for review; do not present them as verified company performance.`
