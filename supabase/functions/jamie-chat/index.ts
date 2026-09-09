@@ -28,7 +28,7 @@
 //   4. Full gate vs tier limits + live usage counts
 //   5. Meter (invocation row, in_progress) → Anthropic → finalize
 
-import { excludeAutomaticAllowances } from '../_shared/estimatePolicy.ts'
+import { excludeAutomaticAllowances, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
 import Anthropic, { toFile } from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
@@ -415,7 +415,7 @@ function buildSystemPrompt(
   }
   const cat = Object.keys(byCat).length
     ? Object.entries(byCat).map(([k, v]) => `${k}:\n${v.join('\n')}`).join('\n')
-    : '  (CATALOG IS EMPTY — price every material and sub yourself from current supplier pricing for this trade and region, flag needs_pricing on each, and list them in new_catalog_items so they get saved. An empty catalog is NOT a reason to return zeros.)'
+    : '  (CATALOG IS EMPTY — use sourced prices when available, otherwise clearly identified unverified estimates; flag needs_pricing on each. List candidates in new_catalog_items for optional saving after confirmation. An empty catalog is NOT a reason to return zeros.)'
   // THIS company's kits. BidClaw ships BLANK — no built-in library, and
   // one company's production factors are never shown to another. With no
   // kits yet, Jamie estimates from general trade knowledge and the
@@ -440,8 +440,8 @@ ${ctx.priceBook
   )
   .join('\n')}`
     : `THIS COMPANY'S OWN PRICES: none yet — they have not priced any work in BidClaw.
-Price from current supplier pricing for this trade and region and flag needs_pricing.
-What they enter and correct becomes their price book for next time.`
+Use sourced prices when available; otherwise identify unverified estimates and flag needs_pricing.
+Only items the contractor explicitly chooses to save become catalog entries.`
 
   // Quantity edits are not normalized production history. Do not bias new jobs.
   const kitsBlock = ctx.kits.length
@@ -458,7 +458,7 @@ What they enter and correct becomes their price book for next time.`
         )
         .join(NEWLINE)
     : `THIS COMPANY HAS NOT BUILT ANY KITS YET.
-That is normal — BidClaw ships blank and learns each company. Estimate this work from standard trade practice for the region, the company's own rates and catalog below, and what they have corrected you on before. Show your production factors in the reasoning (e.g. "0.21 hr/SF mason") so they can see what you assumed and correct it. Their corrections become their kits.`
+That is normal — BidClaw ships blank and learns each company. Estimate this work from standard trade practice for the region, the company's own rates and catalog below, and what they have corrected you on before. Show your production factors in the reasoning (e.g. "0.21 hr/SF mason") so they can see what you assumed and correct it. A correction to one job is not automatically a reusable kit or production factor.`
 
   const existing = ctx.existingWorkAreas.length
     ? ctx.existingWorkAreas
@@ -498,19 +498,21 @@ ${
 real unit_cost. A $0 line is not "honest uncertainty" — it is an unfinished
 estimate, and it silently under-bids the job. You are an estimator with a
 thousand jobs behind you: if an item is not in the contractor's catalog,
-you PRICE IT from what that material actually costs from a supplier in this
-market today, and set needs_pricing true so the contractor can confirm your
+you use a sourced supplier price if available, otherwise an explicitly unverified estimate,
+and set needs_pricing true so the contractor can confirm your
 number. needs_pricing means "Jamie's figure, please confirm" — it NEVER
-means zero. There is no such thing as a line you cannot price.
+means zero. When no verified price is available, label the figure as an unverified allowance for that specific item and request confirmation. Never imply you obtained a current supplier quote without actual source evidence.
 
-- LABOR is projected man-hours × the contractor's retail labor rate. qty = man-hours (YOUR projection, from the kit factors × the measured quantity), unit_cost = the retail labor rate from THE CONTRACTOR'S KYN NUMBERS below, used verbatim — never a rate you invented. A full crew day is 27 man-hours (3 crew × 9 hours). Round UP to a full day when you are within 20% of 27 — crews fill the day. Half day = 13-14 hours. The retail rate is already fully burdened (wage + taxes + comp + overhead + profit), so labor carries NO markup.
+- LABOR is projected man-hours × the contractor's retail labor rate. qty = man-hours (YOUR projection, from the kit factors × the measured quantity), unit_cost = the retail labor rate from THE CONTRACTOR'S KYN NUMBERS below, used verbatim — never a rate you invented. Use the task-specific labor basis below; no automatic crew-day minimum. The retail rate is already fully burdened (wage + taxes + comp + overhead + profit), so labor carries NO markup.
 - EQUIPMENT is internal rental HOURS: qty = hours, unit_cost = the equipment rate from the contractor's numbers below, VERBATIM — copy their figure exactly, never round or adjust it. If the machine a step needs is NOT in their configured rates (say the job needs a cement mixer and they have not set one), still price it at a realistic internal rental rate — never zero — but set needs_pricing TRUE on that line. Same rule for a labor type they have not configured. An invented rate must never sit in their estimate looking like a number they gave you. Every machine is its own line — cement mixer, plate compactor, skid loader, cut-off saw. Not overhead. Equipment carries no markup either; the rate already includes it.
-- MATERIALS and SUBCONTRACTORS: qty = the measured quantity from your takeoff, unit_cost = the BASE cost — what the contractor PAYS, before margin. Use the catalog cost when the item is in the catalog below. When it is not, use your own knowledge of current supplier pricing for this trade and region, and flag needs_pricing. BidClaw automatically applies the contractor's markups on top (materials ${ctx.materialsMarkup}%, subs ${ctx.subsMarkup}%) — so do NOT pre-mark-up, and do NOT put a retail/billed price in unit_cost. Name anything you priced yourself in new_catalog_items so it gets saved for next time.
+- MATERIALS and SUBCONTRACTORS: qty = the measured quantity from your takeoff, unit_cost = the BASE cost — what the contractor PAYS, before margin. Use the catalog cost when the item is in the catalog below. Otherwise use a sourced price or clearly identified unverified estimate, and flag needs_pricing. BidClaw automatically applies the contractor's markups on top (materials ${ctx.materialsMarkup}%, subs ${ctx.subsMarkup}%) — so do NOT pre-mark-up, and do NOT put a retail/billed price in unit_cost. List new_catalog_items as candidates only; saving requires the contractor's explicit choice.
 - GENERAL CONDITIONS / ROUNDING: leave empty. Do not generate allowances, rounding, or incidental plugs. The contractor may add these manually later. Never move a hidden allowance into another line.
+
+${LABOR_BASIS_RULES}
 
 WHERE YOUR NUMBERS COME FROM — in this order, highest authority first.
 BidClaw ships blank and learns each company, so this order is the whole point:
-  1. THIS COMPANY'S CORRECTIONS — anything they have overridden you on. Settled.
+  1. THIS JOB'S EXPLICIT INSTRUCTIONS — including its exclusions and confirmed quantities. Past quantity corrections apply only when the work method, units and site conditions match; they are not universal production rates.
   2. THEIR KITS — assemblies they built themselves.
   3. THEIR OWN PRICES + KYN RATES — what they have actually paid and set.
   4. Standard trade practice for their trade and region.
@@ -594,9 +596,9 @@ Worked contrast for the same work area:
   work order: "- Excavate the patio ring to 8 in depth, 400 SF, and trench the fire pit footing ring. - Load all spoils and haul off site, six trailer loads with disposal fees. - Place processed dense grade 6 in in two lifts and plate compact each lift."
   client: "Excavate and remove the existing bed, build a compacted base, and install a 400 SF flagstone patio with a fire pit footing."
 
-label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. a supplier's name for the thing, not the job it is doing: "Processed Dense Grade" not "Processed Dense Grade Gravel — 8 inch compacted base"; "Cedar 1x6 Board" not "Cedar boards for the west line". Every item you price that isn't already in the catalog gets SAVED to the contractor's catalog under this exact name and reused on their next job, so a job-specific label quietly fills their catalog with duplicates that never match again. Keep the same item spelled the same way every time.
+label: a SHORT, REUSABLE ITEM NAME — what this thing is called in a supplier's catalog, not what it is doing on this job. a supplier's name for the thing, not the job it is doing: "Processed Dense Grade" not "Processed Dense Grade Gravel — 8 inch compacted base"; "Cedar 1x6 Board" not "Cedar boards for the west line". If the contractor explicitly saves an item, this name becomes its reusable catalog label. Keep the same item spelled the same way every time.
 
-reasoning: where the quantity came from AND the job-specific detail that does not belong in the label ("620 SF × 1.10 waste = 682 SF, terrace field, pattern cut"; "1,240 SF × 0.22 hr/SF mason"). This is what the contractor reads to decide whether to trust the line.
+reasoning: name the unit-cost source (configured rate, catalog, supplied quote, or unverified assumption); include quote date/source only if actually available. For labor show quantity x person-hours/unit and whether that factor is a matching kit, this job’s instruction, or an assumption. Then explain where the quantity came from AND the job-specific detail that does not belong in the label ("620 SF × 1.10 waste = 682 SF, terrace field, pattern cut"; "1,240 SF × 0.22 hr/SF mason"). This is what the contractor reads to decide whether to trust the line.
 
 ${kyn}
 
