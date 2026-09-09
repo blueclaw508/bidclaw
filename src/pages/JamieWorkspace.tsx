@@ -309,60 +309,26 @@ export default function JamieWorkspace() {
     [run, streaming, loading, projectId]
   )
 
-  /**
-   * Build the takeoff a couple of work areas at a time.
-   *
-   * Pass 2 used to price every approved work area in ONE request. Five
-   * hardscape areas took 152 seconds; Supabase kills an edge function at
-   * 150. The kill lands mid-stream, after the SSE headers are out, so there
-   * was no error to show — the takeoff just never arrived, the run stayed at
-   * Gate 1, and the only button that did anything was "Propose again". One
-   * project collected six copies of the same five work areas that way, none
-   * of them priced.
-   *
-   * Each chunk is its own request with its own budget, and the run only
-   * reaches Gate 2 once every approved work area has lines. Whatever is
-   * still unpriced when this stops is offered as "Build the takeoff" rather
-   * than dropping the contractor back into the chat.
-   */
-  const CHUNK = 2
-  const buildTakeoff = useCallback(
-    async (runId: string) => {
-      let pending: Array<{ id: string; name: string }>
-      try {
-        pending = await listWorkAreasAwaitingLines(runId)
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Couldn't read the work areas.")
-        return
-      }
-      if (pending.length === 0) return
-      const total = pending.length
-      for (let i = 0; i < pending.length; i += CHUNK) {
-        const chunk = pending.slice(i, i + CHUNK)
-        setTakeoffProgress({ done: i, total })
-        await send('propose_lines', '', { proposedWorkAreaIds: chunk.map((c) => c.id) })
-        // Did this chunk actually land? A killed request stages nothing, and
-        // pushing on would just burn the next one the same way.
-        let left: Array<{ id: string; name: string }>
-        try {
-          left = await listWorkAreasAwaitingLines(runId)
-        } catch {
-          break
-        }
-        setAwaitingLines(left)
-        const landed = chunk.every((c) => !left.some((l) => l.id === c.id))
-        if (!landed) {
-          toast.error(
-            `Jamie ran out of time on ${chunk.map((c) => c.name).join(' and ')}. Hit "Build the takeoff" to pick up where she stopped.`
-          )
-          break
-        }
-        if (left.length === 0) break
-      }
+  // One deliberate batch at a time. Never discard an unsent answer or local
+  // review edits by automatically moving into another generation request.
+  const takeoffInFlight = useRef(false)
+  const buildTakeoff = useCallback(async (runId: string) => {
+    if (takeoffInFlight.current || input.trim()) return
+    takeoffInFlight.current = true
+    try {
+      const pending = await listWorkAreasAwaitingLines(runId)
+      if (!pending.length) return
+      const chunk = pending.slice(0, 2)
+      setTakeoffProgress({ done: 0, total: chunk.length })
+      await send('propose_lines', '', { proposedWorkAreaIds: chunk.map((c) => c.id) })
+      setAwaitingLines(await listWorkAreasAwaitingLines(runId))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't build this batch. Your completed work is saved.")
+    } finally {
       setTakeoffProgress(null)
-    },
-    [send]
-  )
+      takeoffInFlight.current = false
+    }
+  }, [send, input])
 
   const handleWorkAreaGate = useCallback(
     async (decisions: WorkAreaDecision[], added: AddedWorkArea[]) => {
@@ -378,14 +344,14 @@ export default function JamieWorkspace() {
         toast.success(`${created.length} work area${created.length === 1 ? '' : 's'} added.`)
         const fresh = await getActiveJamieRun(projectId)
         if (fresh) setRun(fresh)
-        await buildTakeoff(run.id)
+        setAwaitingLines(await listWorkAreasAwaitingLines(run.id))
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Couldn't add the work areas.")
       } finally {
         setGateBusy(false)
       }
     },
-    [run, projectId, buildTakeoff]
+    [run, projectId]
   )
 
   const handleLineGate = useCallback(
@@ -415,6 +381,7 @@ export default function JamieWorkspace() {
         )
         const fresh = await getActiveJamieRun(projectId)
         setRun(fresh ?? { ...run, status: 'committed' })
+        setGateNonce((n) => n + 1)
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Couldn't add the lines.")
       } finally {
@@ -752,15 +719,17 @@ export default function JamieWorkspace() {
                   </p>
                   <p className="mt-1 text-[12px] leading-relaxed text-amber-800">
                     {awaitingLines.map((w) => w.name).join(', ')}. Your work areas
-                    are already on the estimate — this only prices them. Don&apos;t
-                    propose again; that would build a second copy of every one.
+                    are already on the estimate. Answer Jamie&apos;s questions in the chat
+                    before continuing. Each step prices up to two areas, then pauses for your review.
                   </p>
                   <button
                     type="button"
                     onClick={() => run && void buildTakeoff(run.id)}
+                    disabled={!!input.trim()}
+                    title={input.trim() ? "Send your answer in the chat first" : undefined}
                     className="mt-3 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-gold-dark"
                   >
-                    Build the takeoff
+                    Build the next two work areas
                   </button>
                 </div>
               )}
