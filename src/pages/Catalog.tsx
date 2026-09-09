@@ -326,6 +326,7 @@ function ItemRow({
                 onChange={(e) => void onPatch({ unit: e.target.value })}
                 className={inputClasses}
               >
+                {!CATALOG_UNITS.includes(item.unit) && <option value={item.unit}>{item.unit}</option>}
                 {CATALOG_UNITS.map((u) => (
                   <option key={u} value={u}>{u}</option>
                 ))}
