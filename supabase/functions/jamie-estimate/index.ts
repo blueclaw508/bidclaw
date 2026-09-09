@@ -1,3 +1,4 @@
+import { cachedSystemPrompt } from '../_shared/jamiePerformance.ts'
 import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQuote.ts'
 // jamie-estimate — Jamie's brain (BidClaw AI estimating agent, Phase 1).
 //
@@ -258,10 +259,12 @@ Deno.serve(async (req: Request) => {
         effort: 'high',
         format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
       },
-      system,
+      system: cachedSystemPrompt(system),
       messages: [{ role: 'user', content: userContent }],
     }
+    const modelStarted = performance.now()
     const message = await anthropic.messages.create(params)
+    console.info('jamie_timing', { action: 'single_area', phase: 'model', duration_ms: Math.round(performance.now() - modelStarted), cached_input_tokens: message.usage?.cache_read_input_tokens ?? 0 })
 
     const textBlock = message.content.find((b) => b.type === 'text')
     if (!textBlock || textBlock.type !== 'text') {
