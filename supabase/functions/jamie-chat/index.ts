@@ -100,7 +100,7 @@ const WEB_SEARCH_USD_EACH = 0.01
 const SET_LINE_PRICES_TOOL = {
   name: 'set_line_prices',
   description:
-    'Write a unit cost (and optionally a quantity) the contractor just gave you onto staged takeoff lines. This is the ONLY way a number agreed in conversation reaches the review card. line_id must be one of the ids listed in your instructions. unit_cost is the BASE cost for materials and subcontractors (what the contractor pays, before markup) or the $/hr rate for labor and equipment. quantity null leaves the quantity unchanged.',
+    'Revise every pending line of each affected work area together with current reasoning and complete crew instructions. Include unchanged lines too, preserving their numbers. Use the same work_order_scope for all lines of an area. This is the ONLY way corrections reach the review card. unit_cost is base cost for materials/subcontractors or the selling hourly rate for labor/equipment. quantity null preserves the current quantity. The entire revision is saved atomically or rejected.',
   strict: true,
   input_schema: {
     type: 'object',
@@ -112,11 +112,13 @@ const SET_LINE_PRICES_TOOL = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['line_id', 'unit_cost', 'quantity'],
+          required: ['line_id', 'unit_cost', 'quantity', 'reasoning', 'work_order_scope'],
           properties: {
             line_id: { type: 'string' },
             unit_cost: { type: 'number' },
             quantity: { type: ['number', 'null'] },
+            reasoning: { type: 'string' },
+            work_order_scope: { type: 'string' },
           },
         },
       },
@@ -128,6 +130,8 @@ interface PriceUpdate {
   line_id: string
   unit_cost: number
   quantity: number | null
+  reasoning: string
+  work_order_scope: string
 }
 
 /**
@@ -142,44 +146,12 @@ async function applyLinePrices(
   runId: string,
   updates: PriceUpdate[]
 ): Promise<string> {
-  if (!Array.isArray(updates) || updates.length === 0) return 'No updates given.'
-  const ids = updates.map((u) => String(u.line_id))
-  const { data: rows } = await service
-    .from('jamie_proposed_lines')
-    .select('id, label, unit, status, jamie_proposed_work_areas!inner(jamie_run_id)')
-    .in('id', ids)
-  const own = new Map<string, { label: string; unit: string | null }>()
-  for (const r of (rows ?? []) as Array<Record<string, unknown>>) {
-    const parent = r.jamie_proposed_work_areas as { jamie_run_id?: string } | null
-    if (parent?.jamie_run_id === runId && r.status === 'pending') {
-      own.set(r.id as string, { label: String(r.label ?? ''), unit: (r.unit as string) ?? null })
-    }
-  }
-  const done: string[] = []
-  const missed: string[] = []
-  for (const u of updates) {
-    const row = own.get(String(u.line_id))
-    const cost = Number(u.unit_cost)
-    if (!row || !(cost > 0)) {
-      missed.push(String(u.line_id))
-      continue
-    }
-    const patch: Record<string, unknown> = { unit_cost: cost, needs_pricing: false }
-    const qty = u.quantity === null || u.quantity === undefined ? null : Number(u.quantity)
-    if (qty !== null && qty > 0) patch.quantity = qty
-    const { error } = await service.from('jamie_proposed_lines').update(patch).eq('id', u.line_id)
-    if (error) {
-      missed.push(String(u.line_id))
-      continue
-    }
-    done.push(`${row.label} → $${cost}/${row.unit || 'EA'}${qty !== null && qty > 0 ? ` × ${qty}` : ''}`)
-  }
-  return (
-    `Updated ${done.length} line${done.length === 1 ? '' : 's'}${done.length ? ': ' + done.join('; ') : ''}.` +
-    (missed.length
-      ? ` Not applied (unknown line_id, already decided, or zero cost): ${missed.join(', ')}.`
-      : '')
-  )
+  const { data, error } = await service.rpc('revise_jamie_takeoff', {
+    p_run_id: runId,
+    p_updates: updates,
+  })
+  if (error) return `No revision saved: ${error.message}. Correct the complete revision and retry; do not claim the estimate was updated.`
+  return `Saved ${data} lines and their revised explanations and crew instructions together. No catalog or committed estimate was changed.`
 }
 
 // ── Structured output schemas ─────────────────────────────────────────
@@ -391,6 +363,8 @@ interface BrainContext {
   reviewingLines: Array<{
     id: string
     workArea: string
+    workOrderScope: string
+    reasoning: string
     label: string
     category: string
     unit: string
@@ -644,7 +618,7 @@ THE CONTRACTOR IS REVIEWING YOUR PROPOSAL RIGHT NOW. On screen, waiting for thei
     const qty = l.quantity === null ? '?' : String(l.quantity)
     const cost = l.unitCost === null ? '?' : String(l.unitCost)
     ;(byWa.get(l.workArea) ?? byWa.set(l.workArea, []).get(l.workArea)!).push(
-      `    ${l.id} · ${l.label} (${l.category}) · ${qty} ${l.unit || 'EA'} × $${cost}${l.needsPricing ? ' · NEEDS PRICE' : ''}`
+      `    ${l.id} · ${l.label} (${l.category}) · ${qty} ${l.unit || 'EA'} × $${cost}${l.needsPricing ? ' · NEEDS PRICE' : ''} · Current explanation: ${l.reasoning}`
     )
   }
   const reviewingTakeoff = ctx.reviewingLines.length
@@ -652,6 +626,11 @@ THE CONTRACTOR IS REVIEWING YOUR PROPOSAL RIGHT NOW. On screen, waiting for thei
 
 THE CONTRACTOR IS REVIEWING YOUR TAKEOFF RIGHT NOW. The staged lines, by work area — line_id · label (category) · qty unit × $unit_cost:
 ${[...byWa.entries()].map(([wa, lines]) => `  ${wa}${NEWLINE}${lines.join(NEWLINE)}`).join(NEWLINE)}
+
+Current crew instructions by work area:
+${[...new Map(ctx.reviewingLines.map(l => [l.workArea, l.workOrderScope])).entries()].map(([name, scope]) => `${name}: ${scope}`).join(NEWLINE)}
+
+A correction MUST be a complete revision of every pending line in each affected work area, in ONE set_line_prices call. Keep unchanged quantities and rates exactly as listed. For every line provide current reasoning with correct arithmetic; remove obsolete hours, totals, crew-day assumptions and cross-line references. Supply the SAME complete replacement work_order_scope on every line of that area, preserving the approved method, exclusions and unaffected instructions. Update all crew counts/hours and dependent wording to match the revised numbers. Do not invent crew size or duration: person-hours are not elapsed time without staffing. The database saves the whole revision atomically or rejects it. Do not revise unaffected work areas. Do not add, delete or rename lines. This revises staged takeoffs only, never previously committed estimates.
 
 When they give you a price or a quantity for a line — "shell mix is 48 a ton", "make the dense grade 60 tons", "mason is 95 an hour" — call set_line_prices with the matching line_id(s). That is the ONLY way a number agreed here reaches the card; saying "updated" on its own does nothing. Match on the label, put every line they mentioned in ONE call, then confirm in one short line what changed. Materials and subs take the BASE cost — what they pay — and BidClaw adds the markup. Lines marked NEEDS PRICE carry your own figure; those are the ones to ask about first. You cannot add, remove or rename lines by talking — they Skip or approve each line on the card, and can edit qty and cost there too if they would rather.`
     : ''
@@ -1170,17 +1149,19 @@ Deno.serve(async (req: Request) => {
     const { data: pendingLines } = await service
       .from('jamie_proposed_lines')
       .select(
-        'id, label, category, unit, quantity, unit_cost, needs_pricing, sort_order, jamie_proposed_work_areas!inner(jamie_run_id, proposed_name, sort_order, status)'
+        'id, label, category, unit, quantity, unit_cost, needs_pricing, reasoning, sort_order, jamie_proposed_work_areas!inner(jamie_run_id, proposed_name, proposed_description, sort_order, status)'
       )
       .eq('status', 'pending')
       .eq('jamie_proposed_work_areas.jamie_run_id', run.id)
       .eq('jamie_proposed_work_areas.status', 'approved')
     reviewingLines = ((pendingLines ?? []) as Array<Record<string, unknown>>)
       .map((l) => {
-        const wa = l.jamie_proposed_work_areas as { proposed_name?: string; sort_order?: number }
+        const wa = l.jamie_proposed_work_areas as { proposed_name?: string; proposed_description?: string; sort_order?: number }
         return {
           id: l.id as string,
           workArea: wa?.proposed_name ?? '',
+          workOrderScope: wa?.proposed_description ?? '',
+          reasoning: String(l.reasoning ?? ''),
           waOrder: Number(wa?.sort_order ?? 0),
           order: Number(l.sort_order ?? 0),
           label: String(l.label ?? ''),
