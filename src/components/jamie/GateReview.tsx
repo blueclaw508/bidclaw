@@ -8,6 +8,7 @@
 // Lines default to included; unknown costs need a separate confirmation,
 // and saving any new item to the catalog is always opt-in.
 
+import { PricingReview } from '@/components/project/estimate/PricingReview'
 import { priceNeedsConfirmation } from '../../../supabase/functions/_shared/estimatePolicy.ts'
 import { useMemo, useState } from 'react'
 import { Check, Loader2, Plus, Undo2, X } from 'lucide-react'
@@ -401,6 +402,24 @@ export function LineGate({
                 {formatUSD(groupTotal(g))}
               </span>
             </div>
+            <PricingReview lines={[
+              ...g.lines.filter(line => state[line.id]?.approved).map(line => ({
+                id: line.id, label: line.label, category: line.category, unit: line.unit,
+                quantity: num(state[line.id].qty), unitCost: num(state[line.id].cost), price: billedOf(line),
+                source: confirmedPrices[line.id] === state[line.id].cost ? 'You confirmed this review rate.'
+                  : state[line.id].price.trim() ? 'Your review total override.'
+                  : state[line.id].cost !== String(line.unit_cost ?? '') ? 'You edited this review rate.'
+                  : line.needs_pricing ? 'Provisional rate. Confirm before adding.'
+                  : line.catalog_item_id ? 'Linked to a catalog item. Check the current supplier price.'
+                  : 'Source not recorded. Check the rate against your own numbers.',
+                reasoning: line.reasoning,
+              })),
+              ...addedRows(g.id).filter(addedIsComplete).map(line => ({
+                id: line.key, label: line.label, category: line.category, unit: line.unit,
+                quantity: num(line.qty), unitCost: num(line.cost), price: billedFor(line.category, line),
+                source: 'Entered by you in this review.',
+              })),
+            ]} />
             <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
               Client scope · goes on the proposal
             </p>
