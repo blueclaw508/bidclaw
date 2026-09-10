@@ -593,7 +593,10 @@ export async function commitWorkAreaGate(
     createdIds.push(waId)
     const { error: stampErr } = await supabase
       .from('jamie_proposed_work_areas')
-      .update({ status: 'approved', inserted_work_area_id: waId })
+      // Pass 2 reads the staged scope. Keep it identical to the contractor's
+      // approved edits, rather than pricing Jamie's original draft again.
+      .update({ status: 'approved', inserted_work_area_id: waId,
+        proposed_name: d.name.trim(), proposed_description: d.description?.trim() || null })
       .eq('id', d.id)
     if (stampErr) throw new Error(`Couldn't record the approval: ${stampErr.message}`)
   }
