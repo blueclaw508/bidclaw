@@ -257,6 +257,7 @@ export default function JamieWorkspace() {
       opts?: { proposedWorkAreaIds?: string[] }
     ) => {
       if (streaming || loading) return
+      if(action === 'chat' && awaitingLines.length===0 && stagedGroups.length===0 && run?.status!=='committed') action='scope_clarify'
       setStreaming(true)
       if (action !== 'chat') setPassChars(0)
       try {
@@ -336,7 +337,7 @@ export default function JamieWorkspace() {
         setPassStage(null)
       }
     },
-    [run, streaming, loading, projectId]
+    [run, streaming, loading, projectId, awaitingLines.length, stagedGroups.length]
   )
 
   // One deliberate batch at a time. Never discard an unsent answer or local
@@ -465,6 +466,7 @@ export default function JamieWorkspace() {
   const canPropose =
     !!run &&
     messages.length > 0 &&
+    clarificationMatches(messages.at(-1)?.clarification,[]) &&
     !streaming &&
     !gateBusy &&
     ((run.status === 'in_progress' && !atGate && awaitingLines.length === 0) || atWorkAreaGate)
@@ -627,7 +629,7 @@ export default function JamieWorkspace() {
                     {readable.length > 0 ? (
                       <button
                         type="button"
-                        onClick={() => void send('propose_work_areas', '')}
+                        onClick={() => void send('scope_clarify', '')}
                         disabled={streaming || gateBusy}
                         className="flex flex-col items-start gap-1 rounded-lg border border-brand-gold/40 bg-brand-gold/10 px-4 py-3 text-left transition-colors hover:bg-brand-gold/20 disabled:opacity-40"
                       >
@@ -713,7 +715,13 @@ export default function JamieWorkspace() {
                 ))
               )}
 
-              {stagedWas.length > 0 && !streaming && (
+              {!streaming && awaitingLines.length===0 && stagedGroups.length===0 && latestClarification?.work_area_ids?.length===0 && (
+                <section className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <h2 className="font-semibold">Confirm the project scope</h2>
+                  {latestClarification.questions.length>0 ? <QuestionForm draftKey={`${run?.id}:project`} questions={latestClarification.questions} onSubmit={text=>send('scope_clarify',text)} /> : <p>{latestClarification.summary} Review these details, then confirm below to propose work areas.</p>}
+                </section>
+              )}
+              {stagedWas.length > 0 && !streaming && !latestClarification && (
                 <WorkAreaGate
                   items={stagedWas}
                   existingNameById={existingNameById}
@@ -799,7 +807,7 @@ export default function JamieWorkspace() {
                   onClick={() => void send('propose_work_areas', '')}
                   className="mb-2 w-full rounded-lg border border-brand-gold/40 bg-brand-gold/10 py-2.5 text-sm font-semibold text-brand-gold-dark transition-colors hover:bg-brand-gold/20"
                 >
-                  {atWorkAreaGate ? 'Propose again' : 'Propose work areas'}
+                  Confirm scope and propose work areas
                 </button>
               )}
               <div className="flex items-end gap-2">

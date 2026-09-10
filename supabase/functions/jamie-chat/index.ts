@@ -70,13 +70,14 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 const NEWLINE = String.fromCharCode(10)
 
 /** The three things this function can be asked to do. */
-type JamieAction = 'chat' | 'clarify' | 'propose_work_areas' | 'propose_lines'
+type JamieAction = 'chat' | 'scope_clarify' | 'clarify' | 'propose_work_areas' | 'propose_lines'
 
 // Output ceilings per action. Chat answers are short; a whole-project
 // takeoff is the biggest thing Jamie ever writes — jamie-ingest proved a
 // 20+ work-area reconstruction overruns 16k mid-JSON, so Pass 2 gets 32k.
 const MAX_TOKENS: Record<JamieAction, number> = {
   chat: 8_000,
+  scope_clarify: 4_000,
   clarify: 4_000,
   propose_work_areas: 16_000,
   propose_lines: 32_000,
@@ -952,7 +953,7 @@ Deno.serve(async (req: Request) => {
     ? body.proposed_work_area_ids.filter((v) => typeof v === 'string')
     : null
   if (!runId) return json({ error: 'jamie_run_id is required.' }, 400)
-  if (action !== 'chat' && action !== 'clarify' && action !== 'propose_work_areas' && action !== 'propose_lines') {
+  if (action !== 'chat' && action !== 'scope_clarify' && action !== 'clarify' && action !== 'propose_work_areas' && action !== 'propose_lines') {
     return json({ error: 'Unknown action.' }, 400)
   }
   // Only a chat turn needs the contractor to have typed something — the two
@@ -1151,6 +1152,11 @@ Deno.serve(async (req: Request) => {
         409
       )
     }
+  }
+
+  if(action === 'propose_work_areas') {
+    const latest=(history ?? []).at(-1)
+    if(latest?.role !== 'assistant' || !clarificationMatches(latest?.content?.clarification,[])) return json({error:'Confirm the project scope and answer missing measurements before proposing work areas.'},409)
   }
 
   if(action === 'propose_lines') {
@@ -1386,6 +1392,7 @@ Deno.serve(async (req: Request) => {
   // we still need a user turn to hang the request on.
   const PASS_PROMPT: Record<JamieAction, string> = {
     chat: '',
+    scope_clarify: 'Clarify the project before defining work areas. Ask for missing measured quantities and construction methods, one fact per question. Never supply placeholder quantities. Summarize only confirmed facts. Do not produce work areas, crew instructions or prices.',
     clarify: 'Check the confirmed scope and quantities for this batch. Ask individual questions for missing essentials; otherwise summarize the confirmed inputs for my review. Do not generate prices.',
     propose_work_areas:
       'Break this project into work areas now, using everything I have told you above.',
@@ -1442,7 +1449,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const clarificationInstruction = QUESTION_RULES+'\nApproved batch: '+JSON.stringify(stagedWorkAreas)
+  const clarificationInstruction = QUESTION_RULES+'\nOnly contractor answers and readable plan measurements are evidence. Earlier assistant assumptions and proposed descriptions are NOT confirmed facts, even if a work-area grouping was approved. Never treat approval of a grouping as approval of invented dimensions. For work-area proposals use only the most recent confirmed scope summary; keep descriptions short and omit unverified quantities, production factors and detailed crew instructions.\nApproved batch: '+JSON.stringify(stagedWorkAreas)
   const structuredOutput: Record<string, unknown> =
     action === 'chat'
       ? {}
@@ -1451,7 +1458,7 @@ Deno.serve(async (req: Request) => {
             effort: 'high',
             format: {
               type: 'json_schema',
-              schema: action === 'clarify' ? CLARIFICATION_SCHEMA : action === 'propose_work_areas' ? WORK_AREA_SCHEMA : LINE_SCHEMA,
+              schema: (action === 'clarify' || action === 'scope_clarify') ? CLARIFICATION_SCHEMA : action === 'propose_work_areas' ? WORK_AREA_SCHEMA : LINE_SCHEMA,
             },
           },
         }
@@ -1517,7 +1524,7 @@ Deno.serve(async (req: Request) => {
             system: [
               {
                 type: 'text',
-                text: systemPrompt + (action === 'clarify' || action === 'propose_lines' ? '\n'+clarificationInstruction : ''),
+                text: systemPrompt + (action === 'clarify' || action === 'scope_clarify' || action === 'propose_lines' || action === 'propose_work_areas' ? '\n'+clarificationInstruction : ''),
                 cache_control: { type: 'ephemeral' },
               },
             ],
@@ -1620,7 +1627,7 @@ Deno.serve(async (req: Request) => {
         // staged, because each pass writes in one shot.
         let spokenText = assistantText
         let clarification: JamieClarification | undefined
-        if(action === 'clarify') {
+        if(action === 'clarify' || action === 'scope_clarify') {
           clarification={...normalizeClarification(JSON.parse(passText)),work_area_ids:stagedWorkAreas.map(w=>w.id),scope_signature:JSON.stringify([...stagedWorkAreas].sort((a,b)=>a.id.localeCompare(b.id)))}
           spokenText=[clarification.summary,...clarification.questions.map(q=>q.prompt)].filter(Boolean).join('\n')
         } else if (action === 'propose_work_areas') {
