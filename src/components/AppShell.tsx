@@ -18,7 +18,7 @@ import { MarketingBar } from '@/components/MarketingBar'
 import { SetupBanner } from '@/components/setup/SetupBanner'
 import { cn } from '@/lib/utils'
 
-// Lazy-load the setup wizard — it's ~34 kB and only mounts when
+// Lazy-load the setup wizard â€” it's ~34 kB and only mounts when
 // setup is incomplete (first-login auto-open or ?wizard=1 trigger).
 // Pull it out of the main bundle to keep the /app/* shell fast.
 const WizardModal = lazy(() =>
@@ -26,7 +26,7 @@ const WizardModal = lazy(() =>
 )
 
 const navItems = [
-  // Leads & Bids is the front door (LOOP.md P1-B) — first in nav.
+  // Leads & Bids is the front door (LOOP.md P1-B) â€” first in nav.
   { to: '/app/leads',     label: 'Leads & Bids', icon: Inbox },
   { to: '/app/projects',  label: 'Estimates', icon: ClipboardList },
   { to: '/app/customers', label: 'Customers', icon: Users },
@@ -48,7 +48,7 @@ export function AppShell() {
   // request the wizard without prop-drilling.
   const { loading: setupLoading, setupCompleted, wizardOpen, openWizard, closeWizard } = useSetup()
 
-  // Phase 4 — first-login auto-open. Fires once per session per user
+  // Phase 4 â€” first-login auto-open. Fires once per session per user
   // when authenticated AND setup is incomplete. Subsequent renders in
   // the same tab respect the sessionStorage trip flag so the wizard
   // doesn't re-open on every page navigation.
@@ -62,7 +62,7 @@ export function AppShell() {
     openWizard()
   }, [setupLoading, user, setupCompleted, openWizard])
 
-  // Debug trigger — manual ?wizard=1 query-param override stays as a
+  // Debug trigger â€” manual ?wizard=1 query-param override stays as a
   // testing affordance. Bypasses the auto-open trip flag so a tester
   // can re-open the wizard mid-session without clearing
   // sessionStorage. Phase 4 closes Prompt 4 with this still in place.
@@ -107,7 +107,7 @@ export function AppShell() {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden items-center gap-1 xl:flex">
+          <nav className="hidden items-center gap-1 2xl:flex">
             {navItems.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
@@ -128,7 +128,7 @@ export function AppShell() {
           </nav>
 
           {/* User menu (desktop) */}
-          <div className="relative hidden xl:block">
+          <div className="relative hidden 2xl:block">
             <button
               type="button"
               onClick={() => setUserMenuOpen((v) => !v)}
@@ -164,7 +164,7 @@ export function AppShell() {
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-brand-border text-brand-text-muted xl:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-brand-border text-brand-text-muted 2xl:hidden"
             aria-label="Toggle menu"
           >
             {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -173,7 +173,7 @@ export function AppShell() {
 
         {/* Mobile menu */}
         {menuOpen && (
-          <div className="border-t border-brand-border bg-white px-4 py-3 xl:hidden">
+          <div className="border-t border-brand-border bg-white px-4 py-3 2xl:hidden">
             <nav className="flex flex-col gap-1">
               {navItems.map(({ to, label, icon: Icon }) => (
                 <NavLink
@@ -209,7 +209,7 @@ export function AppShell() {
         )}
       </header>
 
-      {/* SETUP BANNER — amber strip below the sticky header when the
+      {/* SETUP BANNER â€” amber strip below the sticky header when the
           user hasn't completed setup. Hidden when complete OR when
           dismissed for this session via sessionStorage flag. */}
       <SetupBanner />
@@ -224,10 +224,10 @@ export function AppShell() {
       {/* MARKETING BAR */}
       <MarketingBar />
 
-      {/* Setup wizard — Phase 3. Overlay-mounted via portal so it
+      {/* Setup wizard â€” Phase 3. Overlay-mounted via portal so it
           appears above everything else in /app/* routes. Lazy-loaded
           (Prompt 4.5) so the ~34 kB wizard bundle doesn't ship with
-          the main app shell — only fetched when actually needed. */}
+          the main app shell â€” only fetched when actually needed. */}
       {wizardOpen && (
         <Suspense fallback={null}>
           <WizardModal open={wizardOpen} onClose={handleWizardClose} />
