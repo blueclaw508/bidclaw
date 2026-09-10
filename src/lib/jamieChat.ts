@@ -6,7 +6,7 @@ import type {JamieClarification} from '../../supabase/functions/_shared/jamieQue
 import { supabase } from '@/lib/supabase'
 
 /** What the function is being asked to do (J3). */
-export type JamieAction = 'chat' | 'clarify' | 'propose_work_areas' | 'propose_lines'
+export type JamieAction = 'chat' | 'scope_clarify' | 'clarify' | 'propose_work_areas' | 'propose_lines'
 
 export interface JamieChatCallbacks {
   onQuestions?: (clarification:JamieClarification)=>void

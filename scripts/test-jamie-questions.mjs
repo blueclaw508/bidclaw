@@ -43,3 +43,12 @@ assert.equal(projectMilestone('proposed',[{status:'draft',created_at:'2026-09-09
 assert.equal(projectMilestone('draft',[{status:'draft',created_at:'2026-09-09'}]).status,'draft')
 assert.equal(projectMilestone('estimating',[{status:'draft',created_at:'2026-09-09'}]).status,'estimating')
 assert.equal(projectMilestone('draft',[{status:'draft',created_at:'2026-09-09'},{status:'sent',created_at:'2026-09-08'}]).status,'proposed')
+
+// Opening clarification must use structured questions and perform no staging writes.
+const opening=vm.createContext({normalizeClarification,action:'scope_clarify',assistantText:'',passText:JSON.stringify({summary:'Repair area has not been measured.',measurement_status:'missing',gap_questions:[{prompt:'How many square feet need lifting?',kind:'measurement',choices:[]}]}),stagedWorkAreas:[],service:{from:()=>{throw Error('Opening clarification must not write work areas')}},send:()=>{}})
+vm.runInContext(ts.transpileModule(`async function verify(){${staging}\nreturn clarification;} globalThis.verify=verify`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,opening)
+const openingResult=await opening.verify()
+assert.equal(openingResult.ready,false)
+assert.equal(openingResult.questions.length,1)
+assert.equal(openingResult.work_area_ids.length,0)
+assert.equal(clarificationMatches(openingResult,[]),false)
