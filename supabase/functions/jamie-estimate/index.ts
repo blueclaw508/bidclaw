@@ -1,3 +1,4 @@
+import { configuredHourlyRate } from '../_shared/hourlyRate.ts'
 import {QUESTION_SCHEMA, QUESTION_RULES, normalizeClarification} from '../_shared/jamieQuestions.ts'
 import { cachedSystemPrompt } from '../_shared/jamiePerformance.ts'
 import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQuote.ts'
@@ -68,9 +69,10 @@ const OUTPUT_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['name', 'qty', 'unit', 'category', 'unit_cost'],
+        required: ['name', 'qty', 'unit', 'category', 'unit_cost', 'rate_name'],
         properties: {
           name: { type: 'string' },
+          rate_name: {type:['string','null'],description:'For Labor or Equipment: exact configured role or machine name from My Numbers, or null if none matches. Null for other categories.'},
           qty: { type: 'number' },
           unit: { type: 'string' },
           category: {
@@ -263,7 +265,7 @@ Deno.serve(async (req: Request) => {
       max_tokens: 12000,
       thinking: { type: 'adaptive' },
       output_config: {
-        effort: 'high',
+        effort: priceMode ? 'high' : 'medium',
         format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
       },
       system: cachedSystemPrompt(system+'\n'+QUESTION_RULES+'\n'+(priceMode?'The contractor has reviewed the clarification summary. Price only the confirmed scope.':'CLARIFICATION ONLY: return line_items: [] and new_catalog_items: []. Ask missing details or return a measurement_summary ready for review. Do not price yet.')),
@@ -282,7 +284,9 @@ Deno.serve(async (req: Request) => {
     const parsed = prepareSingleAreaResult({...raw,clarification,gap_questions:clarification.questions.map(q=>q.prompt),line_items:priceMode && clarification.ready ? raw.line_items : [],new_catalog_items:priceMode && clarification.ready ? raw.new_catalog_items : []})
     for (const line of parsed.line_items) {
       if (['Labor', 'Equipment'].includes(line.category)) {
-        line.price_source = 'Hourly rate shown. Check against your configured rates in My Numbers.'
+        const matched=configuredHourlyRate(String(line.name),line.rate_name,line.category==='Labor' ? laborTypes : equipmentRates)
+        line.unit_cost=matched.cost
+        line.price_source=matched.source
         continue
       }
       const evidence = catalogPriceEvidence(catalog ?? [], String(line.name), Number(line.unit_cost), String(line.unit))
