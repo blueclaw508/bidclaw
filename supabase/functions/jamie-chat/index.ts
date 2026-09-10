@@ -1455,7 +1455,7 @@ Deno.serve(async (req: Request) => {
       ? {}
       : {
           output_config: {
-            effort: 'high',
+            effort: action === 'propose_lines' ? 'high' : 'medium',
             format: {
               type: 'json_schema',
               schema: (action === 'clarify' || action === 'scope_clarify') ? CLARIFICATION_SCHEMA : action === 'propose_work_areas' ? WORK_AREA_SCHEMA : LINE_SCHEMA,
@@ -1524,9 +1524,10 @@ Deno.serve(async (req: Request) => {
             system: [
               {
                 type: 'text',
-                text: systemPrompt + (action === 'clarify' || action === 'scope_clarify' || action === 'propose_lines' || action === 'propose_work_areas' ? '\n'+clarificationInstruction : ''),
+                text: systemPrompt,
                 cache_control: { type: 'ephemeral' },
               },
+              ...(action !== 'chat' ? [{type:'text' as const,text:clarificationInstruction+'\nOUTPUT DISCIPLINE: Keep each line reasoning to the quantity calculation, rate source and a material assumption (about 45 words). Do not repeat the entire job scope or exclusions in every line. Keep complete client and crew scopes in their dedicated fields. Preserve all quantities, safety requirements and material uncertainties.'}] : []),
             ],
             messages: convo,
           })
