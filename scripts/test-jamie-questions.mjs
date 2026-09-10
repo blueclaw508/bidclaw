@@ -34,7 +34,12 @@ for(const priceMode of [true,false]) {
  vm.runInContext(singleParse+';globalThis.result=parsed',c)
  assert.equal(c.result.line_items.length,0);assert.equal(c.result.gap_questions.length,1)
 }
-assert.equal(projectMilestone('estimating',[{status:'sent',created_at:'2026-09-09'}]).label,'Proposal sent')
+assert.equal(projectMilestone('estimating',[{status:'sent',created_at:'2026-09-09'}]).status,'proposed')
 assert.equal(projectMilestone('complete',[{status:'sent',created_at:'2026-09-09'}]).status,'complete')
 assert.equal(projectMilestone('approved',[{status:'draft',created_at:'2026-09-09'}]).status,'approved')
 console.log('PASS: missing quantities, unanswered questions, exact batch review, actual server withholding of takeoffs, single-area safety, and milestone precedence')
+
+assert.equal(projectMilestone('proposed',[{status:'draft',created_at:'2026-09-09'}]).status,'proposed')
+assert.equal(projectMilestone('draft',[{status:'draft',created_at:'2026-09-09'}]).status,'draft')
+assert.equal(projectMilestone('estimating',[{status:'draft',created_at:'2026-09-09'}]).status,'estimating')
+assert.equal(projectMilestone('draft',[{status:'draft',created_at:'2026-09-09'},{status:'sent',created_at:'2026-09-08'}]).status,'proposed')
