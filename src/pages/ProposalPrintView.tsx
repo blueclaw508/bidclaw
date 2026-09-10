@@ -8,6 +8,8 @@ import { getProposal, updateProposal } from '@/lib/proposals'
 import { getLatestSignature } from '@/lib/proposalShares'
 import { showsGrandTotal } from '@/lib/proposalDefaults'
 import { toast } from 'sonner'
+import {CrewPlanner} from '@/components/proposals/CrewPlanner'
+import {crewTexts, completeCrewTranslation, type CrewLanguage, type CrewTranslations} from '@/lib/crewPlanner'
 import {
   PreviewWatermark,
   ProposalDocument,
@@ -71,6 +73,10 @@ export default function ProposalPrintView() {
   const [notFound, setNotFound] = useState(false)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [format, setFormat] = useState<PrintFormat>('detailed')
+  const [crewLanguage,setCrewLanguage] = useState<CrewLanguage>('en')
+  const [crewTranslation,setCrewTranslation] = useState<{source:string; texts:CrewTranslations} | null>(null)
+  const [translating,setTranslating] = useState(false)
+  const [translationError,setTranslationError] = useState<string | null>(null)
   // Whether this proposal prints a project total. Seeded from the proposal
   // (or the company default) once loaded; toggling it saves to the proposal
   // so the choice sticks for the next print rather than resetting.
@@ -180,6 +186,22 @@ export default function ProposalPrintView() {
     () => enabledWorkAreas.some((wa) => wa.lines.length > 0),
     [enabledWorkAreas]
   )
+  const sourceTexts = useMemo(()=>proposal ? crewTexts(proposal,enabledWorkAreas) : {},[proposal,enabledWorkAreas])
+  const sourceKey = JSON.stringify({proposalId, texts:sourceTexts})
+  const spanishReady = crewTranslation?.source === sourceKey
+  const needsSpanish = format === 'crew' && crewLanguage !== 'en'
+  const prepareSpanish = async () => {
+    if (!proposal || translating) return
+    setTranslating(true)
+    setTranslationError(null)
+    try {
+      const {data,error} = await supabase.functions.invoke('crew-translate',{body:{proposalId:proposal.id,texts:sourceTexts}})
+      if(error || data?.error) throw new Error(data?.error || 'Could not prepare Spanish. Please retry.')
+      if(!completeCrewTranslation(sourceTexts,data?.texts)) throw new Error('Spanish translation is incomplete. Please retry.')
+      setCrewTranslation({source:sourceKey,texts:data.texts})
+    } catch(err) {setTranslationError(err instanceof Error ? err.message : 'Could not prepare Spanish. Please retry.')}
+    finally {setTranslating(false)}
+  }
 
   /* ---------- print ---------- */
 
@@ -278,7 +300,7 @@ export default function ProposalPrintView() {
               {/* Total on/off, at print time. An options-priced job has no
                   single true total until the client picks, so this is a
                   per-proposal call, not just a company default. */}
-              <label className="flex shrink-0 items-center gap-1.5 text-sm text-gray-700">
+              {format !== 'crew' && <label className="flex shrink-0 items-center gap-1.5 text-sm text-gray-700">
                 <input
                   type="checkbox"
                   checked={showTotal}
@@ -302,14 +324,20 @@ export default function ProposalPrintView() {
                   className="h-4 w-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy"
                 />
                 Show project total
-              </label>
+              </label>}
+              {format === 'crew' && <label className="flex items-center gap-2 text-sm">Crew language
+                <select aria-label="Crew language" value={crewLanguage} onChange={e=>setCrewLanguage(e.target.value as CrewLanguage)} className="rounded border p-2">
+                  <option value="en">English</option><option value="es">Español</option><option value="both">English + Español</option>
+                </select>
+              </label>}
+              {needsSpanish && !spanishReady && <button onClick={()=>void prepareSpanish()} disabled={translating} className="rounded bg-brand-navy px-3 py-2 text-sm text-white disabled:opacity-50">{translating ? 'Preparing Spanish…' : 'Prepare Spanish version'}</button>}
               <span className="hidden text-xs text-gray-500 lg:inline">
                 {FORMAT_META[format].blurb} · Save as PDF via the print dialog.
               </span>
               <button
                 type="button"
                 onClick={handlePrint}
-                disabled={!hasContent}
+                disabled={!hasContent || (needsSpanish && !spanishReady)}
                 className="inline-flex items-center gap-1.5 rounded-md bg-brand-navy px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-50"
                 title={
                   !hasContent
@@ -328,7 +356,8 @@ export default function ProposalPrintView() {
             setting under Settings → Enter My Numbers, not a per-proposal
             field. Surface exactly what's wrong: either no terms are
             entered, or they're entered but the PDF toggle is hiding them. */}
-        {hasContent &&
+        {translationError && format === 'crew' && <p role="alert" className="mx-auto mt-4 max-w-[850px] rounded border border-red-200 bg-red-50 p-3 text-red-800 print:hidden">{translationError}</p>}
+        {hasContent && format !== 'crew' &&
           !(
             settings.pdf_show_terms_and_conditions &&
             settings.default_terms_and_conditions?.trim()
@@ -383,6 +412,11 @@ export default function ProposalPrintView() {
                 Back to editor
               </Link>
             </div>
+          ) : format === 'crew' ? (
+            needsSpanish && !spanishReady ? <p role="status">{translating ? 'Preparing the Spanish crew planner…' : 'Prepare the Spanish version to preview and print it.'}</p> :
+            <>{(crewLanguage === 'both' ? ['en','es'] as const : [crewLanguage as 'en'|'es']).map((language,index)=><div key={language} style={index ? {breakBefore:'page'} : undefined} className={index ? 'mt-12 print:mt-0' : undefined}>
+              <CrewPlanner proposal={proposal} areas={enabledWorkAreas} project={projectWithCustomer} customer={projectWithCustomer.customer} settings={settings} logoUrl={logoUrl} language={language} translations={crewTranslation?.texts}/>
+            </div>)}</>
           ) : (
             <ProposalDocument
               settings={settings}
