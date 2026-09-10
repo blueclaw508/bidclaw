@@ -1,5 +1,7 @@
+import {SCOPE_FORMAT_RULES,bulletScope} from '../_shared/scopeFormat.ts'
+import {syncProjectFiles,fileBlocks,FILES_BETA,type SyncedFile} from '../_shared/projectFiles.ts'
+import {MEDIA_EVIDENCE_RULES} from '../_shared/mediaPolicy.ts'
 import {QUESTION_SCHEMA, CLARIFICATION_SCHEMA, QUESTION_RULES, normalizeClarification, clarificationMatches, type JamieClarification} from '../_shared/jamieQuestions.ts'
-import { orderedConcurrentMap } from '../_shared/jamiePerformance.ts'
 import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQuote.ts'
 // jamie-chat — THE JAMIE LOOP conversational backbone (J1 plumbing + J3 brain).
 //
@@ -32,7 +34,7 @@ import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQu
 //   5. Meter (invocation row, in_progress) → Anthropic → finalize
 
 import { prepareGeneratedTakeoff, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
-import Anthropic, { toFile } from 'npm:@anthropic-ai/sdk'
+import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
   evaluateJamieGate,
@@ -601,7 +603,7 @@ Plain contractor English, no marketing. Full detail: lifts, compaction, bag and 
   - CUT every number the crew uses to build and a client could police you with: lift counts, compaction passes, base depths, bag counts, trailer/load counts, rebar size and spacing, machine choices, man-hours. If a client can stand over the crew with your text and demand a redo or a credit because the crew did the same job a different, equally good way, you have written it wrong.
   - Material and method stay only where the CLIENT is choosing them: "dry-laid irregular Pennsylvania flagstone", "mortared New England fieldstone", "thermal bluestone treads". That is what they picked and what they are paying for. "6 in of processed dense grade in two lifts, plate compacted" is not.
   - Never promise anything you did not bill.
-  - Two to five sentences, or a short paragraph plus a few plain bullets. Plain, confident contract English. No marketing adjectives.
+  - Three to six short bullets, each on its own line. No introductory paragraph. Plain, confident contract English. No marketing adjectives.
 
 Worked contrast for the same work area:
   work order: "- Excavate the patio ring to 8 in depth, 400 SF, and trench the fire pit footing ring. - Load all spoils and haul off site, six trailer loads with disposal fees. - Place processed dense grade 6 in in two lifts and plate compact each lift."
@@ -717,119 +719,6 @@ const MEDIA_TYPES: Record<string, string> = {
 // Each file is pushed to the Anthropic Files API ONCE and referenced by id
 // afterwards. Re-sending 20MB of plan sheets on every turn would be both
 // slow and expensive; a file_id costs nothing to repeat.
-
-const FILES_BETA = 'files-api-2025-04-14'
-
-/** What Claude can actually read, and as which content block. */
-function fileKind(mime: string | null, name: string): 'document' | 'image' | null {
-  const m = (mime ?? '').toLowerCase()
-  if (m === 'application/pdf' || /\.pdf$/i.test(name)) return 'document'
-  if (m === 'text/plain' || m === 'text/csv' || /\.(txt|csv|md)$/i.test(name)) return 'document'
-  if (m.startsWith('image/')) return 'image'
-  return null // Word/Excel/etc — the API takes no document block for them
-}
-
-const UNSUPPORTED =
-  "Jamie can't read this file type yet — export it to PDF and re-upload."
-
-interface SyncedFile {
-  id: string
-  name: string
-  kind: 'document' | 'image'
-  fileId: string
-}
-
-/**
- * Bring the project's files up to date on the Anthropic side and return
- * everything Jamie can read. Lazy and self-healing: any file without an
- * anthropic_file_id is uploaded on the next call, and a failure is recorded
- * on the row rather than thrown, so one bad file can't block the estimate.
- */
-async function syncProjectFiles(
-  // deno-lint-ignore no-explicit-any
-  service: any,
-  anthropic: Anthropic,
-  projectId: string
-): Promise<SyncedFile[]> {
-  const { data: rows } = await service
-    .from('project_files')
-    .select('id, file_name, mime_type, storage_path, anthropic_file_id, anthropic_sync_error')
-    .eq('project_id', projectId)
-    .order('uploaded_at')
-  if (!rows) return []
-
-  const out = await orderedConcurrentMap(rows as Array<Record<string, unknown>>, 3, async (f): Promise<SyncedFile | null> => {
-    const name = String(f.file_name ?? '')
-    const kind = fileKind(f.mime_type as string | null, name)
-    if (!kind) {
-      if (!f.anthropic_sync_error) {
-        await service
-          .from('project_files')
-          .update({ anthropic_sync_error: UNSUPPORTED })
-          .eq('id', f.id)
-      }
-      return null
-    }
-    if (f.anthropic_file_id) {
-      return { id: f.id as string, name, kind, fileId: f.anthropic_file_id as string }
-    }
-    // Already tried and failed for a non-type reason — don't retry forever.
-    if (f.anthropic_sync_error) return null
-
-    try {
-      const { data: blob, error: dlErr } = await service.storage
-        .from('project-files')
-        .download(f.storage_path as string)
-      if (dlErr || !blob) throw new Error(dlErr?.message ?? 'could not read the stored file')
-      const uploaded = await anthropic.beta.files.upload({
-        file: await toFile(blob, name, {
-          type: (f.mime_type as string) || 'application/octet-stream',
-        }),
-        betas: [FILES_BETA],
-      })
-      await service
-        .from('project_files')
-        .update({
-          anthropic_file_id: uploaded.id,
-          anthropic_synced_at: new Date().toISOString(),
-          anthropic_sync_error: null,
-        })
-        .eq('id', f.id)
-      return { id: f.id as string, name, kind, fileId: uploaded.id }
-    } catch (err) {
-      await service
-        .from('project_files')
-        .update({
-          anthropic_sync_error: err instanceof Error ? err.message : 'upload failed',
-        })
-        .eq('id', f.id)
-    }
-    return null
-  })
-  return out.filter((file): file is SyncedFile => file !== null)
-}
-
-/** Content blocks for the synced files, newest-last, cache breakpoint on
- *  the final one so the whole document prefix bills at cache rates. */
-function fileBlocks(files: SyncedFile[]): Anthropic.ContentBlockParam[] {
-  const blocks: Anthropic.ContentBlockParam[] = files.map((f) =>
-    f.kind === 'document'
-      ? ({
-          type: 'document',
-          source: { type: 'file', file_id: f.fileId },
-          title: f.name,
-        } as unknown as Anthropic.ContentBlockParam)
-      : ({
-          type: 'image',
-          source: { type: 'file', file_id: f.fileId },
-        } as unknown as Anthropic.ContentBlockParam)
-  )
-  if (blocks.length > 0) {
-    const last = blocks[blocks.length - 1] as unknown as Record<string, unknown>
-    last.cache_control = { type: 'ephemeral' }
-  }
-  return blocks
-}
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = ''
@@ -1380,11 +1269,13 @@ Deno.serve(async (req: Request) => {
 
   // The project's file repository — plans, bid forms, surveys, photos.
   const filesStarted = performance.now()
-  const projectFiles = await syncProjectFiles(service, anthropic, run.project_id)
+  let projectFiles:SyncedFile[]
+  try {projectFiles=await syncProjectFiles(service,anthropic,run.project_id)}
+  catch(error) {return json({error:error instanceof Error?error.message:'Could not read project media.'},409)}
   console.info('jamie_timing', { action, phase: 'files', duration_ms: Math.round(performance.now() - filesStarted), files: projectFiles.length })
   const docBlocks = fileBlocks(projectFiles)
 
-  const systemPrompt = buildSystemPrompt(action, brainCtx, projectFiles) + (action === 'chat'
+  const systemPrompt = buildSystemPrompt(action, brainCtx, projectFiles) + '\n'+MEDIA_EVIDENCE_RULES+'\n'+SCOPE_FORMAT_RULES + (action === 'chat'
     ? '\nCHAT BREVITY: Keep routine acknowledgements and clarification replies concise (usually under 120 words). Ask at most three essential questions at once. Do not repeat the full plan, catalog, or previously answered questions. Give more detail when the contractor asks or when a material pricing/scope issue requires it. This brevity rule does not remove required tool arguments, scope details or checks.'
     : '')
 
@@ -1662,7 +1553,7 @@ Deno.serve(async (req: Request) => {
               was.map((w, i) => ({
                 jamie_run_id: run.id,
                 proposed_name: w.name.trim(),
-                proposed_description: w.scope_description?.trim() || null,
+                proposed_description: bulletScope(w.scope_description) || null,
                 source_work_area_id:
                   w.matches_existing_work_area_id &&
                   ownIds.has(w.matches_existing_work_area_id)
@@ -1718,10 +1609,10 @@ Deno.serve(async (req: Request) => {
             // them onto the real work area (JAMIE-FLOW §4a/4b).
             const scopePatch: Record<string, unknown> = {}
             if (wa.scope_description?.trim()) {
-              scopePatch.proposed_description = wa.scope_description.trim()
+              scopePatch.proposed_description = bulletScope(wa.scope_description)
             }
             if (wa.client_scope_description?.trim()) {
-              scopePatch.proposed_client_description = wa.client_scope_description.trim()
+              scopePatch.proposed_client_description = bulletScope(wa.client_scope_description)
             }
             if (Object.keys(scopePatch).length > 0) {
               await service

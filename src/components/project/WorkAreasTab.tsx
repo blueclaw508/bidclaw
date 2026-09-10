@@ -894,7 +894,7 @@ function SortableRow({
                 settings={settings}
                 jamieEnabled={jamieEnabled}
                 onLinesChange={onLinesChange}
-                onClientScopeChange={scope => onPatch({ client_description: scope })}
+                onScopesChange={(client,crew) => onPatch({ client_description: client, description: crew })}
                 onToggleApproved={() =>
                   void onPatch({
                     estimate_status:

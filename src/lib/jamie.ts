@@ -61,6 +61,7 @@ export async function askJamie(input: {
   mode?: 'clarify' | 'price'
   reviewed?: boolean
   workAreaId: string
+  projectFileIds?: string[]
   workAreaName: string
   scope: string
   image?: { media_type: string; data: string } | null

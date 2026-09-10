@@ -29,7 +29,7 @@ export async function askJamie(input){
 }
 `
 let compiled
-try { compiled = await build({configFile:false,root,plugins:[{name:'mock-kyn',enforce:'pre',resolveId(id){if(id==='@/lib/jamie' || id.replaceAll('\\','/').endsWith('/src/lib/jamie'))return '\0mock-kyn'},load(id){if(id==='\0mock-kyn')return mock}}],resolve:{alias:{'@':path.join(root,'src')}},define:{'process.env.NODE_ENV':JSON.stringify('production')},esbuild:{jsx:'automatic'},build:{write:false,minify:false,lib:{entry,name:'Fixture',formats:['iife']}}}) } finally {fs.unlinkSync(entry)}
+try { compiled = await build({configFile:false,root,plugins:[{name:'mock-kyn',enforce:'pre',resolveId(id){if(id==='@/lib/supabase' || id.replaceAll('\\','/').endsWith('/src/lib/supabase'))return '\0mock-files';if(id==='@/lib/jamie' || id.replaceAll('\\','/').endsWith('/src/lib/jamie'))return '\0mock-kyn'},load(id){if(id==='\0mock-files')return `export const supabase={from(table){return {select(){return this},eq(){return this},single:async()=>({data:{project_id:'project'}}),order:async()=>({data:[{id:'photo1',file_name:'Patio.jpg',mime_type:'image/jpeg'},{id:'photo2',file_name:'Driveway.jpg',mime_type:'image/jpeg'}]})}}}`;if(id==='\0mock-kyn')return mock}}],resolve:{alias:{'@':path.join(root,'src')}},define:{'process.env.NODE_ENV':JSON.stringify('production')},esbuild:{jsx:'automatic'},build:{write:false,minify:false,lib:{entry,name:'Fixture',formats:['iife']}}}) } finally {fs.unlinkSync(entry)}
 const cssFile = fs.readdirSync(path.join(root,'dist-audit/assets')).find(name => name.endsWith('.css'))
 const css = fs.readFileSync(path.join(root,'dist-audit/assets',cssFile))
 const server = http.createServer((req,res) => {
@@ -44,6 +44,7 @@ try {
   const errors=[]
   page.on('pageerror',error => {errors.push(error.message);console.error(error.message)})
   await page.goto(`http://127.0.0.1:${server.address().port}`)
+  await page.getByRole('checkbox',{name:'Driveway.jpg'}).uncheck();
   await page.getByRole('button',{name:'Ask Jamie',exact:true}).click();
   const review=page.getByRole('button',{name:'Review answers',exact:true});
   await review.waitFor();
@@ -64,12 +65,13 @@ try {
   assert.equal(await page.getByRole('button',{name:/Add .*lines to estimate/}).count(),0);
   await confirm.click();
   const add=page.getByRole('button',{name:'Add 1 lines to estimate'});await add.waitFor();
-  const priced=JSON.parse(await page.locator('output').innerText());assert.equal(priced.mode,'price');assert.equal(priced.reviewed,true);
+  const priced=JSON.parse(await page.locator('output').innerText());assert.deepEqual(priced.projectFileIds,['photo1']);assert.equal(priced.mode,'price');assert.equal(priced.reviewed,true);
   assert.equal(await add.isEnabled(),true);
   assert.match(await page.locator('body').innerText(),/Proposed/);
   assert.doesNotMatch(await page.locator('body').innerText(),/Estimating/);
   // No apply: this fixture proves the flow without writing an estimate.
-  await page.reload();await page.getByRole('button',{name:'Ask Jamie',exact:true}).click();
+  await page.reload();await page.getByRole('checkbox',{name:'Driveway.jpg'}).uncheck();
+  await page.getByRole('button',{name:'Ask Jamie',exact:true}).click();
   await page.getByRole('button',{name:'Review answers',exact:true}).waitFor();
   assert.equal(await page.getByRole('textbox',{name:'How many square feet need lifting and relaying?',exact:true}).inputValue(),'120 SF','Draft answers survive a reload for the same work area and scope');
   assert.deepEqual(errors,[])

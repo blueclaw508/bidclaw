@@ -1,3 +1,4 @@
+import {bulletScope} from '../supabase/functions/_shared/scopeFormat.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import ts from 'typescript'
@@ -23,14 +24,14 @@ assert.match(serializeAnswers(unknown.questions,{[unknown.questions[0].id]:'120 
 const source=fs.readFileSync(new URL('../supabase/functions/jamie-chat/index.ts',import.meta.url),'utf8')
 const staging=source.slice(source.indexOf('        let spokenText = assistantText'),source.indexOf("        const {error:replySaveError}"))
 const writes=[]
-const context=vm.createContext({normalizeClarification,action:'propose_lines',assistantText:'',passText:JSON.stringify({gap_questions:[{prompt:'Area in SF?',kind:'measurement',choices:[]}],measurement_status:'missing',measurement_summary:'No dimensions supplied',work_areas:[{proposed_work_area_id:'a',line_items:[{qty:100,unit_cost:95}]}]}),stagedWorkAreas:[{id:'a'}],service:{from:table=>{writes.push(table);throw Error('Unexpected staging write')}},send:()=>{}})
+const context=vm.createContext({bulletScope,normalizeClarification,action:'propose_lines',assistantText:'',passText:JSON.stringify({gap_questions:[{prompt:'Area in SF?',kind:'measurement',choices:[]}],measurement_status:'missing',measurement_summary:'No dimensions supplied',work_areas:[{proposed_work_area_id:'a',line_items:[{qty:100,unit_cost:95}]}]}),stagedWorkAreas:[{id:'a'}],service:{from:table=>{writes.push(table);throw Error('Unexpected staging write')}},send:()=>{}})
 vm.runInContext(ts.transpileModule(`async function verify(){${staging}\nreturn clarification;} globalThis.verify=verify`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context)
 assert.equal((await context.verify()).ready,false);assert.deepEqual(writes,[])
 
 const single=fs.readFileSync(new URL('../supabase/functions/jamie-estimate/index.ts',import.meta.url),'utf8')
 const singleParse=single.slice(single.indexOf('    const raw = JSON.parse(textBlock.text)'),single.indexOf('    for (const line of parsed.line_items)'))
 for(const priceMode of [true,false]) {
- const c=vm.createContext({priceMode,normalizeClarification,prepareSingleAreaResult,textBlock:{text:JSON.stringify({gap_questions:[],measurement_status:'missing',measurement_summary:'Unknown size',line_items:[{name:'Invented labor',qty:100,unit_cost:95}],new_catalog_items:[]})}})
+ const c=vm.createContext({bulletScope,priceMode,normalizeClarification,prepareSingleAreaResult,textBlock:{text:JSON.stringify({gap_questions:[],measurement_status:'missing',measurement_summary:'Unknown size',line_items:[{name:'Invented labor',qty:100,unit_cost:95}],new_catalog_items:[]})}})
  vm.runInContext(singleParse+';globalThis.result=parsed',c)
  assert.equal(c.result.line_items.length,0);assert.equal(c.result.gap_questions.length,1)
 }
@@ -45,7 +46,7 @@ assert.equal(projectMilestone('estimating',[{status:'draft',created_at:'2026-09-
 assert.equal(projectMilestone('draft',[{status:'draft',created_at:'2026-09-09'},{status:'sent',created_at:'2026-09-08'}]).status,'proposed')
 
 // Opening clarification must use structured questions and perform no staging writes.
-const opening=vm.createContext({normalizeClarification,action:'scope_clarify',assistantText:'',passText:JSON.stringify({summary:'Repair area has not been measured.',measurement_status:'missing',gap_questions:[{prompt:'How many square feet need lifting?',kind:'measurement',choices:[]}]}),stagedWorkAreas:[],service:{from:()=>{throw Error('Opening clarification must not write work areas')}},send:()=>{}})
+const opening=vm.createContext({bulletScope,normalizeClarification,action:'scope_clarify',assistantText:'',passText:JSON.stringify({summary:'Repair area has not been measured.',measurement_status:'missing',gap_questions:[{prompt:'How many square feet need lifting?',kind:'measurement',choices:[]}]}),stagedWorkAreas:[],service:{from:()=>{throw Error('Opening clarification must not write work areas')}},send:()=>{}})
 vm.runInContext(ts.transpileModule(`async function verify(){${staging}\nreturn clarification;} globalThis.verify=verify`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,opening)
 const openingResult=await opening.verify()
 assert.equal(openingResult.ready,false)
