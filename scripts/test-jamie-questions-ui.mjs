@@ -66,7 +66,7 @@ try {
   const add=page.getByRole('button',{name:'Add 1 lines to estimate'});await add.waitFor();
   const priced=JSON.parse(await page.locator('output').innerText());assert.equal(priced.mode,'price');assert.equal(priced.reviewed,true);
   assert.equal(await add.isEnabled(),true);
-  assert.match(await page.locator('body').innerText(),/Proposal sent/);
+  assert.match(await page.locator('body').innerText(),/Proposed/);
   assert.doesNotMatch(await page.locator('body').innerText(),/Estimating/);
   // No apply: this fixture proves the flow without writing an estimate.
   await page.reload();await page.getByRole('button',{name:'Ask Jamie',exact:true}).click();

@@ -65,12 +65,19 @@
 /* Readable working screens. Customer documents and print routes live outside
    AppShell, so their proposal layout does not inherit these screen controls. */
 @media screen {
-  .app-readable { font-size: 16px; line-height: 1.5; }
-  .app-readable :is(.text-sm, .text-xs) { font-size: 1rem; line-height: 1.5; }
-  .app-readable :is([class~="text-[9px]"], [class~="text-[10px]"], [class~="text-[11px]"], [class~="text-[12px]"]) {
-    font-size: .875rem; line-height: 1.5;
+  .app-readable {
+    font-size: 18px; line-height: 1.5;
+    --text-base: 1.125rem;
+    --text-lg: 1.25rem;
+    --text-xl: 1.375rem;
+    --text-2xl: 1.625rem;
+    --text-3xl: 2rem;
   }
-  .app-readable :is(input, select, textarea) { font-size: 1rem; line-height: 1.5; }
+  .app-readable :is(.text-sm, .text-xs) { font-size: 1.125rem; line-height: 1.5; }
+  .app-readable :is([class~="text-[9px]"], [class~="text-[10px]"], [class~="text-[11px]"], [class~="text-[12px]"]) {
+    font-size: 1rem; line-height: 1.5;
+  }
+  .app-readable :is(input, select, textarea) { font-size: 1.125rem; line-height: 1.5; }
   .app-readable :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select) { min-height: 2.5rem; }
   .app-readable button { min-height: 2.5rem; }
 }

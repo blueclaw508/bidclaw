@@ -10,7 +10,7 @@ import { canInvokeJamie } from '@/lib/jamieLoop'
 import { PROJECT_STATUS_CONFIG, PROJECT_STATUS_ORDER } from '@/lib/statusConfig'
 import type { Project, ProjectStatus } from '@/lib/types'
 
-// Reverse-ingestion import — lazy so pdfjs only ships when opened.
+// Reverse-ingestion import â€” lazy so pdfjs only ships when opened.
 const ImportProposalModal = lazy(() => import('@/components/ingest/ImportProposalModal'))
 
 type ProjectRow = Project & { customers: { name: string } | null; proposals: ProposalProgress[] }
@@ -28,7 +28,7 @@ export default function ProjectsPage() {
   const [sort, setSort] = useState<SortKey>('created_desc')
   const [newOpen, setNewOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
-  // Reverse ingestion is a Jamie/AI feature — founder-gated for now.
+  // Reverse ingestion is a Jamie/AI feature â€” founder-gated for now.
   const [importAllowed, setImportAllowed] = useState(false)
 
   useEffect(() => {
@@ -90,7 +90,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-6 pb-8">
-      {/* Gradient page header — QC blue gradient for visual consistency
+      {/* Gradient page header â€” QC blue gradient for visual consistency
           with QC's chrome. Brand-navy stays for primary action buttons
           across BidClaw; gradient HEADERS use QC's blue. */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
@@ -154,7 +154,7 @@ export default function ProjectsPage() {
                 { value: 'created_desc', label: 'Newest first' },
                 { value: 'created_asc',  label: 'Oldest first' },
                 { value: 'updated_desc', label: 'Recently updated' },
-                { value: 'name_asc',     label: 'Name A→Z' },
+                { value: 'name_asc',     label: 'Name Aâ†’Z' },
               ]}
             />
           </div>
@@ -162,7 +162,7 @@ export default function ProjectsPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input
               type="search"
-              placeholder="Search by estimate name…"
+              placeholder="Search by estimate nameâ€¦"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-9 pr-3 text-sm outline-none placeholder:text-gray-400 focus:border-brand-navy focus:ring-2 focus:ring-brand-navy/20"
@@ -183,7 +183,7 @@ export default function ProjectsPage() {
 
       {!loadError && rows === null && (
         <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
-          Loading projects…
+          Loading projectsâ€¦
         </div>
       )}
 
@@ -225,17 +225,17 @@ export default function ProjectsPage() {
 }
 
 /* ============================================================
- * ProjectList — one big QC-style card with bordered rows.
+ * ProjectList â€” one big QC-style card with bordered rows.
  * slate-50 table header on desktop; stacked mobile rows.
  * ============================================================ */
 
 function ProjectList({ rows }: { rows: ProjectRow[] }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      {/* slate-50 header row — desktop only. Neutral pastel because
+      {/* slate-50 header row â€” desktop only. Neutral pastel because
           list pages aren't semantically color-coded like QC's settings
           cards. */}
-      <div className="hidden grid-cols-[1fr_minmax(0,200px)_120px_120px_120px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
+      <div className="hidden grid-cols-[1fr_minmax(0,200px)_160px_140px_140px] gap-4 border-b border-slate-100 bg-slate-50 px-6 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 lg:grid">
         <div>Project</div>
         <div>Customer</div>
         <div>Progress</div>
@@ -251,7 +251,7 @@ function ProjectList({ rows }: { rows: ProjectRow[] }) {
               className="block transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
             >
               {/* Desktop layout */}
-              <div className="hidden grid-cols-[1fr_minmax(0,200px)_120px_120px_120px] items-center gap-4 px-6 py-4 lg:grid">
+              <div className="hidden grid-cols-[1fr_minmax(0,200px)_160px_140px_140px] items-center gap-4 px-6 py-4 lg:grid">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-gray-900">{p.name}</div>
                   {p.site_address && (
