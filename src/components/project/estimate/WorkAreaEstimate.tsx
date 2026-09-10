@@ -114,7 +114,7 @@ interface WorkAreaEstimateProps {
   onLinesChange: (updater: (prev: WorkAreaLine[]) => WorkAreaLine[]) => void
   /** Toggle estimate_status drafting ↔ approved (R3 lifecycle). */
   onToggleApproved: () => void
-  onClientScopeChange: (scope: string) => Promise<boolean>
+  onScopesChange: (client: string, crew: string) => Promise<boolean>
 }
 
 export function WorkAreaEstimate({
@@ -124,7 +124,7 @@ export function WorkAreaEstimate({
   jamieEnabled,
   onLinesChange,
   onToggleApproved,
-  onClientScopeChange,
+  onScopesChange,
 }: WorkAreaEstimateProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [kitOpen, setKitOpen] = useState(false)
@@ -241,9 +241,9 @@ export function WorkAreaEstimate({
 
   /** Jamie → estimate bulk add (Phase 1). Same insert path as kits;
    *  categories map from Jamie's title-case to the DB enum. */
-  const handleJamieApply = async (items: JamieLineItem[], clientScope: string) => {
+  const handleJamieApply = async (items: JamieLineItem[], clientScope: string, crewScope: string) => {
     if (!clientScope.trim()) throw new Error('Review the client scope before adding the takeoff.')
-    if (!await onClientScopeChange(clientScope.trim())) throw new Error('Client scope could not save. No lines were added; please retry.')
+    if (!await onScopesChange(clientScope.trim(),crewScope.trim())) throw new Error('Scopes could not save. No lines were added; please retry.')
     const startSort = lines.length
       ? Math.max(...lines.map((l) => l.sort_order)) + 1
       : 0

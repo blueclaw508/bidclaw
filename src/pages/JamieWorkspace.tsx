@@ -1,3 +1,4 @@
+import {needsMediaReview} from '../../supabase/functions/_shared/mediaPolicy.ts'
 import {QuestionForm} from '@/components/jamie/QuestionForm'
 import {clarificationMatches,type JamieClarification} from '../../supabase/functions/_shared/jamieQuestions.ts'
 // Build with Jamie (J4) — the full-page estimating workspace.
@@ -5,7 +6,7 @@ import {clarificationMatches,type JamieClarification} from '../../supabase/funct
 // Replaces the J2 side panel. A drawer is for a helper; Jamie is the front
 // door to building an estimate, and a drawer gave the contractor nowhere to
 // look and nothing obvious to click. This screen puts the three things that
-// matter side by side: the project's FILES (what she's reading), the
+// matter side by side: the project's FILES (what he's reading), the
 // CONVERSATION, and the REVIEW GATES where work areas and line items land.
 //
 // There is exactly ONE file repository per project — the Files tab. This
@@ -64,6 +65,8 @@ interface ThreadMessage {
 }
 
 interface WorkspaceFile {
+  media_status?: string | null
+  media_error?: string | null
   id: string
   file_name: string
   file_type: string
@@ -137,7 +140,7 @@ export default function JamieWorkspace() {
           supabase.from('projects').select('name').eq('id', projectId).maybeSingle(),
           supabase
             .from('project_files')
-            .select('id, file_name, file_type, mime_type, anthropic_file_id, anthropic_sync_error')
+            .select('id, file_name, file_type, mime_type, anthropic_file_id, anthropic_sync_error, media_status, media_error')
             .eq('project_id', projectId)
             .order('uploaded_at'),
           (async () => {
@@ -318,7 +321,7 @@ export default function JamieWorkspace() {
               // unreadable file surfaces in the rail.
               supabase
                 .from('project_files')
-                .select('id, file_name, file_type, mime_type, anthropic_file_id, anthropic_sync_error')
+                .select('id, file_name, file_type, mime_type, anthropic_file_id, anthropic_sync_error, media_status, media_error')
                 .eq('project_id', projectId)
                 .order('uploaded_at')
                 .then(({ data }) => data && setFiles(data as WorkspaceFile[]))
@@ -397,7 +400,7 @@ export default function JamieWorkspace() {
       setGateBusy(true)
       try {
         // Lines the contractor added on the card are staged under Jamie's
-        // work area like hers, then committed with the rest.
+        // work area like his, then committed with the rest.
         const mine = await stageContractorLines(added)
         const { written, catalogAdded } = await commitLineGate(
           run.id,
@@ -426,7 +429,7 @@ export default function JamieWorkspace() {
   /**
    * Abandon this run and start clean. Needed because history is replayed
    * verbatim: a run that began before Jamie could read project files still
-   * carries her "I don't see anything attached" reply, and she'll believe
+   * carries his "I don't see anything attached" reply, and he'll believe
    * it. The run is marked abandoned, never deleted — the messages and any
    * staged rows stay for the audit trail.
    */
@@ -452,14 +455,15 @@ export default function JamieWorkspace() {
   // Readable = "Jamie will read this", NOT "already uploaded to Anthropic".
   // The sync is lazy — it runs on the first message — so counting synced
   // files made a fresh workspace announce "0 of 4 project files", which is
-  // the exact "she can't see my plans" scare this whole change exists to
+  // the exact "he can't see my plans" scare this whole change exists to
   // kill. A file only stops being readable when it has a sync error.
-  const readable = files.filter((f) => !f.anthropic_sync_error)
-  const unreadable = files.filter((f) => f.anthropic_sync_error)
+  const fileIssue=(f:WorkspaceFile)=>needsMediaReview(f.mime_type,f.file_name)?f.media_status==='ready'?null:f.media_error??'Prepare this file on the Files tab.':f.anthropic_sync_error
+  const readable = files.filter((f) => !fileIssue(f))
+  const unreadable = files.filter((f) => fileIssue(f))
   const atGate = stagedWas.length > 0 || stagedGroups.length > 0
   // Pass 1 can run from a fresh conversation OR over a proposal already in
   // review. Jamie tells the contractor to "hit Propose again" when they ask
-  // her to change the split — for a while that button did not exist at
+  // his to change the split — for a while that button did not exist at
   // Gate 1, and the only way forward was approving everything and deleting
   // the extras afterwards.
   const atWorkAreaGate = !!run && run.status === 'awaiting_wa_approval' && stagedWas.length > 0
@@ -540,11 +544,11 @@ export default function JamieWorkspace() {
             {files.length === 0 ? (
               <p className="px-2 py-3 text-[12px] leading-relaxed text-gray-400">
                 No files on this project yet. Add plans, the bid form, or site
-                photos on the Files tab and Jamie picks them up automatically.
+                photos or walkthrough videos on the Files tab and Jamie picks them up automatically.
               </p>
             ) : (
               files.map((f) => {
-                const ok = !f.anthropic_sync_error
+                const ok = !fileIssue(f)
                 const Icon = (f.mime_type ?? '').startsWith('image/') ? ImageIcon : FileText
                 return (
                   <div
@@ -557,10 +561,10 @@ export default function JamieWorkspace() {
                     <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <div className="min-w-0">
                       <p className="break-words text-[12px] leading-snug">{f.file_name}</p>
-                      {!ok && f.anthropic_sync_error && (
+                      {!ok && (
                         <p className="mt-0.5 flex items-start gap-1 text-[11px] text-amber-700">
                           <TriangleAlert className="mt-px h-3 w-3 shrink-0" />
-                          {f.anthropic_sync_error}
+                          {fileIssue(f)}
                         </p>
                       )}
                     </div>
@@ -596,7 +600,7 @@ export default function JamieWorkspace() {
               ) : messages.length === 0 ? (
                 /* The fork (flow doc §1). Jamie asks up front instead of
                    leaving the contractor to infer it from a composer: enter
-                   the work areas yourself, or have her detect them. Both are
+                   the work areas yourself, or have him detect them. Both are
                    first-class — the manual path hands off to the Work Areas
                    tab with the add dialog already open, and detection runs
                    Pass 1 straight off the plans with nothing typed. Talking

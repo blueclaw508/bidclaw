@@ -27,6 +27,8 @@ export type CatalogCategory =
   | 'other'
 
 export type ProjectFileType =
+  | 'photo'
+  | 'video'
   | 'original_plan'
   | 'measured_plan'
   | 'crew_budget'
@@ -160,6 +162,10 @@ export interface CatalogItem {
 }
 
 export interface ProjectFile {
+  media_status?: string | null
+  media_notes?: string | null
+  media_error?: string | null
+  media_started_at?: string | null
   id: string
   project_id: string
   file_type: ProjectFileType

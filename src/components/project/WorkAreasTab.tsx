@@ -257,7 +257,7 @@ export default function WorkAreasTab({
 
   const handleDelete = async () => {
     if (!deleteTarget) return
-    // If Jamie created this work area at Gate 1, retire her staged copy
+    // If Jamie created this work area at Gate 1, retire his staged copy
     // first — otherwise Gate 2 keeps offering lines for a work area that is
     // gone. Must run BEFORE the delete: the FK nulls the link afterwards.
     // Not fatal: the gate also ignores staged areas with no real row.
@@ -894,7 +894,7 @@ function SortableRow({
                 settings={settings}
                 jamieEnabled={jamieEnabled}
                 onLinesChange={onLinesChange}
-                onClientScopeChange={scope => onPatch({ client_description: scope })}
+                onScopesChange={(client,crew) => onPatch({ client_description: client, description: crew })}
                 onToggleApproved={() =>
                   void onPatch({
                     estimate_status:

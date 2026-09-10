@@ -1,6 +1,9 @@
 import {QuestionForm} from '@/components/jamie/QuestionForm'
 import {normalizeClarification} from '../../../../supabase/functions/_shared/jamieQuestions.ts'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import type { ProjectFile } from '@/lib/types'
+import {needsMediaReview} from '../../../../supabase/functions/_shared/mediaPolicy.ts'
 import { PricingReview } from './PricingReview'
 import {
   AlertTriangle,
@@ -53,7 +56,7 @@ interface AskJamieModalProps {
   /** For the live price preview (materials/subs markup). */
   settings: LiveMarkupSettings
   /** Insert Jamie's lines into the estimate. Parent maps + persists. */
-  onApply: (lines: JamieLineItem[], clientScope: string) => Promise<void>
+  onApply: (lines: JamieLineItem[], clientScope: string, crewScope: string) => Promise<void>
 }
 
 type Phase = 'input' | 'loading' | 'review' | 'blocked'
@@ -76,6 +79,28 @@ export function AskJamieModal({
   const [blockedMsg, setBlockedMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const asking = useRef(false)
+  const [projectFiles,setProjectFiles]=useState<ProjectFile[]>([])
+  const [selectedFiles,setSelectedFiles]=useState<string[]>([])
+  const [filesLoading,setFilesLoading]=useState(true)
+  const [filesError,setFilesError]=useState('')
+  const [projectId,setProjectId]=useState('')
+  useEffect(()=>{
+    if(!open) return
+    let active=true
+    setFilesLoading(true)
+    setFilesError('')
+    void (async()=>{
+      try {
+        const {data:area,error:areaError}=await supabase.from('work_areas').select('project_id').eq('id',workAreaId).single()
+        if(areaError || !area) throw new Error('Could not load the work area files.')
+        const {data,error}=await supabase.from('project_files').select('*').eq('project_id',area.project_id).order('uploaded_at')
+        if(error) throw new Error('Could not load project files. Close Jamie and retry.')
+        if(active) {setProjectId(area.project_id);setProjectFiles(data??[]);setSelectedFiles((data??[]).filter(f=>needsMediaReview(f.mime_type,f.file_name)||/\.(pdf|png|jpe?g|webp|gif|txt|csv|md)$/i.test(f.file_name)).map(f=>f.id))}
+      } catch(error) {if(active)setFilesError(error instanceof Error?error.message:'Could not load files.')}
+      finally {if(active)setFilesLoading(false)}
+    })()
+    return ()=>{active=false}
+  },[open,workAreaId])
 
   const reset = () => {
     setPhase('input')
@@ -95,6 +120,7 @@ export function AskJamieModal({
 
   const handleAsk = async (answerText = '', price = false) => {
     if (asking.current) return
+    if(filesLoading || filesError) {toast.error(filesError || 'Wait for project files to load.');return}
     if (!scope.trim()) {
       toast.error('Tell Jamie about the work first.')
       return
@@ -109,6 +135,7 @@ export function AskJamieModal({
         reviewed: price,
         workAreaId,
         workAreaName,
+        projectFileIds: selectedFiles,
         scope: nextScope,
         image: imagePayload,
       })
@@ -132,7 +159,7 @@ export function AskJamieModal({
     if (!result || applying || !canApplySingleAreaResult(result) || !result.client_scope_description?.trim()) return
     setApplying(true)
     try {
-      await onApply(result.line_items, result.client_scope_description.trim())
+      await onApply(result.line_items, result.client_scope_description.trim(),result.scope_description.trim())
       toast.success(
         `Jamie added ${result.line_items.length} line${
           result.line_items.length === 1 ? '' : 's'
@@ -181,6 +208,7 @@ export function AskJamieModal({
         <button
           type="button"
           onClick={() => void handleAsk()}
+          disabled={filesLoading || !!filesError}
           className="inline-flex items-center gap-2 rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-gold-dark"
         >
           <Sparkles className="h-4 w-4" />
@@ -222,7 +250,7 @@ export function AskJamieModal({
       title="Ask Jamie"
       description={
         seeded
-          ? `Jamie has the scope you wrote for ${workAreaName}. Add anything that changes the price — dimensions, materials, access — then let her price it. You review before anything is added.`
+          ? `Jamie has the scope you wrote for ${workAreaName}. Add anything that changes the price — dimensions, materials, access — then let him price it. You review before anything is added.`
           : `Describe the work in ${workAreaName}. Jamie builds the priced line-item estimate — you review before anything is added.`
       }
       size="2xl"
@@ -254,7 +282,21 @@ export function AskJamieModal({
             </span>
           </label>
 
-          {/* Optional image */}
+          <fieldset className="rounded-lg border border-gray-200 p-3 space-y-2">
+            <legend className="px-1 font-semibold">Use files already on this project</legend>
+            <p className="text-sm text-gray-600">Select the photos, plans and walkthroughs relevant to this work area. No need to upload them again.</p>
+            {filesLoading ? <p>Loading project files…</p> : filesError ? <p role="alert">{filesError}</p> : projectFiles.length===0 ? <p className="text-sm">No project files uploaded yet.</p> : (
+              <div className="max-h-52 overflow-y-auto space-y-2">
+                {projectFiles.map(file=><label key={file.id} className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={selectedFiles.includes(file.id)} onChange={e=>setSelectedFiles(ids=>e.target.checked?[...ids,file.id]:ids.filter(id=>id!==file.id))}/>
+                  <span className="break-all">{file.file_name}{needsMediaReview(file.mime_type,file.file_name) && <span className="block text-amber-700">{file.media_status==='ready'?'Walkthrough notes ready':'Needs preparation in Files before Jamie can use it'}</span>}</span>
+                </label>)}
+              </div>
+            )}
+            {projectId && <a className="inline-block text-sm font-semibold text-blue-700" href={`/app/projects/${projectId}?tab=files`}>Add or prepare project files</a>}
+          </fieldset>
+
+          {/* Optional additional image */}
           <div>
             <input
               ref={fileRef}
@@ -289,7 +331,7 @@ export function AskJamieModal({
                 className="inline-flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 hover:border-brand-navy hover:text-brand-navy"
               >
                 <ImagePlus className="h-4 w-4" />
-                Add a photo or sketch (optional)
+                Add another photo or sketch (optional)
               </button>
             )}
           </div>
@@ -334,11 +376,12 @@ export function AskJamieModal({
           {/* Show the crew narrative only with a priced result. */}
           {result.line_items.length>0 && <section>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
-              Jamie's scope
+              Crew scope — internal work order
             </h4>
-            <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
-              {result.scope_description}
-            </p>
+            <textarea aria-label="Crew scope — internal work order" rows={7} value={result.scope_description}
+              onChange={e=>setResult(current=>current?{...current,scope_description:e.target.value}:current)}
+              className="mt-1 w-full whitespace-pre-wrap rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700" />
+            <p className="text-sm text-gray-500">Review both scopes. Adding the takeoff saves these client and crew scopes to this work area.</p>
           </section>}
 
           {/* Line items */}

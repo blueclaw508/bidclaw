@@ -1,3 +1,6 @@
+import {SCOPE_FORMAT_RULES,bulletScope} from '../_shared/scopeFormat.ts'
+import {syncProjectFiles,fileBlocks,FILES_BETA} from '../_shared/projectFiles.ts'
+import {MEDIA_EVIDENCE_RULES} from '../_shared/mediaPolicy.ts'
 import { configuredHourlyRate } from '../_shared/hourlyRate.ts'
 import {QUESTION_SCHEMA, QUESTION_RULES, normalizeClarification} from '../_shared/jamieQuestions.ts'
 import { cachedSystemPrompt } from '../_shared/jamiePerformance.ts'
@@ -118,7 +121,7 @@ function buildSystemPrompt(ctx: {
         .join('\n')
     : '  (empty — price from your trade knowledge and flag every item as new)'
 
-  return `You are Jamie, ${ctx.companyName ? ctx.companyName + "'s" : "the contractor's"} estimating agent inside BidClaw. You are trained on the Know Your Numbers (KYN) framework. You are a sharp estimator who has done this a thousand times. Short sentences. No corporate jargon.
+  return `You are Jamie (he/him), ${ctx.companyName ? ctx.companyName + "'s" : "the contractor's"} estimating agent inside BidClaw. You are trained on the Know Your Numbers (KYN) framework. You are a sharp estimator who has done this a thousand times. Short sentences. No corporate jargon.
 
 You estimate ONE work area at a time. The contractor gives you a scope; you produce the complete, priced line-item takeoff for that ONE work area.
 
@@ -178,6 +181,7 @@ Deno.serve(async (req: Request) => {
     mode?: string
     reviewed?: boolean
     workAreaId?: string
+    projectFileIds?: string[]
     workAreaName?: string
     scope?: string
     image?: { media_type: string; data: string } | null
@@ -253,6 +257,16 @@ Deno.serve(async (req: Request) => {
   if (!apiKey) return json({ error: 'Jamie is not configured (missing API key).' }, 500)
   const anthropic = new Anthropic({ apiKey })
 
+  if(body.workAreaId) {
+    const {data:area}=await supabase.from('work_areas').select('project_id').eq('id',body.workAreaId).single()
+    if(!area) return json({error:'Work area not found.'},404)
+    // Ownership was checked through the authenticated RLS client above.
+    const service=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+    if(body.projectFileIds!==undefined && (!Array.isArray(body.projectFileIds) || body.projectFileIds.some(id=>typeof id!=='string'))) return json({error:'Invalid project file selection.'},400)
+    try {userContent.unshift(...fileBlocks(await syncProjectFiles(service,anthropic,area.project_id,body.projectFileIds)))}
+    catch(error) {return json({error:error instanceof Error?error.message:'Could not read project media.'},409)}
+  }
+
   // 6. Call Claude. Adaptive thinking (estimating IS reasoning) + structured
   //    output (the text block is guaranteed valid JSON matching OUTPUT_SCHEMA).
   //    Non-streaming: a single work area's estimate is small and max_tokens
@@ -268,11 +282,11 @@ Deno.serve(async (req: Request) => {
         effort: priceMode ? 'high' : 'medium',
         format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
       },
-      system: cachedSystemPrompt(system+'\n'+QUESTION_RULES+'\n'+(priceMode?'The contractor has reviewed the clarification summary. Price only the confirmed scope.':'CLARIFICATION ONLY: return line_items: [] and new_catalog_items: []. Ask missing details or return a measurement_summary ready for review. Do not price yet.')),
+      system: cachedSystemPrompt(system+'\n'+SCOPE_FORMAT_RULES+'\n'+MEDIA_EVIDENCE_RULES+'\n'+QUESTION_RULES+'\n'+(priceMode?'The contractor has reviewed the clarification summary. Price only the confirmed scope.':'CLARIFICATION ONLY: return line_items: [] and new_catalog_items: []. Ask missing details or return a measurement_summary ready for review. Do not price yet.')),
       messages: [{ role: 'user', content: userContent }],
     }
     const modelStarted = performance.now()
-    const message = await anthropic.messages.create(params)
+    const message = await anthropic.beta.messages.create({...params,betas:[FILES_BETA]})
     console.info('jamie_timing', { action: 'single_area', phase: 'model', duration_ms: Math.round(performance.now() - modelStarted), cached_input_tokens: message.usage?.cache_read_input_tokens ?? 0 })
 
     const textBlock = message.content.find((b) => b.type === 'text')
@@ -280,6 +294,8 @@ Deno.serve(async (req: Request) => {
       throw new Error('Jamie returned no estimate.')
     }
     const raw = JSON.parse(textBlock.text)
+    raw.scope_description=bulletScope(raw.scope_description)
+    raw.client_scope_description=bulletScope(raw.client_scope_description)
     const clarification = normalizeClarification(raw)
     const parsed = prepareSingleAreaResult({...raw,clarification,gap_questions:clarification.questions.map(q=>q.prompt),line_items:priceMode && clarification.ready ? raw.line_items : [],new_catalog_items:priceMode && clarification.ready ? raw.new_catalog_items : []})
     for (const line of parsed.line_items) {

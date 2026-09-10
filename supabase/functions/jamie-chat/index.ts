@@ -1,5 +1,7 @@
+import {SCOPE_FORMAT_RULES,bulletScope} from '../_shared/scopeFormat.ts'
+import {syncProjectFiles,fileBlocks,FILES_BETA,type SyncedFile} from '../_shared/projectFiles.ts'
+import {MEDIA_EVIDENCE_RULES} from '../_shared/mediaPolicy.ts'
 import {QUESTION_SCHEMA, CLARIFICATION_SCHEMA, QUESTION_RULES, normalizeClarification, clarificationMatches, type JamieClarification} from '../_shared/jamieQuestions.ts'
-import { orderedConcurrentMap } from '../_shared/jamiePerformance.ts'
 import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQuote.ts'
 // jamie-chat — THE JAMIE LOOP conversational backbone (J1 plumbing + J3 brain).
 //
@@ -17,7 +19,7 @@ import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQu
 //
 // Both gates COMMIT client-side through jamieLoop.ts under the user's own
 // RLS — this function only ever writes STAGING rows. Jamie is additive-only:
-// she proposes new work areas and may flag `source_work_area_id` as a match
+// he proposes new work areas and may flag `source_work_area_id` as a match
 // to one the contractor already made, but never edits or renames it.
 //
 // Distinct from the live Phase-1 `jamie-estimate` function (single-shot,
@@ -32,7 +34,7 @@ import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQu
 //   5. Meter (invocation row, in_progress) → Anthropic → finalize
 
 import { prepareGeneratedTakeoff, LABOR_BASIS_RULES } from '../_shared/estimatePolicy.ts'
-import Anthropic, { toFile } from 'npm:@anthropic-ai/sdk'
+import Anthropic from 'npm:@anthropic-ai/sdk'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
   evaluateJamieGate,
@@ -84,11 +86,11 @@ const MAX_TOKENS: Record<JamieAction, number> = {
 }
 
 // ── Layer 1 of the three-layer brain: web search (Jamie P2) ────────────
-// Before Jamie builds a takeoff she can check the complete assembly for a
-// kind of work she does not know cold, and look up a current supplier
+// Before Jamie builds a takeoff he can check the complete assembly for a
+// kind of work he does not know cold, and look up a current supplier
 // price for an item that is not in the catalog — the safety net against
 // the missing mortar / lath / fasteners that a generalist skips. Server-
-// side tool: Anthropic runs the search, the results land in her context.
+// side tool: Anthropic runs the search, the results land in his context.
 // $10 per 1,000 searches on top of tokens. This is the CEILING for one Pass
 // 2 request; the live budget scales with how many work areas that request is
 // pricing (see searchBudget) — six searches spent on a single work area is
@@ -181,7 +183,7 @@ const WORK_AREA_SCHEMA = {
           name: { type: 'string' },
           scope_description: { type: 'string' },
           // The contractor's OWN work area this scope appears to duplicate,
-          // or null. Jamie flags the overlap; she never edits their row.
+          // or null. Jamie flags the overlap; he never edits their row.
           matches_existing_work_area_id: { type: ['string', 'null'] },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
         },
@@ -215,7 +217,7 @@ const LINE_SCHEMA = {
           // TWO scopes, both rewritten from the takeoff below (JAMIE-FLOW
           // §4, revised 2026-09-04). Pass 1's description was written
           // before any line existed; these are derived from the lines,
-          // which is the only way "if she writes it, she bills it" holds.
+          // which is the only way "if he writes it, he bills it" holds.
           //
           // scope_description = 4b, the WORK ORDER. Full detail, and the
           // text the scope-vs-lines fail-safe reconciles against.
@@ -475,7 +477,7 @@ That is normal — BidClaw ships blank and learns each company. Estimate this wo
         .join('\n')
     : '  (none yet — the contractor has not entered any work areas on this project)'
 
-  const identity = `You are Jamie, ${
+  const identity = `You are Jamie (he/him), ${
     ctx.companyName ? ctx.companyName + "'s" : "the contractor's"
   } estimating agent inside BidClaw, trained on the Know Your Numbers (KYN) framework. You are a sharp estimator who has done this a thousand times. Short sentences. No jargon. Peer-to-peer — you talk to the contractor as an equal, never as a chatbot.
 
@@ -601,7 +603,7 @@ Plain contractor English, no marketing. Full detail: lifts, compaction, bag and 
   - CUT every number the crew uses to build and a client could police you with: lift counts, compaction passes, base depths, bag counts, trailer/load counts, rebar size and spacing, machine choices, man-hours. If a client can stand over the crew with your text and demand a redo or a credit because the crew did the same job a different, equally good way, you have written it wrong.
   - Material and method stay only where the CLIENT is choosing them: "dry-laid irregular Pennsylvania flagstone", "mortared New England fieldstone", "thermal bluestone treads". That is what they picked and what they are paying for. "6 in of processed dense grade in two lifts, plate compacted" is not.
   - Never promise anything you did not bill.
-  - Two to five sentences, or a short paragraph plus a few plain bullets. Plain, confident contract English. No marketing adjectives.
+  - Three to six short bullets, each on its own line. No introductory paragraph. Plain, confident contract English. No marketing adjectives.
 
 Worked contrast for the same work area:
   work order: "- Excavate the patio ring to 8 in depth, 400 SF, and trench the fire pit footing ring. - Load all spoils and haul off site, six trailer loads with disposal fees. - Place processed dense grade 6 in in two lifts and plate compact each lift."
@@ -624,7 +626,7 @@ THE CONTRACTOR IS REVIEWING YOUR PROPOSAL RIGHT NOW. On screen, waiting for thei
         .join(', ')}. You CANNOT change that list by talking — nothing you say here restages it. If they ask you to merge, split, drop, add or rename work areas: take the correction on board in one or two sentences, and tell them to hit "Propose again" so you can redo the split with it. Never say the change is done. On the card they can also Skip any work area, rename it, edit its scope text, or add one you missed themselves — then approve the list.`
     : ''
 
-  // Gate 2: the takeoff is on screen. A price the contractor gives here goes
+  // Gate 2: the takeoff is on screen. A price the contractor gives hime goes
   // onto the line through set_line_prices — the only channel that works.
   const byWa = new Map<string, string[]>()
   for (const l of ctx.reviewingLines) {
@@ -710,126 +712,13 @@ const MEDIA_TYPES: Record<string, string> = {
 
 // ── Project file repository (J4) ───────────────────────────────────────
 // ONE repository per project: `project_files` / the `project-files` bucket.
-// Jamie used to be able to see only photos uploaded through her own panel,
+// Jamie used to be able to see only photos uploaded through his own panel,
 // so a contractor could upload four plan sheets and be told "I don't see
 // anything attached" — which was true, and wrong.
 //
 // Each file is pushed to the Anthropic Files API ONCE and referenced by id
 // afterwards. Re-sending 20MB of plan sheets on every turn would be both
 // slow and expensive; a file_id costs nothing to repeat.
-
-const FILES_BETA = 'files-api-2025-04-14'
-
-/** What Claude can actually read, and as which content block. */
-function fileKind(mime: string | null, name: string): 'document' | 'image' | null {
-  const m = (mime ?? '').toLowerCase()
-  if (m === 'application/pdf' || /\.pdf$/i.test(name)) return 'document'
-  if (m === 'text/plain' || m === 'text/csv' || /\.(txt|csv|md)$/i.test(name)) return 'document'
-  if (m.startsWith('image/')) return 'image'
-  return null // Word/Excel/etc — the API takes no document block for them
-}
-
-const UNSUPPORTED =
-  "Jamie can't read this file type yet — export it to PDF and re-upload."
-
-interface SyncedFile {
-  id: string
-  name: string
-  kind: 'document' | 'image'
-  fileId: string
-}
-
-/**
- * Bring the project's files up to date on the Anthropic side and return
- * everything Jamie can read. Lazy and self-healing: any file without an
- * anthropic_file_id is uploaded on the next call, and a failure is recorded
- * on the row rather than thrown, so one bad file can't block the estimate.
- */
-async function syncProjectFiles(
-  // deno-lint-ignore no-explicit-any
-  service: any,
-  anthropic: Anthropic,
-  projectId: string
-): Promise<SyncedFile[]> {
-  const { data: rows } = await service
-    .from('project_files')
-    .select('id, file_name, mime_type, storage_path, anthropic_file_id, anthropic_sync_error')
-    .eq('project_id', projectId)
-    .order('uploaded_at')
-  if (!rows) return []
-
-  const out = await orderedConcurrentMap(rows as Array<Record<string, unknown>>, 3, async (f): Promise<SyncedFile | null> => {
-    const name = String(f.file_name ?? '')
-    const kind = fileKind(f.mime_type as string | null, name)
-    if (!kind) {
-      if (!f.anthropic_sync_error) {
-        await service
-          .from('project_files')
-          .update({ anthropic_sync_error: UNSUPPORTED })
-          .eq('id', f.id)
-      }
-      return null
-    }
-    if (f.anthropic_file_id) {
-      return { id: f.id as string, name, kind, fileId: f.anthropic_file_id as string }
-    }
-    // Already tried and failed for a non-type reason — don't retry forever.
-    if (f.anthropic_sync_error) return null
-
-    try {
-      const { data: blob, error: dlErr } = await service.storage
-        .from('project-files')
-        .download(f.storage_path as string)
-      if (dlErr || !blob) throw new Error(dlErr?.message ?? 'could not read the stored file')
-      const uploaded = await anthropic.beta.files.upload({
-        file: await toFile(blob, name, {
-          type: (f.mime_type as string) || 'application/octet-stream',
-        }),
-        betas: [FILES_BETA],
-      })
-      await service
-        .from('project_files')
-        .update({
-          anthropic_file_id: uploaded.id,
-          anthropic_synced_at: new Date().toISOString(),
-          anthropic_sync_error: null,
-        })
-        .eq('id', f.id)
-      return { id: f.id as string, name, kind, fileId: uploaded.id }
-    } catch (err) {
-      await service
-        .from('project_files')
-        .update({
-          anthropic_sync_error: err instanceof Error ? err.message : 'upload failed',
-        })
-        .eq('id', f.id)
-    }
-    return null
-  })
-  return out.filter((file): file is SyncedFile => file !== null)
-}
-
-/** Content blocks for the synced files, newest-last, cache breakpoint on
- *  the final one so the whole document prefix bills at cache rates. */
-function fileBlocks(files: SyncedFile[]): Anthropic.ContentBlockParam[] {
-  const blocks: Anthropic.ContentBlockParam[] = files.map((f) =>
-    f.kind === 'document'
-      ? ({
-          type: 'document',
-          source: { type: 'file', file_id: f.fileId },
-          title: f.name,
-        } as unknown as Anthropic.ContentBlockParam)
-      : ({
-          type: 'image',
-          source: { type: 'file', file_id: f.fileId },
-        } as unknown as Anthropic.ContentBlockParam)
-  )
-  if (blocks.length > 0) {
-    const last = blocks[blocks.length - 1] as unknown as Record<string, unknown>
-    last.cache_control = { type: 'ephemeral' }
-  }
-  return blocks
-}
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = ''
@@ -1167,7 +1056,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // A chat turn while a proposal sits at Gate 1: Jamie needs to know what is
-  // on screen, and that talking does not change it. Without this she said
+  // on screen, and that talking does not change it. Without this he said
   // "Done, four work areas" to a merge request and nothing moved.
   let reviewingWorkAreas: string[] = []
   let approvedRunWorkAreas: BrainContext['approvedRunWorkAreas'] = []
@@ -1198,7 +1087,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // A chat turn while the takeoff sits at Gate 2: hand Jamie the staged
-  // lines with their ids so a price the contractor gives her can be
+  // lines with their ids so a price the contractor gives him can be
   // written to the right line through set_line_prices.
   let reviewingLines: BrainContext['reviewingLines'] = []
   if (action === 'chat' && run.status === 'awaiting_line_approval') {
@@ -1380,11 +1269,13 @@ Deno.serve(async (req: Request) => {
 
   // The project's file repository — plans, bid forms, surveys, photos.
   const filesStarted = performance.now()
-  const projectFiles = await syncProjectFiles(service, anthropic, run.project_id)
+  let projectFiles:SyncedFile[]
+  try {projectFiles=await syncProjectFiles(service,anthropic,run.project_id)}
+  catch(error) {return json({error:error instanceof Error?error.message:'Could not read project media.'},409)}
   console.info('jamie_timing', { action, phase: 'files', duration_ms: Math.round(performance.now() - filesStarted), files: projectFiles.length })
   const docBlocks = fileBlocks(projectFiles)
 
-  const systemPrompt = buildSystemPrompt(action, brainCtx, projectFiles) + (action === 'chat'
+  const systemPrompt = buildSystemPrompt(action, brainCtx, projectFiles) + '\n'+MEDIA_EVIDENCE_RULES+'\n'+SCOPE_FORMAT_RULES + (action === 'chat'
     ? '\nCHAT BREVITY: Keep routine acknowledgements and clarification replies concise (usually under 120 words). Ask at most three essential questions at once. Do not repeat the full plan, catalog, or previously answered questions. Give more detail when the contractor asks or when a material pricing/scope issue requires it. This brevity rule does not remove required tool arguments, scope details or checks.'
     : '')
 
@@ -1602,7 +1493,7 @@ Deno.serve(async (req: Request) => {
               results.push({ type: 'tool_result', tool_use_id: use.id, content: text })
             }
             convo.push({ role: 'user', content: results })
-            // Jamie may have said a few words before the call; keep her
+            // Jamie may have said a few words before the call; keep his
             // confirmation on its own line in the bubble and the transcript.
             if (assistantText && !assistantText.endsWith('\n')) {
               assistantText += '\n'
@@ -1662,7 +1553,7 @@ Deno.serve(async (req: Request) => {
               was.map((w, i) => ({
                 jamie_run_id: run.id,
                 proposed_name: w.name.trim(),
-                proposed_description: w.scope_description?.trim() || null,
+                proposed_description: bulletScope(w.scope_description) || null,
                 source_work_area_id:
                   w.matches_existing_work_area_id &&
                   ownIds.has(w.matches_existing_work_area_id)
@@ -1708,7 +1599,7 @@ Deno.serve(async (req: Request) => {
           if(!clarification.ready) {
             spokenText=[clarification.summary,...clarification.questions.map(q=>q.prompt)].filter(Boolean).join('\n')
           } else {
-          // Echoed ids must be ones we actually handed her at Gate 1.
+          // Echoed ids must be ones we actually handed him at Gate 1.
           const stagedIds = new Set(stagedWorkAreas.map((w) => w.id))
           const rows: Array<Record<string, unknown>> = []
           for (const wa of parsed.work_areas ?? []) {
@@ -1718,10 +1609,10 @@ Deno.serve(async (req: Request) => {
             // them onto the real work area (JAMIE-FLOW §4a/4b).
             const scopePatch: Record<string, unknown> = {}
             if (wa.scope_description?.trim()) {
-              scopePatch.proposed_description = wa.scope_description.trim()
+              scopePatch.proposed_description = bulletScope(wa.scope_description)
             }
             if (wa.client_scope_description?.trim()) {
-              scopePatch.proposed_client_description = wa.client_scope_description.trim()
+              scopePatch.proposed_client_description = bulletScope(wa.client_scope_description)
             }
             if (Object.keys(scopePatch).length > 0) {
               await service

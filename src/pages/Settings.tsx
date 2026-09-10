@@ -118,10 +118,10 @@ function SubscriptionSummary() {
             Add Jamie, the AI estimator
           </p>
           <p className="mt-1 text-xs text-gray-600">
-            Describe the job — or hand her the plans — and Jamie builds the
+            Describe the job — or hand him the plans — and Jamie builds the
             work areas and the takeoff against{' '}
-            <em>your</em> catalog, your kits and your KYN rates. She learns
-            from every correction you make, so she gets closer to your numbers
+            <em>your</em> catalog, your kits and your KYN rates. He learns
+            from every correction you make, so he gets closer to your numbers
             with each estimate. You approve every line before it lands.
           </p>
           <button

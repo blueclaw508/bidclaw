@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { needsMediaReview } from '../../../supabase/functions/_shared/mediaPolicy.ts'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import {
   Download,
@@ -14,6 +15,7 @@ import { supabase } from '@/lib/supabase'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import {
   FILE_ACCEPT,
+  validateProjectFile,
   FILE_SIZE_CAP,
   FILE_TYPE_LABEL,
   FILE_TYPE_ORDER,
@@ -33,6 +35,7 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
   const navigate = useNavigate()
   const [rows, setRows] = useState<ProjectFile[]>([])
   const [loading, setLoading] = useState(true)
+  const [preparing, setPreparing] = useState<string[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
 
   // Pending upload batch (set by dropzone, consumed by modal)
@@ -82,8 +85,23 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
       onDrop,
       accept: FILE_ACCEPT,
       maxSize: FILE_SIZE_CAP,
+      validator: validateProjectFile,
       noClick: true, // we render our own browse button
     })
+
+  const prepare = async (file:ProjectFile) => {
+    setPreparing(ids=>[...ids,file.id])
+    try {
+      const {data,error}=await supabase.functions.invoke('jamie-media',{body:{fileId:file.id}})
+      if(error) {
+        const detail=await error.context?.json?.().catch(()=>null)
+        throw new Error(detail?.error??error.message)
+      }
+      if(data?.error) throw new Error(data.error)
+      toast.success(data?.status==='ready'?'Walkthrough ready for Jamie.':'Review is running. Refresh the files list shortly.')
+    } catch(error) {toast.error(error instanceof Error?error.message:'Could not prepare this file.')}
+    finally {setPreparing(ids=>ids.filter(id=>id!==file.id));void load()}
+  }
 
   // Inline file_type change on a row (no modal — patch + reload)
   const patchFileType = async (id: string, next: ProjectFileType) => {
@@ -160,8 +178,8 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
                 Files
               </h2>
               <p className="mt-0.5 text-xs text-gray-500">
-                Plans, proposals, invoices, change orders. Stored privately,
-                viewed via short-lived signed URLs.
+                Plans, photos, narrated walkthrough videos and project documents.
+                Upload a phone walkthrough, then prepare it for Jamie to review.
               </p>
             </div>
           </div>
@@ -197,7 +215,7 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
           {isDragActive ? 'Drop files here…' : 'Drag and drop files here'}
         </p>
         <p className="mt-1 text-xs text-gray-500">
-          PDF, images, Word, Excel, CSV. Up to 50 MB each. Click <strong>Browse files</strong> for the picker.
+          Photos, MP4/MOV/WebM videos, PDF, Word, Excel, CSV. Videos up to 250 MB; documents up to 50 MB. Short walkthrough clips work best. Click <strong>Browse files</strong> for the picker.
         </p>
       </div>
 
@@ -259,6 +277,13 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
                           {file.version_number > 1 && ` · v${file.version_number}`}
                         </div>
                       </div>
+                      {needsMediaReview(file.mime_type,file.file_name) && (
+                        <div className="max-w-lg space-y-2 text-sm">
+                          <p>{file.media_status==='ready'?'Ready for Jamie':preparing.includes(file.id)?'Jamie is reviewing the visuals and narration…':file.media_error??'Prepare this file before building with Jamie.'}</p>
+                          {file.media_notes && <details><summary className="cursor-pointer font-semibold">Review walkthrough notes</summary><p className="whitespace-pre-wrap mt-2">{file.media_notes}</p></details>}
+                          {file.media_status!=='ready' && <button type="button" disabled={preparing.includes(file.id)} onClick={()=>void prepare(file)} className="rounded bg-brand-navy px-3 py-2 text-white disabled:opacity-50">{preparing.includes(file.id)?'Reviewing…':'Prepare for Jamie'}</button>}
+                        </div>
+                      )}
                       <select
                         value={file.file_type}
                         onChange={(e) =>
@@ -358,9 +383,9 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
 function friendlyRejectionReason(code: string): string {
   switch (code) {
     case 'file-too-large':
-      return 'too large (max 50 MB)'
+      return 'too large (videos max 250 MB; documents max 50 MB)'
     case 'file-invalid-type':
-      return 'not an allowed file type (PDF, image, Word, Excel, CSV)'
+      return 'not an allowed file type (photo, MP4/MOV/WebM video, PDF, Word, Excel, CSV)'
     case 'too-many-files':
       return 'too many files at once'
     default:

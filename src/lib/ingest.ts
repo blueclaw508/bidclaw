@@ -203,7 +203,7 @@ export async function commitIngestedProposal(opts: {
       const cat = l.category as string
       const emitted = Number(l.markup_pct ?? 0)
       // Jamie already priced this as a cost basis (BCA pool-sub rule,
-      // markup_pct 10) — leave it exactly as she built it.
+      // markup_pct 10) — leave it exactly as he built it.
       const preMarked = emitted > 0
       const m = preMarked ? emitted : markupForCategory(cat)
       const cost =

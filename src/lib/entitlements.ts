@@ -166,7 +166,7 @@ export function isSendGateError(err: unknown): boolean {
 
 /**
  * Tried to send / approve a proposal built with the free Jamie estimate
- * while still on a plan without her (0042). Entitled to send in general —
+ * while still on a plan without him (0042). Entitled to send in general —
  * a comped Pro is — just not THIS one, which prints PREVIEW until they
  * hold Pro + AI. A different sentence from the plain send gate on purpose:
  * "subscribe" is wrong advice for someone who already does.

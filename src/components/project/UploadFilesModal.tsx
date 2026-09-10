@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { uploadProjectFile } from '@/lib/projectUpload'
+import { mediaMime, needsMediaReview, VIDEO_LIMIT } from '../../../supabase/functions/_shared/mediaPolicy.ts'
 import { toast } from 'sonner'
 import { FileText } from 'lucide-react'
 import { Modal } from '@/components/Modal'
@@ -8,6 +10,8 @@ import { cn } from '@/lib/utils'
 import type { ProjectFile, ProjectFileType } from '@/lib/types'
 
 export const FILE_TYPE_ORDER: ProjectFileType[] = [
+  'photo',
+  'video',
   'original_plan',
   'measured_plan',
   'crew_budget',
@@ -19,6 +23,8 @@ export const FILE_TYPE_ORDER: ProjectFileType[] = [
 ]
 
 export const FILE_TYPE_LABEL: Record<ProjectFileType, string> = {
+  photo: 'Photos',
+  video: 'Videos',
   original_plan: 'Original Plan',
   measured_plan: 'Measured Plan',
   crew_budget: 'Crew Budget',
@@ -57,14 +63,16 @@ export function UploadFilesModal({
     existingFileCount === 0 ? 'original_plan' : 'other'
   const [fileType, setFileType] = useState<ProjectFileType>(defaultFileType)
   const [submitting, setSubmitting] = useState(false)
+  const [progress, setProgress] = useState<Record<string,number>>({})
 
   // Re-sync default when the modal opens with a new batch
   useEffect(() => {
     if (open) {
-      setFileType(existingFileCount === 0 ? 'original_plan' : 'other')
+      setFileType(files.every(f=>mediaMime(f.type,f.name).startsWith('video/'))?'video':files.every(f=>mediaMime(f.type,f.name).startsWith('image/'))?'photo':existingFileCount === 0 ? 'original_plan' : 'other')
+      setProgress({})
       setSubmitting(false)
     }
-  }, [open, existingFileCount])
+  }, [open, existingFileCount, files])
 
   const handleUpload = async () => {
     if (!user || files.length === 0) return
@@ -77,24 +85,20 @@ export function UploadFilesModal({
       files.map(async (file) => {
         const safeName = sanitizeFilename(file.name)
         const storagePath = `${user.id}/${projectId}/${Date.now()}_${safeName}`
-        const upload = await supabase.storage
-          .from('project-files')
-          .upload(storagePath, file, {
-            contentType: file.type || undefined,
-            upsert: false,
-          })
-        if (upload.error) {
-          return { file, ok: false as const, error: upload.error.message }
+        try {
+          await uploadProjectFile(file,storagePath,percent=>setProgress(p=>({...p,[file.name]:percent})))
+        } catch(error) {
+          return {file,ok:false as const,error:error instanceof Error?error.message:'Upload failed.'}
         }
         // Insert DB row pointing at the just-uploaded storage object
         const insert = await supabase
           .from('project_files')
           .insert({
             project_id: projectId,
-            file_type: fileType,
+            file_type: mediaMime(file.type,file.name).startsWith('video/')?'video':mediaMime(file.type,file.name).startsWith('image/')?'photo':fileType,
             file_name: file.name, // preserve original (display)
             storage_path: storagePath,
-            mime_type: file.type || null,
+            mime_type: mediaMime(file.type,file.name) || file.type || null,
             file_size_bytes: file.size,
             version_number: 1,
           })
@@ -142,7 +146,7 @@ export function UploadFilesModal({
           ? 'Upload file'
           : `Upload ${files.length} files`
       }
-      description="Pick a category. All files in this batch get the same category — you can change individual files later."
+      description="Photos and videos are categorized automatically. Choose a category for other documents; you can change it later."
       size="lg"
     >
       <div className="space-y-5">
@@ -152,7 +156,7 @@ export function UploadFilesModal({
             <li key={i} className="flex items-center gap-2 py-1 text-sm">
               <FileText className="h-4 w-4 shrink-0 text-brand-text-muted" />
               <span className="min-w-0 flex-1 truncate text-brand-text">{f.name}</span>
-              <span className="shrink-0 text-xs text-brand-text-muted">{formatFileSize(f.size)}</span>
+              <span className="shrink-0 text-xs text-brand-text-muted">{submitting ? `${progress[f.name]??0}% · ` : ''}{formatFileSize(f.size)}</span>
             </li>
           ))}
         </ul>
@@ -245,9 +249,19 @@ export const FILE_ACCEPT: Record<string, string[]> = {
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
   'image/heic': ['.heic'],
+  'image/heif': ['.heif'],
+  'image/webp': ['.webp'],
+  'image/gif': ['.gif'],
+  'video/mp4': ['.mp4', '.m4v'],
+  'video/quicktime': ['.mov'],
+  'video/webm': ['.webm'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
   'text/csv': ['.csv'],
 }
 
-export const FILE_SIZE_CAP = 50 * 1024 * 1024 // 50 MB
+export const FILE_SIZE_CAP = VIDEO_LIMIT
+export function validateProjectFile(file:File) {
+  const cap=needsMediaReview(file.type,file.name)?VIDEO_LIMIT:50*1024*1024
+  return file.size>cap?{code:'file-too-large',message:`Maximum ${cap/1024/1024} MB for this format.`}:null
+}
