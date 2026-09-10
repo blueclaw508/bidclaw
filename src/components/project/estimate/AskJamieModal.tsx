@@ -250,7 +250,7 @@ export function AskJamieModal({
       title="Ask Jamie"
       description={
         seeded
-          ? `Jamie has the scope you wrote for ${workAreaName}. Add anything that changes the price — dimensions, materials, access — then let her price it. You review before anything is added.`
+          ? `Jamie has the scope you wrote for ${workAreaName}. Add anything that changes the price — dimensions, materials, access — then let him price it. You review before anything is added.`
           : `Describe the work in ${workAreaName}. Jamie builds the priced line-item estimate — you review before anything is added.`
       }
       size="2xl"

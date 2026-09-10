@@ -1,7 +1,7 @@
 // Gate review cards (J3) — the two approval steps of THE JAMIE LOOP.
 //
 // Gate 1 reviews the work areas Jamie proposed (Pass 1); Gate 2 reviews the
-// priced takeoff she built for them (Pass 2). Nothing here writes to the
+// priced takeoff he built for them (Pass 2). Nothing here writes to the
 // database — both components hand a decision list up to JamieChatPanel,
 // which commits through jamieLoop.ts under the contractor's own RLS.
 //
@@ -127,7 +127,7 @@ export function WorkAreaGate({
               </div>
               {/* The scope Jamie proposed — editable, because Pass 2 builds
                   the takeoff FROM this text and the contractor may know a
-                  quantity or method she got wrong. */}
+                  quantity or method he got wrong. */}
               <textarea
                 value={s.description}
                 onChange={(e) =>
@@ -238,7 +238,7 @@ export function WorkAreaGate({
           : `Add ${approvedCount} work area${approvedCount === 1 ? '' : 's'}`}
       </button>
       <p className="mt-2 text-[11px] leading-relaxed text-amber-900/80">
-        Not the right split? Skip what you don&apos;t want, add what she missed,
+        Not the right split? Skip what you don&apos;t want, add what he missed,
         or tell Jamie what to change in the box below and hit{' '}
         <strong>Propose again</strong> — talking alone doesn&apos;t change
         what&apos;s on screen.

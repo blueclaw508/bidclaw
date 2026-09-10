@@ -543,7 +543,7 @@ export interface WorkAreaDecision {
  * appended after whatever the project already has; rejected ones are marked
  * and left in place. Returns the ids of the work areas that were created.
  *
- * Jamie is additive-only — `source_work_area_id` (her "this looks like your
+ * Jamie is additive-only — `source_work_area_id` (his "this looks like your
  * existing X" flag) is deliberately NOT acted on here. If the contractor
  * agrees it is a duplicate they reject the proposal; we never touch the row
  * they made themselves.
@@ -667,7 +667,7 @@ const CONTRACTOR_ADDED_SCOPE =
 /**
  * Gate 1 inline add (Ian's spec: add, edit, delete — not just approve).
  * The contractor typed a work area Jamie missed. It is staged on the run
- * exactly like one of hers so the commit path and Pass 2 treat it the
+ * exactly like one of his so the commit path and Pass 2 treat it the
  * same: it becomes a real work area now and gets PRICED in the takeoff.
  * Returns ready-to-commit decisions, all approved.
  */
@@ -786,8 +786,8 @@ export interface AddedLine {
 
 /**
  * Gate 2 inline add (Ian's spec §6: add / edit / delete line items). The
- * contractor typed a line Jamie missed under one of her work areas. It is
- * staged on that work area exactly like hers — audit trail intact, same
+ * contractor typed a line Jamie missed under one of his work areas. It is
+ * staged on that work area exactly like his — audit trail intact, same
  * commit path, same catalog flywheel — and returned as an approved
  * decision carrying the contractor's own numbers.
  */
@@ -799,7 +799,7 @@ export async function stageContractorLines(
     const clean = lines.filter((l) => l.label.trim() && l.quantity > 0 && l.unitCost > 0)
     if (clean.length === 0) continue
     // Contractor-added rows sort after Jamie's on the same work area
-    // (hers are 0..n; the scope check's additions sit at 900+).
+    // (his are 0..n; the scope check's additions sit at 900+).
     const staged = await stageProposedLines(
       pwaId,
       clean.map((l) => ({
@@ -851,8 +851,8 @@ export async function commitLineGate(
   // The contractor should never have to sit down and type a catalog. It
   // accretes from jobs they have already priced: every item Jamie writes
   // that isn't in the catalog yet becomes a catalog item at the moment
-  // the contractor approves its price here. Next estimate, she prices it
-  // from THEIR number instead of her own.
+  // the contractor approves its price here. Next estimate, he prices it
+  // from THEIR number instead of his own.
   //
   // Materials, subs and other only — labor and equipment rates belong to
   // My Numbers (company_labor_types / company_equipment_rates), and the

@@ -141,7 +141,7 @@ export function evaluateJamieGate(
       return deny(
         'TRIAL_USED',
         trialEstimates === 1
-          ? "That was your free Jamie estimate. Upgrade to Pro + AI and she'll build the rest — starting with un-watermarking that one."
+          ? "That was your free Jamie estimate. Upgrade to Pro + AI and he'll build the rest — starting with un-watermarking that one."
           : `You've used all ${trialEstimates} of your free Jamie estimates. Upgrade to Pro + AI to keep going.`
       )
     }

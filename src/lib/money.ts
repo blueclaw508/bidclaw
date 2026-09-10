@@ -4,7 +4,7 @@
 // Before this module the same three lines of arithmetic lived in 8+
 // places (data layer aggregations, editor totals, print view, kit
 // preview, line rows) and the markup-bearing category rule in 5.
-// Jamie (Phase 2) consumes THESE helpers — she must never become
+// Jamie (Phase 2) consumes THESE helpers — he must never become
 // another copy of the money math.
 //
 // The formula (KYN, frozen-snapshot architecture):

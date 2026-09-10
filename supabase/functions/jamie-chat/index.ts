@@ -19,7 +19,7 @@ import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQu
 //
 // Both gates COMMIT client-side through jamieLoop.ts under the user's own
 // RLS — this function only ever writes STAGING rows. Jamie is additive-only:
-// she proposes new work areas and may flag `source_work_area_id` as a match
+// he proposes new work areas and may flag `source_work_area_id` as a match
 // to one the contractor already made, but never edits or renames it.
 //
 // Distinct from the live Phase-1 `jamie-estimate` function (single-shot,
@@ -86,11 +86,11 @@ const MAX_TOKENS: Record<JamieAction, number> = {
 }
 
 // ── Layer 1 of the three-layer brain: web search (Jamie P2) ────────────
-// Before Jamie builds a takeoff she can check the complete assembly for a
-// kind of work she does not know cold, and look up a current supplier
+// Before Jamie builds a takeoff he can check the complete assembly for a
+// kind of work he does not know cold, and look up a current supplier
 // price for an item that is not in the catalog — the safety net against
 // the missing mortar / lath / fasteners that a generalist skips. Server-
-// side tool: Anthropic runs the search, the results land in her context.
+// side tool: Anthropic runs the search, the results land in his context.
 // $10 per 1,000 searches on top of tokens. This is the CEILING for one Pass
 // 2 request; the live budget scales with how many work areas that request is
 // pricing (see searchBudget) — six searches spent on a single work area is
@@ -183,7 +183,7 @@ const WORK_AREA_SCHEMA = {
           name: { type: 'string' },
           scope_description: { type: 'string' },
           // The contractor's OWN work area this scope appears to duplicate,
-          // or null. Jamie flags the overlap; she never edits their row.
+          // or null. Jamie flags the overlap; he never edits their row.
           matches_existing_work_area_id: { type: ['string', 'null'] },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
         },
@@ -217,7 +217,7 @@ const LINE_SCHEMA = {
           // TWO scopes, both rewritten from the takeoff below (JAMIE-FLOW
           // §4, revised 2026-09-04). Pass 1's description was written
           // before any line existed; these are derived from the lines,
-          // which is the only way "if she writes it, she bills it" holds.
+          // which is the only way "if he writes it, he bills it" holds.
           //
           // scope_description = 4b, the WORK ORDER. Full detail, and the
           // text the scope-vs-lines fail-safe reconciles against.
@@ -477,7 +477,7 @@ That is normal — BidClaw ships blank and learns each company. Estimate this wo
         .join('\n')
     : '  (none yet — the contractor has not entered any work areas on this project)'
 
-  const identity = `You are Jamie, ${
+  const identity = `You are Jamie (he/him), ${
     ctx.companyName ? ctx.companyName + "'s" : "the contractor's"
   } estimating agent inside BidClaw, trained on the Know Your Numbers (KYN) framework. You are a sharp estimator who has done this a thousand times. Short sentences. No jargon. Peer-to-peer — you talk to the contractor as an equal, never as a chatbot.
 
@@ -626,7 +626,7 @@ THE CONTRACTOR IS REVIEWING YOUR PROPOSAL RIGHT NOW. On screen, waiting for thei
         .join(', ')}. You CANNOT change that list by talking — nothing you say here restages it. If they ask you to merge, split, drop, add or rename work areas: take the correction on board in one or two sentences, and tell them to hit "Propose again" so you can redo the split with it. Never say the change is done. On the card they can also Skip any work area, rename it, edit its scope text, or add one you missed themselves — then approve the list.`
     : ''
 
-  // Gate 2: the takeoff is on screen. A price the contractor gives here goes
+  // Gate 2: the takeoff is on screen. A price the contractor gives hime goes
   // onto the line through set_line_prices — the only channel that works.
   const byWa = new Map<string, string[]>()
   for (const l of ctx.reviewingLines) {
@@ -712,7 +712,7 @@ const MEDIA_TYPES: Record<string, string> = {
 
 // ── Project file repository (J4) ───────────────────────────────────────
 // ONE repository per project: `project_files` / the `project-files` bucket.
-// Jamie used to be able to see only photos uploaded through her own panel,
+// Jamie used to be able to see only photos uploaded through his own panel,
 // so a contractor could upload four plan sheets and be told "I don't see
 // anything attached" — which was true, and wrong.
 //
@@ -1056,7 +1056,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // A chat turn while a proposal sits at Gate 1: Jamie needs to know what is
-  // on screen, and that talking does not change it. Without this she said
+  // on screen, and that talking does not change it. Without this he said
   // "Done, four work areas" to a merge request and nothing moved.
   let reviewingWorkAreas: string[] = []
   let approvedRunWorkAreas: BrainContext['approvedRunWorkAreas'] = []
@@ -1087,7 +1087,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // A chat turn while the takeoff sits at Gate 2: hand Jamie the staged
-  // lines with their ids so a price the contractor gives her can be
+  // lines with their ids so a price the contractor gives him can be
   // written to the right line through set_line_prices.
   let reviewingLines: BrainContext['reviewingLines'] = []
   if (action === 'chat' && run.status === 'awaiting_line_approval') {
@@ -1493,7 +1493,7 @@ Deno.serve(async (req: Request) => {
               results.push({ type: 'tool_result', tool_use_id: use.id, content: text })
             }
             convo.push({ role: 'user', content: results })
-            // Jamie may have said a few words before the call; keep her
+            // Jamie may have said a few words before the call; keep his
             // confirmation on its own line in the bubble and the transcript.
             if (assistantText && !assistantText.endsWith('\n')) {
               assistantText += '\n'
@@ -1599,7 +1599,7 @@ Deno.serve(async (req: Request) => {
           if(!clarification.ready) {
             spokenText=[clarification.summary,...clarification.questions.map(q=>q.prompt)].filter(Boolean).join('\n')
           } else {
-          // Echoed ids must be ones we actually handed her at Gate 1.
+          // Echoed ids must be ones we actually handed him at Gate 1.
           const stagedIds = new Set(stagedWorkAreas.map((w) => w.id))
           const rows: Array<Record<string, unknown>> = []
           for (const wa of parsed.work_areas ?? []) {

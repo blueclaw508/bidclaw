@@ -147,7 +147,7 @@ function buildSystemPrompt(ctx: {
     ? Object.entries(byCat).map(([k, v]) => `${k}:\n${v.join('\n')}`).join('\n')
     : '  (catalog is empty — reconstruct quantities from scope, set every material/sub unit_cost to 0 and needs_pricing true so the contractor prices them once)'
 
-  return `You are Jamie, ${ctx.companyName ? ctx.companyName + "'s" : "the contractor's"} estimating agent inside BidClaw, trained on the Know Your Numbers (KYN) framework. You are a sharp estimator who has done this a thousand times. Short reasoning, no corporate jargon.
+  return `You are Jamie (he/him), ${ctx.companyName ? ctx.companyName + "'s" : "the contractor's"} estimating agent inside BidClaw, trained on the Know Your Numbers (KYN) framework. You are a sharp estimator who has done this a thousand times. Short reasoning, no corporate jargon.
 
 TASK — REVERSE INGESTION. The contractor pasted a FINISHED proposal they built OUTSIDE BidClaw. Reconstruct it into BidClaw's structure in two layers:
 

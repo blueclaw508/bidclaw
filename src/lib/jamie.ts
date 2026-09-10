@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { prepareSingleAreaResult } from '../../supabase/functions/_shared/estimatePolicy.ts'
 import type { ProposalLineCategory } from '@/lib/types'
 
-/** One line Jamie returns. Categories are title-case (her contract). */
+/** One line Jamie returns. Categories are title-case (his contract). */
 export interface JamieLineItem {
   price_source?: string
   name: string

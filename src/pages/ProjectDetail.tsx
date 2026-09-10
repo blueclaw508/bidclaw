@@ -80,7 +80,7 @@ export default function ProjectDetailPage() {
   const activeTab = (searchParams.get('tab') ?? 'details') as TabId
   const setActiveTab = (id: TabId) =>
     setSearchParams({ tab: id }, { replace: true })
-  // `?add=1` is the manual half of Jamie's "enter or detect?" fork: she sends
+  // `?add=1` is the manual half of Jamie's "enter or detect?" fork: he sends
   // the contractor here with the add-work-area dialog already open, so
   // choosing to lay the work areas out yourself lands on the form and not on
   // an empty tab. Read once on mount — WorkAreasTab takes it as its initial
@@ -97,7 +97,7 @@ export default function ProjectDetailPage() {
   // Jamie gating. The button now renders for EVERYONE — what changes is
   // what it does. It used to render only when the gate allowed, which meant
   // a Pro subscriber never learned Jamie existed: no button, no mention, no
-  // way to buy the tier that turns her on. A paywall you cannot see is not a
+  // way to buy the tier that turns him on. A paywall you cannot see is not a
   // paywall, it is a missing feature.
   //
   //   allowed          → opens the Jamie workspace
@@ -362,7 +362,7 @@ export default function ProjectDetailPage() {
             >
               <Lock className="h-3.5 w-3.5" />
               {/* TRIAL_USED is the warmer moment of the two: they have met
-                  Jamie and want her back. Say that, rather than repeating
+                  Jamie and want him back. Say that, rather than repeating
                   the same pitch a stranger sees. */}
               {jamieGate.code === 'TRIAL_USED'
                 ? 'Get Jamie back'
