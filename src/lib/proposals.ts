@@ -30,6 +30,7 @@ import { syncLeadOnProposalGenerated, syncLeadStageForProposalStatus } from '@/l
 import {
   categoryBearsMarkup,
   effectiveMarkupPercent,
+  frozenEstimatePriceOverride,
   resolveMarkups,
   type LiveMarkupSettings,
   lineBase,
@@ -603,8 +604,7 @@ export async function generateProposalFromEstimates(input: {
           // Freeze the line's EFFECTIVE markup (per-line override wins over the
           // company live markup) so the proposal matches the approved estimate.
           frozen_markup_percent: effectiveMarkupPercent(l, waMarkups),
-          price_override:
-            l.price_override === null ? null : Number(l.price_override),
+          price_override: frozenEstimatePriceOverride(l, waMarkups),
           frozen_kit_factor: null,
           frozen_reference_label: null,
           sort_order: l.sort_order,

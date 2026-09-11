@@ -251,3 +251,11 @@ export function estimateLineTotal(
     estimateLineBase(line) * (1 + effectiveMarkupPercent(line, settings) / 100)
   )
 }
+
+/** New proposal snapshots preserve the reviewed cents without recalculating old proposals. */
+export function frozenEstimatePriceOverride(line: EstimateMoneyLine, settings: LiveMarkupSettings): number | null {
+  const reviewed = estimateLineTotal(line, settings)
+  if (line.price_override !== null && line.price_override !== undefined && Number.isFinite(Number(line.price_override))) return reviewed
+  const computed = lineTotal({quantity:line.quantity,frozen_unit_cost:line.unit_cost,frozen_markup_percent:effectiveMarkupPercent(line,settings)})
+  return computed === reviewed ? null : reviewed
+}
