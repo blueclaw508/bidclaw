@@ -2,6 +2,7 @@ import {SCOPE_FORMAT_RULES,bulletScope} from '../_shared/scopeFormat.ts'
 import {syncProjectFiles,fileBlocks,FILES_BETA} from '../_shared/projectFiles.ts'
 import {MEDIA_EVIDENCE_RULES} from '../_shared/mediaPolicy.ts'
 import { configuredHourlyRate } from '../_shared/hourlyRate.ts'
+import { companyKitContext } from '../_shared/companyKitContext.ts'
 import {QUESTION_SCHEMA, QUESTION_RULES, normalizeClarification} from '../_shared/jamieQuestions.ts'
 import { cachedSystemPrompt } from '../_shared/jamiePerformance.ts'
 import { supplierQuoteStatus, catalogPriceEvidence } from '../_shared/supplierQuote.ts'
@@ -72,9 +73,10 @@ const OUTPUT_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['name', 'qty', 'unit', 'category', 'unit_cost', 'rate_name'],
+        required: ['name', 'qty', 'unit', 'category', 'unit_cost', 'rate_name', 'reasoning'],
         properties: {
           name: { type: 'string' },
+          reasoning: {type:'string',description:'Concise quantity calculation and source. Labor: task, measured quantity times person-hours per unit, included tasks, and job instruction / matching kit / unverified assumption. Distinguish setup from production without counting either twice.'},
           rate_name: {type:['string','null'],description:'For Labor or Equipment: exact configured role or machine name from My Numbers, or null if none matches. Null for other categories.'},
           qty: { type: 'number' },
           unit: { type: 'string' },
@@ -210,11 +212,13 @@ Deno.serve(async (req: Request) => {
   }
 
   // 4. Assemble the contractor's KYN context (all RLS-scoped to the user).
-  const [{ data: labor }, { data: equip }, { data: catalog }] = await Promise.all([
+  const [{ data: labor }, { data: equip }, { data: catalog }, kitResult] = await Promise.all([
     supabase.from('company_labor_types').select('name, rate_per_hour').order('slot_number'),
     supabase.from('company_equipment_rates').select('name, rate_per_hour').order('slot_number'),
     supabase.from('catalog_items').select('name, unit, category, unit_cost, supplier_quote').eq('active', true),
+    supabase.from('kits').select('name, category, input_unit, jamie_notes, status, kit_lines(type, display_name, factor, factor_unit, position)').eq('user_id',user.id),
   ])
+  if(kitResult.error) return json({error:'Could not load your production kits. Retry before pricing.'},500)
 
   const laborTypes = (labor ?? [])
     .filter((l) => l.name && Number(l.rate_per_hour) > 0)
@@ -238,7 +242,7 @@ Deno.serve(async (req: Request) => {
     laborTypes,
     equipmentRates,
     catalog: catalogItems,
-  })
+  }) + '\n' + companyKitContext(kitResult.data ?? [])
 
   // 5. Build the user turn (scope + optional photo/sketch via vision).
   const userContent: Anthropic.ContentBlockParam[] = []

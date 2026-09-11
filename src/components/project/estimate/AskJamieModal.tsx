@@ -399,6 +399,7 @@ export function AskJamieModal({
             id: String(index), label: line.name, category: jamieCategoryToDb(line.category), unit: line.unit,
             quantity: line.qty, unitCost: line.unit_cost, price: previewPrice(line),
             source: line.price_source ?? 'Price source not recorded; confirm against your own prices.',
+            reasoning: line.reasoning,
           }))} />
           {result.line_items.length > 0 && <section>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">

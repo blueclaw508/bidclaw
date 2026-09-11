@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { reviewPricing, pricingComparison, positiveNumber } from '../src/lib/pricingReview.ts'
+import { laborHoursComparison, reviewPricing, pricingComparison, positiveNumber } from '../src/lib/pricingReview.ts'
 
 const rows = Object.freeze([
   Object.freeze({ id:'stone', label:'Granite', category:'material', unit:'EA', quantity:112, unitCost:195, price:32760, source:'Provisional' }),
@@ -35,3 +35,8 @@ assert.equal(mixed.invalidPrices, 1)
 assert.equal(mixed.total, 61150.34)
 assert.equal(reviewPricing([{...rows[0], price:10}]).total, 10, 'Uses displayed override, never recomputes from cost')
 console.log('PASS: Black pricing fixture, units, overrides, comparisons, invalid inputs and immutable source rows')
+assert.deepEqual(laborHoursComparison(26,'26'),{expected:26,difference:0,percent:0})
+assert.equal(laborHoursComparison(26,'20').difference,6)
+assert.ok(Math.abs(laborHoursComparison(26,'20').percent-30)<0.00001)
+assert.equal(laborHoursComparison(26,'20',1),null,'Unknown labor units must not imply a complete comparison')
+assert.equal(laborHoursComparison(26,''),null)

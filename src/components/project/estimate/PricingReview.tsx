@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { formatUSD } from '@/lib/money'
-import { pricingComparison, reviewPricing, type PricingReviewLine } from '@/lib/pricingReview'
+import { laborHoursComparison, pricingComparison, reviewPricing, type PricingReviewLine } from '@/lib/pricingReview'
 
 const labels: Record<string, string> = { labor: 'Labor', material: 'Materials', equipment: 'Equipment', subcontractor: 'Subcontractors', other: 'Other' }
 const number = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 })
@@ -12,8 +12,11 @@ export function PricingReview({ lines }: { lines: PricingReviewLine[] }) {
   const [crew, setCrew] = useState('')
   const [day, setDay] = useState('')
   const [reference, setReference] = useState('')
+  const [expectedHours,setExpectedHours] = useState('')
   const review = reviewPricing(lines)
   const comparison = pricingComparison(review.total, review.personHours, size, crew, day, reference)
+  const laborComparison=laborHoursComparison(review.personHours,expectedHours,review.unconvertedLabor)
+  const laborLines=lines.filter(line=>line.category==='labor')
   if (!lines.length) return null
   const input = 'mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-base'
   return (
@@ -31,6 +34,17 @@ export function PricingReview({ lines }: { lines: PricingReviewLine[] }) {
       {review.invalidPrices > 0 && <p role="alert">Some prices are incomplete. The displayed total excludes them.</p>}
       <p className="text-sm">Hourly labor is counted as person-hours. Labor rates may already include overhead and profit; this is not a wage-cost or margin report.</p>
       {review.unconvertedLabor > 0 && <p className="mt-2 text-sm text-amber-800">{review.unconvertedLabor} labor line(s) use days, lump sums, crew-hours, or unknown units. Their price is included, but their hours are excluded below.</p>}
+      {laborLines.length>0 && <section aria-label="Labor hours review" className="mt-4 rounded border border-blue-100 p-3">
+        <h4 className="font-semibold">Labor by task</h4>
+        <p className="mt-1 text-sm text-gray-600">Check that preparation, handling, equipment operation and cleanup are counted once. Separate role lines may be valid; compare what each includes.</p>
+        <ul className="mt-3 space-y-3">{laborLines.map(line=><li key={line.id} className="border-b border-gray-100 pb-2">
+          <p className="flex flex-wrap justify-between gap-2"><strong>{line.label}</strong><span>{line.quantity ?? '?'} {line.unit || 'unknown units'}</span></p>
+          <p className="mt-1 whitespace-pre-wrap text-sm">{line.reasoning || 'No task calculation was recorded. Confirm the included work and production factor before relying on these hours.'}</p>
+        </li>)}</ul>
+        <label className="mt-3 block">Your expected total person-hours for this scope<input type="number" min="0.01" step="any" value={expectedHours} onChange={e=>setExpectedHours(e.target.value)} placeholder="All workers combined" className={input}/></label>
+        {laborComparison && <p role="status" className="mt-2 font-semibold">{number(review.personHours)} estimated vs {number(laborComparison.expected)} expected person-hours: {number(Math.abs(laborComparison.difference))} hours ({number(Math.abs(laborComparison.percent))}%) {laborComparison.difference>=0 ? 'above' : 'below'} your benchmark.</p>}
+        <p className="mt-1 text-sm text-gray-600">Use the same work and site conditions. This comparison does not change hours or save a reusable production rate. Send corrections to Jamie before adding the takeoff.</p>
+      </section>}
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label>Crew members<input type="number" min="1" step="1" value={crew} onChange={e => setCrew(e.target.value)} placeholder="Enter crew size" className={input} /></label>
         <label>Hours per person per day<input type="number" min="0.25" max="24" step="0.25" value={day} onChange={e => setDay(e.target.value)} placeholder="Enter working hours" className={input} /></label>
