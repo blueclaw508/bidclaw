@@ -16,18 +16,19 @@ let calls = [];
 const base = {lines, workArea:{id:'new-test-area'}, jamieCategoryToDb:()=> 'labor',
   onLinesChange:fn=>calls.push(['display',fn(lines)]),
   addWorkAreaLinesBulk:async rows=>{calls.push(['insert',rows]);return rows;},
-  onClientScopeChange:async text=>{calls.push(['scope',text]);return true;}};
+  onScopesChange:async (text,crew)=>{calls.push(['scope',text,crew]);return true;}};
 const items = [{name:'Mason',category:'Labor',unit:'HR',qty:5,unit_cost:95}];
 let apply = load('handleJamieApply', '  /**',base);
 await assert.rejects(()=>apply(items,'  '), /client scope/i);
 assert.equal(calls.length,0);
-apply = load('handleJamieApply', '  /**',{...base,onClientScopeChange:async()=>false});
-await assert.rejects(()=>apply(items,'Repair 30 SF of patio.'), /No lines were added/);
+apply = load('handleJamieApply', '  /**',{...base,onScopesChange:async()=>false});
+await assert.rejects(()=>apply(items,'Repair 30 SF of patio.','Lift, reset and re-joint.'), /No lines were added/);
 assert.equal(calls.length,0);
 apply = load('handleJamieApply', '  /**',base);
-await apply(items,' Repair 30 SF of patio. ');
+await apply(items,' Repair 30 SF of patio. ',' Lift, reset and re-joint. ');
 assert.deepEqual(calls.map(x=>x[0]), ['scope','insert','display']);
 assert.equal(calls[0][1], 'Repair 30 SF of patio.');
+assert.equal(calls[0][2], 'Lift, reset and re-joint.');
 assert.equal(calls[1][1][0].quantity,5);
 assert.equal(lines.length,1);
 
