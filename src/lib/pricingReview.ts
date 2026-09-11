@@ -17,6 +17,12 @@ export function positiveNumber(value: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
+export function laborHoursComparison(personHours:number, expected:string, unconvertedLabor=0) {
+  const benchmark=positiveNumber(expected)
+  if(benchmark===null || unconvertedLabor>0 || !Number.isFinite(personHours) || personHours<0) return null
+  return {expected:benchmark,difference:personHours-benchmark,percent:(personHours/benchmark-1)*100}
+}
+
 export function reviewPricing(lines: readonly PricingReviewLine[]) {
   const categories: Record<string, number> = {}
   let personHours = 0
