@@ -69,6 +69,7 @@ export default function LeadsPage() {
       }
       return !v
     })
+  const [showArchived, setShowArchived] = useState(false)
   const [search, setSearch] = useState('')
   const [townFilter, setTownFilter] = useState('all')
   const [regionFilter, setRegionFilter] = useState('all')
@@ -115,6 +116,7 @@ export default function LeadsPage() {
     if (!rows) return null
     const q = search.trim().toLowerCase()
     return rows.filter((r) => {
+      if (!showArchived && r.project?.status === 'archived') return false
       if (townFilter !== 'all' && (r.town?.trim() ?? '') !== townFilter) return false
       if (regionFilter !== 'all' && (r.region ?? '') !== regionFilter) return false
       if (q) {
@@ -149,7 +151,7 @@ export default function LeadsPage() {
       }
       return true
     })
-  }, [rows, search, townFilter, regionFilter, dateField, dateFrom, dateTo])
+  }, [rows, showArchived, search, townFilter, regionFilter, dateField, dateFrom, dateTo])
 
   const listRows = useMemo(() => {
     if (!filtered) return null
@@ -224,6 +226,7 @@ export default function LeadsPage() {
   const openPrintReport = useCallback((auto = false) => {
     const p = new URLSearchParams()
     p.set('view', view)
+    if (showArchived) p.set('archived', '1')
     if (auto) p.set('auto', '1')
     if (groupByLocation) p.set('byLocation', '1')
     if (search.trim()) p.set('q', search.trim())
@@ -238,6 +241,7 @@ export default function LeadsPage() {
     navigate(`/app/leads/print?${p.toString()}`)
   }, [
     navigate,
+    showArchived,
     view,
     groupByLocation,
     search,
@@ -306,6 +310,10 @@ export default function LeadsPage() {
         <div className="space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-brand-border bg-white px-3 py-2 text-sm">
+                <input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)} />
+                Show archived
+              </label>
               {/* View toggle */}
               <div className="inline-flex overflow-hidden rounded-md border border-brand-border">
                 <ViewButton active={view === 'board'} onClick={() => setView('board')} icon={Columns3} label="Board" />
