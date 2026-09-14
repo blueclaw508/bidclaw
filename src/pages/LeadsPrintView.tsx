@@ -363,10 +363,6 @@ function ReportHeader({
   // its own board column / summary row.
   const live = rows.filter((r) => r.stage !== 'lost')
   const pool = rows.filter(isPoolWork)
-  // "Open" = everything still live: not signed-through-completed, not lost.
-  const open = rows.filter((r) => ['lead', 'pending', 'estimating', 'proposed'].includes(r.stage))
-  const proposed = rows.filter((r) => r.stage === 'proposed')
-  const signed = rows.filter((r) => ['signed', 'in_progress', 'completed'].includes(r.stage))
   const overdue = rows.filter((r) => isOverdue(r.follow_up_date))
 
   return (
@@ -401,24 +397,13 @@ function ReportHeader({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-5 gap-3">
-        <Kpi
-          label="Open + Won (excl. Lost)"
-          value={formatMoney(sumValue(live))}
-          accent={accent}
-          big
-        />
-        <Kpi label={`Open bids (${open.length})`} value={formatMoney(sumValue(open))} accent={accent} />
-        <Kpi label={`Proposed (${proposed.length})`} value={formatMoney(sumValue(proposed))} accent={accent} />
-        <Kpi label={`Won incl. completed (${signed.length})`} value={formatMoney(sumValue(signed))} accent={accent} />
-        <Kpi
-          label="Follow-ups overdue"
-          value={String(overdue.length)}
-          accent={overdue.length > 0 ? '#be123c' : accent}
-        />
+      <div className="mt-3 grid grid-cols-4 gap-3">
+        {LEAD_STAGE_ORDER.map(stage => {
+          const stageRows = rows.filter(r => r.stage === stage)
+          return <Kpi key={stage} label={`${LEAD_STAGE_CONFIG[stage].label} (${stageRows.length})`} value={formatMoney(sumValue(stageRows))} accent={accent} />
+        })}
       </div>
-
-      <p className="mt-2 text-[8.5pt] text-gray-600">Open bids = leads, pending, estimating and proposed. Proposed is part of Open. Won includes signed, in-progress and completed jobs. Descriptions are shortened for printing; full notes remain in BidClaw.</p>
+      <p className="mt-2 text-[8.5pt] text-gray-600">Total excluding Lost: <strong>{formatMoney(sumValue(live))}</strong> · Follow-ups overdue: {overdue.length}. Each total matches its named column. Descriptions are shortened for printing; full notes remain in BidClaw.</p>
 
       {/* Only shown when there's actually something shaded — a legend for
           a colour that never appears is just noise on the sheet. */}
