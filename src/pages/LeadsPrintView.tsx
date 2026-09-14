@@ -92,6 +92,7 @@ export default function LeadsPrintView() {
 
   /* ---------- filters carried over from the Leads page ---------- */
 
+  const showArchived = params.get('archived') === '1'
   const search = params.get('q')?.trim().toLowerCase() ?? ''
   const townFilter = params.get('town') ?? 'all'
   const regionFilter = params.get('region') ?? 'all'
@@ -130,6 +131,7 @@ export default function LeadsPrintView() {
   const filtered = useMemo(() => {
     if (!rows) return null
     return rows.filter((r) => {
+      if (!showArchived && r.project?.status === 'archived') return false
       if (townFilter !== 'all' && (r.town?.trim() ?? '') !== townFilter) return false
       if (regionFilter !== 'all' && (r.region ?? '') !== regionFilter) return false
       if (search) {
@@ -164,7 +166,7 @@ export default function LeadsPrintView() {
       }
       return true
     })
-  }, [rows, search, townFilter, regionFilter, dateField, dateFrom, dateTo])
+  }, [rows, showArchived, search, townFilter, regionFilter, dateField, dateFrom, dateTo])
 
   // The stage filter applies to the row-based formats only — the board
   // always shows every column, same rule as the app.
