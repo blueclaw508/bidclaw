@@ -1,23 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
-import {
-  CalendarCheck,
-  ClipboardCheck,
-  ClipboardList,
-  Inbox,
-  Users,
-  BookOpen,
-  Wrench,
-  Settings as SettingsIcon,
-  LogOut,
-  Menu,
-  X,
-} from 'lucide-react'
+import { Menu, X } from 'lucide-react'
+import './workflow-sidebar.css'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSetup } from '@/contexts/SetupContext'
 import { MarketingBar } from '@/components/MarketingBar'
 import { SetupBanner } from '@/components/setup/SetupBanner'
-import { cn } from '@/lib/utils'
 
 // Lazy-load the setup wizard â€” it's ~34 kB and only mounts when
 // setup is incomplete (first-login auto-open or ?wizard=1 trigger).
@@ -26,24 +14,17 @@ const WizardModal = lazy(() =>
   import('@/components/setup/WizardModal').then((m) => ({ default: m.WizardModal }))
 )
 
-const navItems = [
-  // Leads & Bids is the front door (LOOP.md P1-B) â€” first in nav.
-  { to: '/app/leads',     label: 'Leads & Bids', icon: Inbox },
-  { to: '/app/projects',  label: 'Estimates', icon: ClipboardList },
-  { to: '/app/customers', label: 'Customers', icon: Users },
-  { to: '/app/catalog',   label: 'Catalog',   icon: BookOpen },
-  { to: '/app/kits',      label: 'Kits',      icon: Wrench },
-  // Month-end WIP (0046): percent complete by work area, over/under billings.
-  { to: '/app/wip',       label: 'Month-end', icon: CalendarCheck },
-  { to: '/app/crew-review', label: 'CrewClaw Review', icon: ClipboardCheck },
-  { to: '/app/settings',  label: 'Settings',  icon: SettingsIcon },
+const navGroups = [
+  {label:'Customers & Sales', items:[{to:'/app/customers',label:'Customers'},{to:'/app/leads',label:'Leads & Bids'},{to:'/app/projects',label:'Estimates & Proposals'}]},
+  {label:'Daily Work', items:[{to:'/app/work-orders',label:'Work Orders'},{to:'https://crewclaw.netlify.app/records.html',label:'Record the Work'}]},
+  {label:'Review & Billing', items:[{to:'/app/crew-review',label:'Review & Finalize'},{to:'/app/wip',label:'Month-end'}]},
+  {label:'Setup', items:[{to:'https://crewclaw.netlify.app/setup.html',label:'Crews & Employees'},{to:'/app/catalog',label:'Catalog'},{to:'/app/kits',label:'Kits'},{to:'/app/settings',label:'System Settings'}]},
 ]
 
 export function AppShell() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   // Wizard control hoisted to SetupContext (Phase 4) so useSetupGate
   // + first-login auto-open + ?wizard=1 query-param trigger can all
@@ -84,157 +65,21 @@ export function AppShell() {
   }, [closeWizard, searchParams, setSearchParams])
 
   const handleSignOut = async () => {
-    setUserMenuOpen(false)
     await signOut()
     navigate('/', { replace: true })
   }
 
   return (
-    <div className="app-readable flex min-h-svh flex-col bg-brand-surface">
-      {/* HEADER */}
-      <header className="sticky top-0 z-40 border-b border-brand-border bg-white">
-        <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link
-            to="/app/projects"
-            className="flex shrink-0 items-center gap-2.5"
-          >
-            <img
-              src="/bidclaw-logo-sm.png"
-              alt="BidClaw"
-              className="h-9 w-9 rounded-md object-contain"
-            />
-            <span className="text-lg font-bold tracking-tight text-brand-navy">
-              BidClaw
-            </span>
-          </Link>
-
-          {/* Desktop nav */}
-          <nav className="hidden items-center gap-1 2xl:flex">
-            {navItems.map(({ to, label, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                    isActive
-                      ? 'bg-brand-navy/10 text-brand-navy'
-                      : 'text-brand-text-muted hover:bg-brand-surface hover:text-brand-text'
-                  )
-                }
-              >
-                <Icon className="h-4 w-4" />
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-
-          {/* User menu (desktop) */}
-          <div className="relative hidden 2xl:block">
-            <button
-              type="button"
-              onClick={() => setUserMenuOpen((v) => !v)}
-              className="flex items-center gap-2 rounded-md border border-brand-border bg-white px-3 py-1.5 text-xs font-medium text-brand-text-muted hover:border-brand-navy/40 hover:text-brand-text"
-            >
-              <span className="max-w-[180px] truncate">{user?.email ?? 'Signed in'}</span>
-            </button>
-            {userMenuOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setUserMenuOpen(false)}
-                  aria-hidden="true"
-                />
-                <div className="absolute right-0 top-full z-40 mt-1 w-56 rounded-md border border-brand-border bg-white py-1 shadow-lg">
-                  <div className="border-b border-brand-border px-3 py-2 text-xs text-brand-text-muted">
-                    {user?.email}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSignOut}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-brand-text hover:bg-brand-surface"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Sign out
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Mobile hamburger */}
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-brand-border text-brand-text-muted 2xl:hidden"
-            aria-label="Toggle menu"
-          >
-            {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-        </div>
-
-        {/* Mobile menu */}
-        {menuOpen && (
-          <div className="border-t border-brand-border bg-white px-4 py-3 2xl:hidden">
-            <nav className="flex flex-col gap-1">
-              {navItems.map(({ to, label, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  onClick={() => setMenuOpen(false)}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold',
-                      isActive
-                        ? 'bg-brand-navy/10 text-brand-navy'
-                        : 'text-brand-text-muted hover:bg-brand-surface hover:text-brand-text'
-                    )
-                  }
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </NavLink>
-              ))}
-              <div className="mt-2 border-t border-brand-border pt-2">
-                <div className="px-3 py-1 text-xs text-brand-text-muted">{user?.email}</div>
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-brand-text hover:bg-brand-surface"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Sign out
-                </button>
-              </div>
-            </nav>
-          </div>
-        )}
-      </header>
-
-      {/* SETUP BANNER â€” amber strip below the sticky header when the
-          user hasn't completed setup. Hidden when complete OR when
-          dismissed for this session via sessionStorage flag. */}
-      <SetupBanner />
-
-      {/* MAIN */}
-      <main className="flex-1">
-        <div className="mx-auto w-full max-w-screen-2xl px-4 py-10 sm:px-6">
-          <Outlet />
-        </div>
-      </main>
-
-      {/* MARKETING BAR */}
-      <MarketingBar />
-
-      {/* Setup wizard â€” Phase 3. Overlay-mounted via portal so it
-          appears above everything else in /app/* routes. Lazy-loaded
-          (Prompt 4.5) so the ~34 kB wizard bundle doesn't ship with
-          the main app shell â€” only fetched when actually needed. */}
-      {wizardOpen && (
-        <Suspense fallback={null}>
-          <WizardModal open={wizardOpen} onClose={handleWizardClose} />
-        </Suspense>
-      )}
+    <div className="app-readable workflow-layout bg-brand-surface">
+      <header className="workflow-mobile"><Link to="/app/projects">BidClaw</Link><button type="button" aria-label={menuOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={menuOpen} aria-controls="workflow-navigation" onClick={()=>setMenuOpen(!menuOpen)}>{menuOpen ? <X/> : <Menu/>}</button></header>
+      <aside id="workflow-navigation" className={`workflow-sidebar ${menuOpen ? 'is-open' : ''}`}>
+        <Link className="workflow-brand" to="/app/projects" onClick={()=>setMenuOpen(false)}><img src="/bidclaw-logo-sm.png" alt=""/>BidClaw</Link>
+        <nav aria-label="Main navigation">{navGroups.map(group=><section key={group.label}><h2>{group.label}</h2>{group.items.map(item=>item.to.startsWith('https:') ? <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" onClick={()=>setMenuOpen(false)}>{item.label}<span className="sr-only"> (opens CrewClaw in a new tab)</span> ↗</a> : <NavLink key={item.to} to={item.to} onClick={()=>setMenuOpen(false)}>{item.label}</NavLink>)}</section>)}</nav>
+        <a className="workflow-crew" href="https://crewclaw.netlify.app/" target="_blank" rel="noopener noreferrer">CrewClaw ↗</a>
+        <div className="workflow-account"><span>{user?.email}</span><button onClick={handleSignOut}>Sign out</button></div>
+      </aside>
+      <div className="workflow-content"><SetupBanner/><main><div className="mx-auto w-full max-w-screen-2xl px-4 py-8 sm:px-6"><Outlet/></div></main><MarketingBar/></div>
+      {wizardOpen && <Suspense fallback={null}><WizardModal open={wizardOpen} onClose={handleWizardClose}/></Suspense>}
     </div>
   )
 }
