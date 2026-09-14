@@ -39,6 +39,7 @@ import ProposalWorkAreaSection from '@/components/proposals/ProposalWorkAreaSect
 import { supabase } from '@/lib/supabase'
 import {
   assertProposalVersion,
+  isProposalConflict,
   availableTransitions,
   deleteProposal,
   getProposal,
@@ -400,6 +401,8 @@ export default function ProposalEditor() {
 
   /* ---------- unified Save + Reset ---------- */
 
+  const [saveConflict, setSaveConflict] = useState(false)
+
   const handleSaveAll = useCallback(async () => {
     if (!proposal || !canSave) return
     setSaving(true)
@@ -500,8 +503,10 @@ export default function ProposalEditor() {
       }
       setTotals(t)
       setDeletedLineIds(new Set())
+      setSaveConflict(false)
       toast.success('Saved.')
     } catch (err) {
+      if(isProposalConflict(err))setSaveConflict(true)
       toast.error(err instanceof Error ? err.message : 'Save failed.')
     } finally {
       setSaving(false)
@@ -729,6 +734,15 @@ export default function ProposalEditor() {
 
   return (
     <div className="space-y-6 pb-32">
+      {saveConflict && <section role="alert" className="space-y-3 rounded-lg border border-amber-400 bg-amber-50 p-4">
+        <h2 className="font-bold">Another save changed this proposal</h2>
+        <p>Your unsaved edits are still on this page. Open the latest saved proposal in another tab to compare before re-entering your changes there.</p>
+        <a className="inline-block rounded border bg-white px-3 py-2" href={window.location.pathname} target="_blank" rel="noopener noreferrer">Open latest in a new tab</a>
+        <button type="button" className="ml-3 rounded border bg-white px-3 py-2" onClick={()=>{
+          const blob=new Blob([JSON.stringify({proposal:proposal.name,notes:notesDraft,terms:termsDraft,paymentSchedule:milestones,lines:localLines,deletedLineIds:[...deletedLineIds]},null,2)],{type:'application/json'})
+          const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='unsaved-proposal-edits.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+        }}>Download my unsaved edits</button>
+      </section>}
       {/* Back link */}
       <Link
         to={`/app/projects/${project.id}?tab=proposals`}

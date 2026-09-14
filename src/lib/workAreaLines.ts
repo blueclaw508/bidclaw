@@ -92,9 +92,11 @@ export async function updateWorkAreaLine(
 }
 
 /** Delete a line (instant, no confirm — QC model). */
-export async function deleteWorkAreaLine(id: string): Promise<void> {
-  const { error } = await supabase.from('work_area_lines').delete().eq('id', id)
+export async function deleteWorkAreaLine(id: string, expectedUpdatedAt: string): Promise<void> {
+  if(!expectedUpdatedAt) throw new Error('Reload before deleting this line.')
+  const { data, error } = await supabase.from('work_area_lines').delete().eq('id', id).eq('updated_at',expectedUpdatedAt).select('id')
   if (error) throw new Error(`Couldn't delete line: ${error.message}`)
+  if(!data?.length) throw new Error('This line changed or was deleted. Reload before deleting; nothing was removed.')
 }
 
 /**

@@ -1,3 +1,5 @@
+import { useCheckedSaves } from '@/lib/checkedSaves'
+import { SaveConflicts } from '@/components/SaveConflicts'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { PricingReview } from './PricingReview'
 import {
@@ -33,7 +35,6 @@ import {
   addWorkAreaLinesBulk,
   deleteWorkAreaLine,
   reorderWorkAreaLines,
-  updateWorkAreaLine,
 } from '@/lib/workAreaLines'
 import { jamieCategoryToDb, type JamieLineItem } from '@/lib/jamie'
 import {
@@ -126,6 +127,7 @@ export function WorkAreaEstimate({
   onToggleApproved,
   onScopesChange,
 }: WorkAreaEstimateProps) {
+  const checked = useCheckedSaves<WorkAreaLine>('work_area_lines')
   const [addOpen, setAddOpen] = useState(false)
   const [kitOpen, setKitOpen] = useState(false)
   const [jamieOpen, setJamieOpen] = useState(false)
@@ -203,20 +205,13 @@ export function WorkAreaEstimate({
     onLinesChange((prev) =>
       prev.map((l) => (l.id === line.id ? { ...l, ...patch } : l))
     )
-    void updateWorkAreaLine(line.id, patch).catch((err) => {
-      toast.error(err instanceof Error ? err.message : 'Save failed.')
-      onLinesChange((prev) => prev.map((l) => (l.id === line.id ? line : l)))
+    void checked.save(line, patch).then(saved => {
+      if(saved) onLinesChange(prev=>prev.map(l=>l.id===line.id?{...l,updated_at:saved.updated_at}:l))
     })
   }
 
   const handleDelete = (line: WorkAreaLine) => {
-    onLinesChange((prev) => prev.filter((l) => l.id !== line.id))
-    void deleteWorkAreaLine(line.id).catch((err) => {
-      toast.error(err instanceof Error ? err.message : 'Delete failed.')
-      onLinesChange((prev) =>
-        [...prev, line].sort((a, b) => a.sort_order - b.sort_order)
-      )
-    })
+    void deleteWorkAreaLine(line.id, line.updated_at).then(()=>onLinesChange(prev=>prev.filter(l=>l.id!==line.id))).catch(err=>toast.error(err instanceof Error?err.message:'Delete failed.'))
   }
 
   /** Kit → estimate bulk add (R3). Markup snapshot ignored — live math. */
@@ -297,6 +292,10 @@ export function WorkAreaEstimate({
 
   return (
     <div className="overflow-x-auto rounded-xl border border-blue-200 bg-blue-50/30">
+      <SaveConflicts issues={checked.issues} onDismiss={checked.dismiss} onLoad={async id=>{
+        const latest=await checked.loadLatest(id)
+        if(latest!==undefined)onLinesChange(prev=>latest?prev.map(l=>l.id===id?latest:l):prev.filter(l=>l.id!==id))
+      }}/>
       <PricingReview lines={lines.map(line => ({
         id: line.id, label: line.label, category: line.category, unit: line.unit,
         quantity: line.quantity, unitCost: line.unit_cost, price: estimateLineTotal(line, settings),
