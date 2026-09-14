@@ -1,3 +1,4 @@
+import ActivityHistory from '@/pages/ActivityHistory'
 import PeopleAccess from '@/pages/PeopleAccess'
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
@@ -150,6 +151,7 @@ export default function App() {
                 <Route path="crew-schedule" element={<CrewSchedulePage />} />
                 <Route path="work-orders" element={<WorkOrdersPage />} />
                 <Route path="crew-review"   element={<CrewReviewPage />} />
+                <Route path="activity" element={<ActivityHistory />} />
                 <Route path="settings/people" element={<PeopleAccess />} />
                 <Route path="settings"                      element={<SettingsPage />} />
                 <Route path="settings/company-profile"      element={<CompanyProfileSettingsPage />} />
