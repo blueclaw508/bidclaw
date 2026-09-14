@@ -1,3 +1,4 @@
+import {DailySheet, type DailyAssignment} from '@/components/proposals/DailySheet'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Printer, ScrollText } from 'lucide-react'
@@ -73,7 +74,18 @@ export default function ProposalPrintView() {
   const [notFound, setNotFound] = useState(false)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [printParams] = useSearchParams()
-  const [format, setFormat] = useState<PrintFormat>(() => printParams.get('format') === 'crew' ? 'crew' : 'detailed')
+  const assignmentId = printParams.get('assignment')
+  const [daily,setDaily] = useState<{key:string;row:DailyAssignment|null;error:string}>({key:'',row:null,error:''})
+  const dailyKey = `${assignmentId}:${proposalId}`
+  useEffect(()=>{
+    if(!assignmentId || !proposalId)return
+    let cancelled=false
+    void supabase.from('construction_schedule').select('id,proposal_id,work_date,planned_hours,field_notes,status,construction_crews!inner(name,region)').eq('id',assignmentId).eq('proposal_id',proposalId).single().then(({data,error})=>{
+      if(!cancelled)setDaily({key:dailyKey,row:error?null:data as unknown as DailyAssignment,error:error?'Daily assignment could not be loaded. Open it again from Crew Schedule.':''})
+    })
+    return ()=>{cancelled=true}
+  },[assignmentId,proposalId,dailyKey])
+  const [format, setFormat] = useState<PrintFormat>(() => assignmentId || printParams.get('format') === 'crew' ? 'crew' : 'detailed')
   const [crewLanguage,setCrewLanguage] = useState<CrewLanguage>('en')
   const [crewTranslation,setCrewTranslation] = useState<{source:string; texts:CrewTranslations} | null>(null)
   const [translating,setTranslating] = useState(false)
@@ -212,6 +224,8 @@ export default function ProposalPrintView() {
 
   /* ---------- render guards ---------- */
 
+  if(assignmentId && daily.key!==dailyKey)return <p className="p-8" role="status">Loading daily assignment…</p>
+  if(assignmentId && (daily.error || !daily.row))return <div className="p-8"><p role="alert">{daily.error || 'Daily assignment not found.'}</p><Link to="/app/crew-schedule">Back to Crew Schedule</Link></div>
   if (loading) {
     return (
       <div className="mx-auto max-w-3xl p-8 text-sm text-gray-500">
@@ -280,7 +294,7 @@ export default function ProposalPrintView() {
                 aria-label="Output format"
                 className="inline-flex rounded-lg border border-gray-300 bg-gray-50 p-0.5"
               >
-                {(Object.keys(FORMAT_META) as PrintFormat[]).map((f) => (
+                {(assignmentId ? ['crew'] as PrintFormat[] : Object.keys(FORMAT_META) as PrintFormat[]).map((f) => (
                   <button
                     key={f}
                     type="button"
@@ -416,6 +430,7 @@ export default function ProposalPrintView() {
           ) : format === 'crew' ? (
             needsSpanish && !spanishReady ? <p role="status">{translating ? 'Preparing the Spanish crew planner…' : 'Prepare the Spanish version to preview and print it.'}</p> :
             <>{(crewLanguage === 'both' ? ['en','es'] as const : [crewLanguage as 'en'|'es']).map((language,index)=><div key={language} style={index ? {breakBefore:'page'} : undefined} className={index ? 'mt-12 print:mt-0' : undefined}>
+              {assignmentId && daily.row && <DailySheet assignment={daily.row} projectName={projectWithCustomer.name} language={language}/>}
               <CrewPlanner proposal={proposal} areas={enabledWorkAreas} project={projectWithCustomer} customer={projectWithCustomer.customer} settings={settings} logoUrl={logoUrl} language={language} translations={crewTranslation?.texts}/>
             </div>)}</>
           ) : (
