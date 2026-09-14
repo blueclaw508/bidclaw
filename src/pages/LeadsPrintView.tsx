@@ -403,20 +403,22 @@ function ReportHeader({
 
       <div className="mt-3 grid grid-cols-5 gap-3">
         <Kpi
-          label="Pipeline (excl. Lost)"
+          label="Open + Won (excl. Lost)"
           value={formatMoney(sumValue(live))}
           accent={accent}
           big
         />
-        <Kpi label={`Open (${open.length})`} value={formatMoney(sumValue(open))} accent={accent} />
+        <Kpi label={`Open bids (${open.length})`} value={formatMoney(sumValue(open))} accent={accent} />
         <Kpi label={`Proposed (${proposed.length})`} value={formatMoney(sumValue(proposed))} accent={accent} />
-        <Kpi label={`Signed+ (${signed.length})`} value={formatMoney(sumValue(signed))} accent={accent} />
+        <Kpi label={`Won incl. completed (${signed.length})`} value={formatMoney(sumValue(signed))} accent={accent} />
         <Kpi
           label="Follow-ups overdue"
           value={String(overdue.length)}
           accent={overdue.length > 0 ? '#be123c' : accent}
         />
       </div>
+
+      <p className="mt-2 text-[8.5pt] text-gray-600">Open bids = leads, pending, estimating and proposed. Proposed is part of Open. Won includes signed, in-progress and completed jobs. Descriptions are shortened for printing; full notes remain in BidClaw.</p>
 
       {/* Only shown when there's actually something shaded — a legend for
           a colour that never appears is just noise on the sheet. */}
@@ -533,7 +535,7 @@ function BoardCard({ lead }: { lead: LeadListRow }) {
     >
       <div className="font-bold text-gray-900">{leadTitle(lead)}</div>
       {where && <div className="text-gray-600">{where}</div>}
-      {lead.description && <div className="text-gray-600">{lead.description}</div>}
+      {lead.description && <div className="lpv-description text-gray-600" title={lead.description}>{clipDescription(lead.description, 150)}</div>}
       <div className="mt-0.5 flex flex-wrap items-baseline justify-between gap-x-1">
         <span className="text-[7.5pt] uppercase tracking-wide text-gray-500">
           {lead.region ? (LEAD_REGION_CONFIG[lead.region]?.label ?? lead.region) : '—'}
@@ -914,8 +916,7 @@ function isOverdue(followUpDate: string | null): boolean {
 /**
  * Descriptions in the wild are multi-paragraph notes — one live lead runs
  * ~2,000 characters. Left whole, a single row swallows a whole sheet and
- * throws the column widths out. The board cards show the full text; the
- * detail table gets a readable clip at a word boundary.
+ * throws the column widths out. Both board cards and detail rows use a readable excerpt at a word boundary.
  */
 function clipDescription(text: string, max = 95): string {
   const flat = text.replace(/\s+/g, ' ').trim()
@@ -943,6 +944,7 @@ function formatShortDate(iso: string): string {
 
 function printCss(pageSize: string): string {
   return `
+.lpv-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; line-height: 1.375; max-height: 4.125em; overflow: hidden; overflow-wrap: anywhere; }
 @media print {
   @page {
     size: ${pageSize};
