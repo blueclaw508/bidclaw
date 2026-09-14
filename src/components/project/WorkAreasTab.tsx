@@ -1,3 +1,5 @@
+import { useCheckedSaves } from '@/lib/checkedSaves'
+import { SaveConflicts } from '@/components/SaveConflicts'
 import { lazy, Suspense, useCallback, useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -85,6 +87,7 @@ export default function WorkAreasTab({
   openAddOnMount = false,
   onAddOpened,
 }: WorkAreasTabProps) {
+  const checked = useCheckedSaves<WorkArea>('work_areas')
   const [rows, setRows] = useState<WorkArea[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -197,24 +200,13 @@ export default function WorkAreasTab({
     onEstimateTotalChange(total)
   }, [rows, linesByWA, settings, loading, onEstimateTotalChange, markupsFor])
 
-  const patch = useCallback(
-    async (id: string, changes: Partial<WorkArea>): Promise<boolean> => {
-      // Optimistic update
-      setRows((prev) => prev.map((w) => (w.id === id ? { ...w, ...changes } : w)))
-      const { error } = await supabase
-        .from('work_areas')
-        .update(changes)
-        .eq('id', id)
-      if (error) {
-        toast.error(`Save failed: ${error.message}`)
-        void load() // re-fetch authoritative state
-        return false
-      }
-      onChange?.()
-      return true
-    },
-    [load, onChange]
-  )
+  const patch = async (id:string,changes:Partial<WorkArea>):Promise<boolean> => {
+    const row=rows.find(w=>w.id===id)
+    if(!row)return false
+    const saved=await checked.save(row,changes)
+    if(!saved)return false
+    setRows(prev=>prev.map(w=>w.id===id?saved:w));onChange?.();return true
+  }
 
   /**
    * Rewrite sequence_order for every row in the current local order.
@@ -293,6 +285,10 @@ export default function WorkAreasTab({
 
   return (
     <div className="space-y-4">
+      <SaveConflicts issues={checked.issues} onDismiss={checked.dismiss} onLoad={async id=>{
+        const latest=await checked.loadLatest(id)
+        if(latest!==undefined)setRows(prev=>latest?prev.map(w=>w.id===id?latest:w):prev.filter(w=>w.id!==id))
+      }}/>
       {/* Slate pastel section header — matches QC project-detail section card. */}
       <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
