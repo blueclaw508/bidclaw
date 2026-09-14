@@ -16,6 +16,7 @@ const WizardModal = lazy(() =>
 
 const navGroups = [
   {label:'Customers & Sales', items:[{to:'/app/customers',label:'Customers'},{to:'/app/leads',label:'Leads & Bids'},{to:'/app/projects',label:'Estimates & Proposals'}]},
+  {label:'Plan & Schedule', items:[{to:'/app/crew-schedule',label:'Crew Schedule'}]},
   {label:'Daily Work', items:[{to:'/app/work-orders',label:'Work Orders'},{to:'https://crewclaw.netlify.app/records.html',label:'Record the Work'}]},
   {label:'Review & Billing', items:[{to:'/app/crew-review',label:'Review & Finalize'},{to:'/app/wip',label:'Month-end'}]},
   {label:'Setup', items:[{to:'https://crewclaw.netlify.app/setup.html',label:'Crews & Employees'},{to:'/app/catalog',label:'Catalog'},{to:'/app/kits',label:'Kits'},{to:'/app/settings',label:'System Settings'}]},
