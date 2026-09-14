@@ -22,7 +22,7 @@ interface NewProjectModalProps {
 const EMPTY_ADDR: SplitAddress = { line1: '', city: '', state: '', zip: '' }
 
 export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalProps) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const navigate = useNavigate()
 
   const [name, setName] = useState('')
@@ -64,7 +64,7 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     const { data, error } = await supabase
       .from('customers')
       .select('id, name, site_address, site_address_line1, site_address_city, site_address_state, site_address_zip')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId!)
       .order('name', { ascending: true })
     if (error) toast.error('Could not load customers.')
     else setCustomers(data ?? [])
@@ -115,7 +115,7 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     const { data, error } = await supabase
       .from('projects')
       .insert({
-        user_id: user.id,
+        user_id: workspaceOwnerId!,
         customer_id: customerId || null,
         name: trimmedName,
         status,
@@ -138,7 +138,7 @@ export function NewProjectModal({ open, onClose, onCreated }: NewProjectModalPro
     // estimate itself already exists.
     try {
       await ensureLeadForProject({
-        userId: user.id,
+        userId: workspaceOwnerId!,
         projectId: data.id as string,
         projectName: trimmedName,
         contactName: customers.find((c) => c.id === customerId)?.name ?? null,

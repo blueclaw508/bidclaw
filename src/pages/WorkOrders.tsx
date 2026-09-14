@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 type Row = {id:string;name:string;status:string;proposals:{id:string;name:string;status:string}[]}
 
 export default function WorkOrders() {
-  const {user} = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const [rows,setRows] = useState<Row[]>([])
   const [error,setError] = useState('')
   const [loading,setLoading] = useState(true)
@@ -14,7 +14,7 @@ export default function WorkOrders() {
   useEffect(()=>{
     if(!user) return
     let cancelled=false
-    void supabase.from('projects').select('id,name,status,proposals(id,name,status)').eq('user_id',user.id).neq('status','archived').order('name').then(({data,error})=>{
+    void supabase.from('projects').select('id,name,status,proposals(id,name,status)').eq('user_id',workspaceOwnerId!).neq('status','archived').order('name').then(({data,error})=>{
       if(cancelled)return
       setError(error?.message??'');setRows((data??[]) as Row[]);setLoading(false)
     })

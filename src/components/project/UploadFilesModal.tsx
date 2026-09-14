@@ -55,7 +55,7 @@ export function UploadFilesModal({
   files,
   onUploaded,
 }: UploadFilesModalProps) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
 
   // Default categorization: first upload to an empty project → Original Plan,
   // every subsequent batch → Other. Per spec.
@@ -84,7 +84,7 @@ export function UploadFilesModal({
     const results = await Promise.all(
       files.map(async (file) => {
         const safeName = sanitizeFilename(file.name)
-        const storagePath = `${user.id}/${projectId}/${Date.now()}_${safeName}`
+        const storagePath = `${workspaceOwnerId!}/${projectId}/${Date.now()}_${safeName}`
         try {
           await uploadProjectFile(file,storagePath,percent=>setProgress(p=>({...p,[file.name]:percent})))
         } catch(error) {

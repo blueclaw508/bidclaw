@@ -11,12 +11,14 @@ Deno.serve(async req=>{
   const client=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_ANON_KEY')!,{global:{headers:{Authorization:req.headers.get('Authorization')??''}}})
   const {data:{user}}=await client.auth.getUser()
   if(!user) return json({error:'Sign in before preparing a walkthrough.'},401)
+  const {data:workspaceOwnerId,error:workspaceError}=await client.rpc('my_workspace_owner')
+  if(workspaceError || !workspaceOwnerId) return json({error:'Could not verify company access.'},403)
   let fileId:string
   try {fileId=(await req.json()).fileId} catch {return json({error:'Invalid request.'},400)}
   // RLS verifies project ownership before any privileged read or provider call.
   const {data:file}=await client.from('project_files').select('*').eq('id',fileId).single()
   if(!file) return json({error:'File not found.'},404)
-  if(!file.storage_path.startsWith(`${user.id}/${file.project_id}/`)) return json({error:'File storage location does not match this project.'},403)
+  if(!file.storage_path.startsWith(`${workspaceOwnerId}/${file.project_id}/`)) return json({error:'File storage location does not match this project.'},403)
   const {data:settings}=await client.from('company_settings').select('jamie_enabled').single()
   if(!settings?.jamie_enabled) return json({error:'Jamie must be enabled to review walkthroughs.'},403)
   if(!needsMediaReview(file.mime_type,file.file_name)) return json({error:'Jamie reads this format directly.'},400)

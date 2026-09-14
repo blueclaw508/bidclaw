@@ -31,7 +31,7 @@ export function NewCatalogItemModal({
   onClose,
   onCreated,
 }: NewCatalogItemModalProps) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -79,7 +79,7 @@ export function NewCatalogItemModal({
     const { data, error } = await supabase
       .from('catalog_items')
       .insert({
-        user_id: user.id,
+        user_id: workspaceOwnerId!,
         name: trimmedName,
         description: description.trim() || null,
         unit,

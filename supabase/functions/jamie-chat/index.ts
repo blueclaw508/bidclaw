@@ -807,6 +807,8 @@ Deno.serve(async (req: Request) => {
     error: authErr,
   } = await supabase.auth.getUser()
   if (authErr || !user) return json({ error: 'Not signed in.' }, 401)
+  const {data:workspaceOwnerId,error:workspaceError}=await supabase.rpc('my_workspace_owner')
+  if(workspaceError || !workspaceOwnerId) return json({error:'Could not verify company access.'},403)
 
   // 2 — moved below: the tier gate needs one read (company_settings.plan)
   // to know which limits apply, so it runs right after the service client
@@ -853,7 +855,7 @@ Deno.serve(async (req: Request) => {
   if (imageRefs.length > 20) return json({ error: 'Too many images in one message.' }, 400)
   // Ownership on every ref — the function reads storage with service role,
   // so path validation is the isolation boundary.
-  if (imageRefs.some((r) => typeof r !== 'string' || !r.startsWith(`${user.id}/`))) {
+  if (imageRefs.some((r) => typeof r !== 'string' || !r.startsWith(`${workspaceOwnerId}/`))) {
     return json({ error: 'Invalid image reference.' }, 400)
   }
   const model = MODEL_ROUTER[body.request_type ?? 'vision_estimate']
@@ -875,9 +877,9 @@ Deno.serve(async (req: Request) => {
   const { data: planRow } = await service
     .from('company_settings')
     .select('plan')
-    .eq('user_id', user.id)
+    .eq('user_id', workspaceOwnerId)
     .maybeSingle()
-  const tierKey = tierKeyForUser(user.id, planRow?.plan as string | null)
+  const tierKey = tierKeyForUser(workspaceOwnerId, planRow?.plan as string | null)
   const { data: tierLimits } = await service
     .from('subscription_tier_limits')
     .select('*')
@@ -905,7 +907,7 @@ Deno.serve(async (req: Request) => {
     .select('id, user_id, project_id, status, image_count, chat_turn_count')
     .eq('id', runId)
     .maybeSingle()
-  if (!run || run.user_id !== user.id) {
+  if (!run || run.user_id !== workspaceOwnerId) {
     return json({ error: 'Jamie session not found.' }, 404)
   }
   if (run.status === 'committed' || run.status === 'rejected') {
@@ -915,7 +917,7 @@ Deno.serve(async (req: Request) => {
   // 4 — Full gate: this tier's thresholds against live usage. The founder
   // tier is all-NULL (unlimited) and still evaluates, so there is no
   // separate privileged code path to rot.
-  const usage = await loadUsage(service, user.id, run, imageRefs.length)
+  const usage = await loadUsage(service, workspaceOwnerId, run, imageRefs.length)
   const gate = evaluateJamieGate(limits, usage)
   if (!gate.allowed) return json({ error: gate.reason, code: gate.code }, 403)
 
@@ -950,22 +952,22 @@ Deno.serve(async (req: Request) => {
     service
       .from('company_settings')
       .select('company_legal_name, markup_materials_percent, markup_subs_percent')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId)
       .maybeSingle(),
     service
       .from('company_labor_types')
       .select('name, rate_per_hour')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId)
       .order('slot_number'),
     service
       .from('company_equipment_rates')
       .select('name, rate_per_hour')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId)
       .order('slot_number'),
     service
       .from('catalog_items')
       .select('id, name, unit, category, unit_cost, supplier_quote')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId)
       .eq('active', true),
     service
       .from('projects')
@@ -986,7 +988,7 @@ Deno.serve(async (req: Request) => {
     service
       .from('kits')
       .select('name, category, input_unit, jamie_notes, status, kit_lines(type, display_name, factor, factor_unit, position)')
-      .eq('user_id', user.id),
+      .eq('user_id', workspaceOwnerId),
     // 0031 — this company's price history. Generic quantity corrections
     // are deliberately excluded until normalized production data exists.
     //
@@ -997,7 +999,7 @@ Deno.serve(async (req: Request) => {
     // it via Promise.all. Degrading to "no learned history" costs quality;
     // failing costs the contractor their takeoff.
     service
-      .rpc('jamie_price_book', { p_user_id: user.id, p_limit: 60 })
+      .rpc('jamie_price_book', { p_user_id: workspaceOwnerId, p_limit: 60 })
       .then((r) => r)
       .catch(() => ({ data: null })),
   ])
@@ -1229,7 +1231,7 @@ Deno.serve(async (req: Request) => {
   const { data: invRow, error: invErr } = await service
     .from('jamie_invocations')
     .insert({
-      user_id: user.id,
+      user_id: workspaceOwnerId,
       jamie_run_id: run.id,
       model_used: model,
       image_count: imageRefs.length,
@@ -1657,7 +1659,7 @@ Deno.serve(async (req: Request) => {
             const { data: rInv } = await service
               .from('jamie_invocations')
               .insert({
-                user_id: user.id,
+                user_id: workspaceOwnerId,
                 jamie_run_id: run.id,
                 model_used: checkModel,
                 chat_turn_number: run.chat_turn_count + 1,

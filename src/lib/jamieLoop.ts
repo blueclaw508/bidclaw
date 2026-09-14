@@ -1,3 +1,4 @@
+import { getWorkspaceOwner } from '@/lib/workspace'
 import type {JamieClarification} from '../../supabase/functions/_shared/jamieQuestions.ts'
 // Data layer for the Jamie LOOP (J0) — the conversational, staged,
 // two-gate estimating agent. Distinct from jamie.ts (Phase-1 single-shot
@@ -134,7 +135,7 @@ export async function createJamieRun(projectId: string): Promise<JamieLoopRun> {
   if (!user) throw new Error('Not signed in.')
   const { data, error } = await supabase
     .from('jamie_loop_runs')
-    .insert({ user_id: user.id, project_id: projectId })
+    .insert({ user_id: (await getWorkspaceOwner()), project_id: projectId })
     .select()
     .single()
   if (error || !data) {
@@ -860,8 +861,7 @@ export async function commitLineGate(
   // Materials, subs and other only — labor and equipment rates belong to
   // My Numbers (company_labor_types / company_equipment_rates), and the
   // "General Conditions & Rounding" plug is per-job, not a catalog item.
-  const { data: auth } = await supabase.auth.getUser()
-  const userId = auth?.user?.id ?? null
+  const userId = await getWorkspaceOwner()
   const CATALOGABLE = new Set(['material', 'subcontractor', 'other'])
   const { data: existingCatalog } = userId
     ? await supabase.from('catalog_items').select('id, name').eq('user_id', userId)

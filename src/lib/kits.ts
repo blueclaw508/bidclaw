@@ -1,3 +1,4 @@
+import { getWorkspaceOwner } from '@/lib/workspace'
 // Data layer for the kits + kit_lines tables. All Kit pages (list,
 // detail, line items) read/write through these functions — no direct
 // supabase calls in components.
@@ -91,7 +92,7 @@ export async function createKit(
   const { data, error } = await supabase
     .from('kits')
     .insert({
-      user_id: user.id,
+      user_id: (await getWorkspaceOwner()),
       name: input.name.trim(),
       category: input.category.trim(),
       input_unit: input.input_unit.trim(),

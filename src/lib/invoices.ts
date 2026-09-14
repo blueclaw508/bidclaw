@@ -1,3 +1,4 @@
+import { getWorkspaceOwner } from '@/lib/workspace'
 import { supabase } from '@/lib/supabase'
 import { lineTotal, roundMoney, sumMoney } from '@/lib/money'
 import type {
@@ -198,11 +199,10 @@ export async function createInvoice(input: {
   // user_id is set by the insert trigger from the project's owner; RLS
   // then checks it against auth.uid(). Sending a placeholder keeps the
   // NOT NULL constraint happy before the trigger runs.
-  const { data: me } = await supabase.auth.getUser()
   const { data, error } = await supabase
     .from('invoices')
     .insert({
-      user_id: me.user?.id,
+      user_id: (await getWorkspaceOwner()),
       project_id: input.projectId,
       proposal_id: input.proposalId ?? null,
       milestone_label: input.milestoneLabel ?? null,
@@ -334,11 +334,10 @@ export async function createChangeOrder(input: {
   amount: number
   status?: ChangeOrderStatus
 }): Promise<ChangeOrder> {
-  const { data: me } = await supabase.auth.getUser()
   const { data, error } = await supabase
     .from('change_orders')
     .insert({
-      user_id: me.user?.id,
+      user_id: (await getWorkspaceOwner()),
       project_id: input.projectId,
       proposal_id: input.proposalId ?? null,
       title: input.title,

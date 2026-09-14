@@ -194,6 +194,8 @@ Deno.serve(async (req: Request) => {
   )
   const { data: { user }, error: authErr } = await supabase.auth.getUser()
   if (authErr || !user) return json({ error: 'Not signed in.' }, 401)
+  const {data:workspaceOwnerId,error:workspaceError}=await supabase.rpc('my_workspace_owner')
+  if(workspaceError || !workspaceOwnerId) return json({error:'Could not verify company access.'},403)
 
   // TIER GATE — zero spend on deny. Ingest is a Jamie feature, so it rides
   // the same entitlement as the takeoff: whatever this account's plan
@@ -205,12 +207,12 @@ Deno.serve(async (req: Request) => {
   const { data: planRow } = await gateService
     .from('company_settings')
     .select('plan')
-    .eq('user_id', user.id)
+    .eq('user_id', workspaceOwnerId)
     .maybeSingle()
   const { data: tierRow } = await gateService
     .from('subscription_tier_limits')
     .select('*')
-    .eq('tier', tierKeyForUser(user.id, planRow?.plan as string | null))
+    .eq('tier', tierKeyForUser(workspaceOwnerId, planRow?.plan as string | null))
     .maybeSingle()
   // tierHasPaidJamie, NOT tierIncludesJamie. Ingest has no usage meter of
   // its own — it gates on the tier and then calls the model. The free
@@ -235,10 +237,10 @@ Deno.serve(async (req: Request) => {
 
   // Contractor KYN context.
   const [{ data: settings }, { data: labor }, { data: equip }, { data: catalog }] = await Promise.all([
-    service.from('company_settings').select('company_legal_name, markup_materials_percent, markup_subs_percent').eq('user_id', user.id).maybeSingle(),
-    service.from('company_labor_types').select('name, rate_per_hour').eq('user_id', user.id).order('slot_number'),
-    service.from('company_equipment_rates').select('name, rate_per_hour').eq('user_id', user.id).order('slot_number'),
-    service.from('catalog_items').select('name, unit, category, unit_cost').eq('user_id', user.id).eq('active', true),
+    service.from('company_settings').select('company_legal_name, markup_materials_percent, markup_subs_percent').eq('user_id', workspaceOwnerId).maybeSingle(),
+    service.from('company_labor_types').select('name, rate_per_hour').eq('user_id', workspaceOwnerId).order('slot_number'),
+    service.from('company_equipment_rates').select('name, rate_per_hour').eq('user_id', workspaceOwnerId).order('slot_number'),
+    service.from('catalog_items').select('name, unit, category, unit_cost').eq('user_id', workspaceOwnerId).eq('active', true),
   ])
   const system = buildSystemPrompt({
     companyName: (settings?.company_legal_name as string) ?? '',
@@ -255,7 +257,7 @@ Deno.serve(async (req: Request) => {
 
   // Meter (in_progress). jamie_run_id NULL = one-shot ingestion (0023).
   const { data: inv } = await service.from('jamie_invocations').insert({
-    user_id: user.id, model_used: MODEL,
+    user_id: workspaceOwnerId, model_used: MODEL,
   }).select('id').single()
   const invocationId = inv?.id as string | undefined
 
