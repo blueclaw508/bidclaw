@@ -25,7 +25,7 @@ import type { CatalogCategory, CatalogItem } from '@/lib/types'
 type CategoryFilter = 'all' | CatalogCategory
 
 export default function CatalogPage() {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const [rows, setRows] = useState<CatalogItem[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
@@ -40,7 +40,7 @@ export default function CatalogPage() {
     const { data, error } = await supabase
       .from('catalog_items')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId!)
       .order('name', { ascending: true })
     if (error) {
       setLoadError(error.message)

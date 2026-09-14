@@ -90,7 +90,7 @@ export function AddLineItemModal({
   workAreaName,
   onAdd,
 }: AddLineItemModalProps) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const [catalog, setCatalog] = useState<CatalogItem[] | null>(null)
   const [laborTypes, setLaborTypes] = useState<CompanyLaborType[]>([])
   const [equipmentRates, setEquipmentRates] = useState<CompanyEquipmentRate[]>([])
@@ -255,7 +255,7 @@ export function AddLineItemModal({
       const { data: item, error } = await supabase
         .from('catalog_items')
         .insert({
-          user_id: user.id,
+          user_id: workspaceOwnerId!,
           name,
           unit: customUnit.trim() || 'EA',
           category: toCatalogCategory(customFormCat),

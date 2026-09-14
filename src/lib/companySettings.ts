@@ -1,3 +1,4 @@
+import { getWorkspaceOwner } from '@/lib/workspace'
 // Data layer for the company_settings table. All five Phase 2 surfaces
 // (Company Info settings page, KYN settings page, wizard Step 1, wizard
 // Step 2, SetupContext) read/write through these functions — no direct
@@ -130,7 +131,7 @@ export async function uploadCompanyLogo(file: File): Promise<string> {
     : file.type === 'image/png'
       ? '.png'
       : '.jpg'
-  const storagePath = `${user.id}/logo_${Date.now()}${ext}`
+  const storagePath = `${(await getWorkspaceOwner())}/logo_${Date.now()}${ext}`
   const { error } = await supabase.storage
     .from('company-assets')
     .upload(storagePath, file, {
@@ -191,8 +192,7 @@ export async function createCompanyDivision(
   name: string,
   existing: readonly CompanyDivision[]
 ): Promise<CompanyDivision> {
-  const { data: auth } = await supabase.auth.getUser()
-  const userId = auth.user?.id
+  const userId = await getWorkspaceOwner()
   if (!userId) throw new Error('Not signed in.')
 
   const sort = existing.reduce((m, d) => Math.max(m, d.sort_order), 0) + 1
@@ -323,8 +323,7 @@ export async function addCompanyLaborType(
 ): Promise<CompanyLaborType> {
   const nextSlot =
     existing.reduce((max, r) => Math.max(max, r.slot_number), 0) + 1
-  const { data: auth } = await supabase.auth.getUser()
-  const userId = auth.user?.id
+  const userId = await getWorkspaceOwner()
   if (!userId) throw new Error('Not signed in.')
 
   const { data, error } = await supabase
@@ -385,8 +384,7 @@ export async function addCompanyEquipmentRate(
 ): Promise<CompanyEquipmentRate> {
   const nextSlot =
     existing.reduce((max, r) => Math.max(max, r.slot_number), 0) + 1
-  const { data: auth } = await supabase.auth.getUser()
-  const userId = auth.user?.id
+  const userId = await getWorkspaceOwner()
   if (!userId) throw new Error('Not signed in.')
 
   const { data, error } = await supabase

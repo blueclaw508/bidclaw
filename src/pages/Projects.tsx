@@ -20,7 +20,7 @@ type StatusFilter = 'active' | 'all' | ProjectStatus
 type SortKey = 'created_desc' | 'created_asc' | 'name_asc' | 'updated_desc'
 
 export default function ProjectsPage() {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const [rows, setRows] = useState<ProjectRow[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
@@ -34,7 +34,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (!user) return
     let cancelled = false
-    canInvokeJamie(user.id)
+    canInvokeJamie(workspaceOwnerId!)
       .then((g) => { if (!cancelled) setImportAllowed(g.allowed) })
       .catch(() => {})
     return () => { cancelled = true }
@@ -46,7 +46,7 @@ export default function ProjectsPage() {
     const { data, error } = await supabase
       .from('projects')
       .select('*, customers(name), proposals(status, created_at)')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId!)
     if (error) {
       setLoadError(error.message)
       setRows([])

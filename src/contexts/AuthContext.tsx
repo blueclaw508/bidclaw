@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { getWorkspaceOwner } from '@/lib/workspace'
 import { isEmailAllowed } from '@/lib/authAllowlist'
 
 type AuthStatus =
@@ -37,6 +38,8 @@ interface AuthContextValue {
   status: AuthStatus
   session: Session | null
   user: User | null
+  workspaceOwnerId: string | null
+  isWorkspaceOwner: boolean
   /**
    * Send a magic-link email. Returns null on success, or an error message
    * suitable for showing to the user.
@@ -80,6 +83,7 @@ function writeRecoveryFlag(on: boolean) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
+  const [workspaceOwnerId, setWorkspaceOwnerId] = useState<string | null>(null)
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [passwordRecovery, setPasswordRecovery] = useState<boolean>(readRecoveryFlag)
 
@@ -93,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!s?.user) {
       setSession(null)
       setUser(null)
+      setWorkspaceOwnerId(null)
       setStatus('unauthenticated')
       return
     }
@@ -104,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus('forbidden')
       setSession(null)
       setUser(null)
+      setWorkspaceOwnerId(null)
       await supabase.auth.signOut()
       return
     }
@@ -115,6 +121,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // denial would throw a working contractor out of a live estimate over a
     // flaky connection. Fail closed at the gate; don't fail closed on a
     // network blip behind it.
+    let owner: string
+    try { owner = await getWorkspaceOwner() } catch {
+      setSession(null); setUser(null); setWorkspaceOwnerId(null); setStatus('forbidden'); return
+    }
+    setWorkspaceOwnerId(owner)
     setSession(s)
     setUser(s.user)
     setStatus('authenticated')
@@ -256,6 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
     setSession(null)
     setUser(null)
+      setWorkspaceOwnerId(null)
     setStatus('unauthenticated')
   }, [])
 
@@ -265,6 +277,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         status,
         session,
         user,
+        workspaceOwnerId,
+        isWorkspaceOwner: !!user && workspaceOwnerId === user.id,
         sendMagicLink,
         signInWithPassword,
         sendPasswordReset,

@@ -177,6 +177,8 @@ Deno.serve(async (req: Request) => {
     error: authErr,
   } = await supabase.auth.getUser()
   if (authErr || !user) return json({ error: 'Not signed in.' }, 401)
+  const {data:workspaceOwnerId,error:workspaceError}=await supabase.rpc('my_workspace_owner')
+  if(workspaceError || !workspaceOwnerId) return json({error:'Could not verify company access.'},403)
 
   // 2. Parse input.
   let body: {
@@ -216,7 +218,7 @@ Deno.serve(async (req: Request) => {
     supabase.from('company_labor_types').select('name, rate_per_hour').order('slot_number'),
     supabase.from('company_equipment_rates').select('name, rate_per_hour').order('slot_number'),
     supabase.from('catalog_items').select('name, unit, category, unit_cost, supplier_quote').eq('active', true),
-    supabase.from('kits').select('name, category, input_unit, jamie_notes, status, kit_lines(type, display_name, factor, factor_unit, position)').eq('user_id',user.id),
+    supabase.from('kits').select('name, category, input_unit, jamie_notes, status, kit_lines(type, display_name, factor, factor_unit, position)').eq('user_id',workspaceOwnerId),
   ])
   if(kitResult.error) return json({error:'Could not load your production kits. Retry before pricing.'},500)
 
@@ -317,7 +319,7 @@ Deno.serve(async (req: Request) => {
 
     // 7. Log the run (best-effort; a log failure never blocks the estimate).
     await supabase.from('jamie_runs').insert({
-      user_id: user.id,
+      user_id: workspaceOwnerId,
       work_area_id: body.workAreaId ?? null,
       scope_input: scope,
       had_image: !!body.image?.data,
@@ -332,7 +334,7 @@ Deno.serve(async (req: Request) => {
     // delivered (single-shot has no approval gates). counts_against_quota
     // stays FALSE — founder-mode records, never enforces.
     await supabase.from('jamie_invocations').insert({
-      user_id: user.id,
+      user_id: workspaceOwnerId,
       started_at: startedAt,
       ended_at: new Date().toISOString(),
       model_used: MODEL,
@@ -350,7 +352,7 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Jamie hit a snag.'
     await supabase.from('jamie_runs').insert({
-      user_id: user.id,
+      user_id: workspaceOwnerId,
       work_area_id: body.workAreaId ?? null,
       scope_input: scope,
       had_image: !!body.image?.data,
@@ -360,7 +362,7 @@ Deno.serve(async (req: Request) => {
     })
     // J1c metering: failed calls record too (cost data includes waste).
     await supabase.from('jamie_invocations').insert({
-      user_id: user.id,
+      user_id: workspaceOwnerId,
       started_at: startedAt,
       ended_at: new Date().toISOString(),
       model_used: MODEL,

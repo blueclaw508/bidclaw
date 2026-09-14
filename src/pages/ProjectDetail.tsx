@@ -74,7 +74,7 @@ const TABS: { id: TabId; label: string }[] = [
 export default function ProjectDetailPage() {
   const { id: projectId } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
 
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = (searchParams.get('tab') ?? 'details') as TabId
@@ -124,7 +124,7 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     if (!user) return
     let cancelled = false
-    canInvokeJamie(user.id)
+    canInvokeJamie(workspaceOwnerId!)
       .then((gate) => {
         if (!cancelled) setJamieGate(gate)
       })
@@ -690,7 +690,7 @@ function CustomerSelect({
   project: ProjectDetail
   onPatch: (changes: Partial<Project>) => Promise<boolean>
 }) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const [customers, setCustomers] = useState<Pick<Customer, 'id' | 'name'>[]>([])
   const [loading, setLoading] = useState(false)
   const [newCustomerOpen, setNewCustomerOpen] = useState(false)
@@ -702,7 +702,7 @@ function CustomerSelect({
     supabase
       .from('customers')
       .select('id, name')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId!)
       .order('name', { ascending: true })
       .then(({ data, error }) => {
         if (cancelled) return

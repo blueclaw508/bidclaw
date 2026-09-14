@@ -12,7 +12,7 @@ type CustomerRow = Customer & {
 }
 
 export default function CustomersPage() {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const [rows, setRows] = useState<CustomerRow[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -24,7 +24,7 @@ export default function CustomersPage() {
     const { data, error } = await supabase
       .from('customers')
       .select('*, projects(id)')
-      .eq('user_id', user.id)
+      .eq('user_id', workspaceOwnerId!)
     if (error) {
       setLoadError(error.message)
       setRows([])

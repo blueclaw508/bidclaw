@@ -23,7 +23,7 @@ interface ConvertLeadModalProps {
  * one step; Ian can also link an existing customer or skip.
  */
 export function ConvertLeadModal({ open, onClose, lead, onConverted }: ConvertLeadModalProps) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const navigate = useNavigate()
 
   const [projectName, setProjectName] = useState('')
@@ -75,7 +75,7 @@ export function ConvertLeadModal({ open, onClose, lead, onConverted }: ConvertLe
     try {
       const result = await convertLeadToProject({
         lead,
-        userId: user.id,
+        userId: workspaceOwnerId!,
         projectName,
         customerMode,
         existingCustomerId: existingCustomerId || undefined,

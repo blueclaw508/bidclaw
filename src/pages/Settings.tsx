@@ -180,7 +180,7 @@ function InfoSection({
 }
 
 export default function SettingsPage() {
-  const { user } = useAuth()
+  const { user, isWorkspaceOwner } = useAuth()
 
   return (
     <div className="space-y-6 pb-8">
@@ -199,6 +199,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      <NavCard to="/app/settings/people" icon={Building2} title="People & Access" description="Add company administrators and manage their access." />
       {/* Active settings surfaces */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <NavCard
@@ -232,10 +233,10 @@ export default function SettingsPage() {
         <PasswordCard />
 
         <InfoSection title="Subscription" description="Your BidClaw plan.">
-          <SubscriptionSummary />
+          {isWorkspaceOwner ? <SubscriptionSummary /> : <p>Your access uses the company plan. The owner manages billing.</p>}
         </InfoSection>
 
-        <QuickBooksCard />
+        {isWorkspaceOwner && <QuickBooksCard />}
       </div>
     </div>
   )

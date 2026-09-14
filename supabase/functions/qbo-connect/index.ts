@@ -36,6 +36,8 @@ Deno.serve(async (req: Request) => {
     error: authErr,
   } = await supabase.auth.getUser()
   if (authErr || !user) return json({ error: 'Not signed in.' }, 401)
+  const {data:workspaceOwner,error:workspaceError}=await supabase.rpc('my_workspace_owner')
+  if(workspaceError || !user || workspaceOwner!==user.id) return json({error:'Only the company owner can manage billing and integrations.'},403)
 
   let body: { return_to?: string }
   try {

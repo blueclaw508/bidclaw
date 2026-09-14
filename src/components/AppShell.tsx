@@ -19,7 +19,7 @@ const navGroups = [
   {label:'Plan & Schedule', items:[{to:'/app/crew-schedule',label:'Crew Schedule'}]},
   {label:'Daily Work', items:[{to:'/app/work-orders',label:'Work Orders'},{to:'https://crewclaw.netlify.app/records.html',label:'Record the Work'}]},
   {label:'Review & Billing', items:[{to:'/app/crew-review',label:'Review & Finalize'},{to:'/app/wip',label:'Month-end'},{to:'/app/reports',label:'Job Reports'}]},
-  {label:'Setup', items:[{to:'https://crewclaw.netlify.app/setup.html',label:'Crews & Employees'},{to:'/app/catalog',label:'Catalog'},{to:'/app/kits',label:'Kits'},{to:'/app/settings',label:'System Settings'}]},
+  {label:'Setup', items:[{to:'https://crewclaw.netlify.app/setup.html',label:'Crews & Employees'},{to:'/app/catalog',label:'Catalog'},{to:'/app/kits',label:'Kits'},{to:'/app/settings/people',label:'People & Access'},{to:'/app/settings',label:'System Settings'}]},
 ]
 
 export function AppShell() {

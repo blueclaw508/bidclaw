@@ -21,7 +21,7 @@ interface NewCustomerModalProps {
 const EMPTY_ADDR: SplitAddress = { line1: '', city: '', state: '', zip: '' }
 
 export function NewCustomerModal({ open, onClose, onCreated }: NewCustomerModalProps) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -68,7 +68,7 @@ export function NewCustomerModal({ open, onClose, onCreated }: NewCustomerModalP
     const { data, error } = await supabase
       .from('customers')
       .insert({
-        user_id: user.id,
+        user_id: workspaceOwnerId!,
         name: trimmedName,
         email: trimmedEmail || null,
         phone: phone.trim() || null,

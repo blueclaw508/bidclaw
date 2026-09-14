@@ -14,7 +14,7 @@ interface NewLeadModalProps {
 }
 
 export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
 
   const [projectName, setProjectName] = useState('')
   const [description, setDescription] = useState('')
@@ -70,7 +70,7 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
     setSubmitting(true)
     try {
       const lead = await createLead({
-        userId: user.id,
+        userId: workspaceOwnerId!,
         name: trimmedName || null,
         project_name: trimmedProject || null,
         description,

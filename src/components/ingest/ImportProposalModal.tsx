@@ -40,7 +40,7 @@ export function ImportProposalModal({
   open: boolean
   onClose: () => void
 }) {
-  const { user } = useAuth()
+  const { user, workspaceOwnerId } = useAuth()
   const navigate = useNavigate()
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -114,7 +114,7 @@ export function ImportProposalModal({
     try {
       const res = await commitIngestedProposal({
         client: supabase,
-        userId: user.id,
+        userId: workspaceOwnerId!,
         proposalName: estimateName.trim() || 'Imported proposal',
         reconstruction: recon,
       })
