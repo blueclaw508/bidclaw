@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Printer, ScrollText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { loadCompanySettings } from '@/lib/companySettings'
@@ -72,7 +72,8 @@ export default function ProposalPrintView() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
-  const [format, setFormat] = useState<PrintFormat>('detailed')
+  const [printParams] = useSearchParams()
+  const [format, setFormat] = useState<PrintFormat>(() => printParams.get('format') === 'crew' ? 'crew' : 'detailed')
   const [crewLanguage,setCrewLanguage] = useState<CrewLanguage>('en')
   const [crewTranslation,setCrewTranslation] = useState<{source:string; texts:CrewTranslations} | null>(null)
   const [translating,setTranslating] = useState(false)

@@ -12,6 +12,7 @@ import { RouteLoading } from '@/components/RouteLoading'
 // they're on the critical path for / and /app/* respectively (and the
 // AppShell layout is shared across every /app/* route, so loading it
 // once is fine). Everything else is lazy.
+const WorkOrdersPage = lazy(() => import('@/pages/WorkOrders'))
 const AuthCallback              = lazy(() => import('@/pages/AuthCallback'))
 const SetPasswordPage           = lazy(() => import('@/pages/SetPassword'))
 const LeadsPage                 = lazy(() => import('@/pages/Leads'))
@@ -142,6 +143,7 @@ export default function App() {
                 <Route path="kits"          element={<KitsPage />} />
                 <Route path="kits/:kitId"   element={<KitDetailPage />} />
                 <Route path="wip"           element={<WipPage />} />
+                <Route path="work-orders" element={<WorkOrdersPage />} />
                 <Route path="crew-review"   element={<CrewReviewPage />} />
                 <Route path="settings"                      element={<SettingsPage />} />
                 <Route path="settings/company-profile"      element={<CompanyProfileSettingsPage />} />
