@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   CalendarCheck,
+  ClipboardCheck,
   ClipboardList,
   Inbox,
   Users,
@@ -34,6 +35,7 @@ const navItems = [
   { to: '/app/kits',      label: 'Kits',      icon: Wrench },
   // Month-end WIP (0046): percent complete by work area, over/under billings.
   { to: '/app/wip',       label: 'Month-end', icon: CalendarCheck },
+  { to: '/app/crew-review', label: 'CrewClaw Review', icon: ClipboardCheck },
   { to: '/app/settings',  label: 'Settings',  icon: SettingsIcon },
 ]
 
