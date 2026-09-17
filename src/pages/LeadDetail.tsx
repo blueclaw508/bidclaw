@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -31,6 +31,8 @@ import {
 import type { Lead, LeadNote, LeadStage, Project } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
 
+const ImportProposalModal = lazy(() => import('@/components/ingest/ImportProposalModal'))
+
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
@@ -43,6 +45,7 @@ export default function LeadDetailPage() {
   const [notFound, setNotFound] = useState(false)
   const [noteDraft, setNoteDraft] = useState('')
   const [addingNote, setAddingNote] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [convertOpen, setConvertOpen] = useState(false)
   const [confirmLost, setConfirmLost] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -181,6 +184,7 @@ export default function LeadDetailPage() {
             <StatusBadge kind="lead" value={lead.stage} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setImportOpen(true)} className="rounded-md bg-brand-gold px-4 py-2 text-sm font-semibold text-white">Upload Proposal & Re-build with Jamie</button>
             {!lead.project_id && (
               <button
                 type="button"
@@ -408,12 +412,14 @@ export default function LeadDetailPage() {
                   {formatDateTime(n.created_at)}
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-brand-text">{n.body}</p>
+                {n.body.match(/Rebuilt estimate: (\/app\/projects\/[0-9a-f-]{36}\?tab=work_areas)/)?.[1] && <Link className="font-semibold text-blue-700 underline" to={n.body.match(/Rebuilt estimate: (\/app\/projects\/[0-9a-f-]{36}\?tab=work_areas)/)![1]}>Open rebuilt estimate</Link>}
               </li>
             ))}
           </ul>
         </section>
       </div>
 
+      {importOpen && <Suspense fallback={<p>Opening proposal import…</p>}><ImportProposalModal open sourceLead={lead} onClose={() => { setImportOpen(false); void load() }} /></Suspense>}
       <ConvertLeadModal
         open={convertOpen}
         onClose={() => setConvertOpen(false)}

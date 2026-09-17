@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   CalendarClock,
@@ -38,7 +38,9 @@ import {
   LEAD_STAGE_ORDER,
 } from '@/lib/statusConfig'
 import { cn } from '@/lib/utils'
-import type { LeadListRow, LeadStage } from '@/lib/types'
+import type { Lead, LeadListRow, LeadStage } from '@/lib/types'
+
+const ImportProposalModal = lazy(() => import('@/components/ingest/ImportProposalModal'))
 
 type View = 'board' | 'list'
 type StageFilter = 'all' | LeadStage
@@ -77,6 +79,7 @@ export default function LeadsPage() {
   const [dateField, setDateField] = useState<DateField>('none')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [importLead, setImportLead] = useState<Lead | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   // Set when a board/list stage move targets 'lost' — confirm first.
   const [pendingLost, setPendingLost] = useState<LeadListRow | null>(null)
@@ -439,7 +442,9 @@ export default function LeadsPage() {
         <LeadList rows={listRows} onMove={requestMove} groupByLocation={groupByLocation} />
       )}
 
+      {importLead && <Suspense fallback={<p>Opening proposal import…</p>}><ImportProposalModal open sourceLead={importLead} onClose={() => { setImportLead(null); void load() }} /></Suspense>}
       <NewLeadModal
+        onImport={setImportLead}
         open={newOpen}
         onClose={() => setNewOpen(false)}
         onCreated={() => {
