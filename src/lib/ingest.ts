@@ -43,6 +43,8 @@ export interface IngestLine {
   markup_pct?: number
   reasoning?: string
   needs_pricing?: boolean
+  cost_basis?: boolean
+  selling_total?: number
 }
 export interface IngestWorkArea {
   name: string
@@ -52,6 +54,7 @@ export interface IngestWorkArea {
   line_items: IngestLine[]
   confidence?: string
   general_conditions_amount?: number
+  subcontracted?: boolean
 }
 export interface IngestReconstruction {
   customer_name: string | null
@@ -110,6 +113,8 @@ export async function commitIngestedProposal(opts: {
   userId: string
   proposalName: string
   reconstruction: IngestReconstruction
+  sourceLeadId?: string
+  requestId?: string
 }): Promise<IngestCommitResult> {
   const { client, userId, reconstruction: r } = opts
   const base = r.work_areas.filter((w) => w.kind === 'base')
@@ -132,6 +137,25 @@ export async function commitIngestedProposal(opts: {
     if (cat === 'material') return materialsMarkup
     if (cat === 'subcontractor' || cat === 'other') return subsMarkup
     return 0 // labor + equipment — rates already include margin
+  }
+
+  if (opts.sourceLeadId) {
+    if (!opts.requestId) throw new Error('Missing import request. Reopen the importer.')
+    if (!base.length) throw new Error('Include at least one work area.')
+    const prepared = base.map(wa => ({name:wa.name,scope:wa.scope_description,lines:importedLines(wa,'',markupForCategory)}))
+    const notes = [
+      options.length ? 'OPTIONS (not included):\n' + options.map(o => `${o.name}: $${o.stated_total.toFixed(2)} (${o.kind})\n${o.scope_description}`).join('\n\n') : '',
+      r.payment_terms ? 'PAYMENT TERMS: '+r.payment_terms : '',
+      r.exclusions ? 'EXCLUSIONS: '+r.exclusions : '',
+      r.ingest_notes || '',
+      'Rebuilt from an uploaded proposal. Review reconstructed costs and scope before sending.'
+    ].filter(Boolean).join('\n\n')
+    const {data,error} = await client.rpc('import_proposal_for_lead', {
+      p_lead_id:opts.sourceLeadId,p_request_id:opts.requestId,
+      p_payload:{name:opts.proposalName,customer_name:r.customer_name,site_address:r.site_address,town,notes,areas:prepared,option_count:options.length}
+    })
+    if (error) throw new Error(`Could not save the rebuilt estimate: ${error.message}`)
+    return data as IngestCommitResult
   }
 
   // 1 — Customer (when the proposal named one).
@@ -199,62 +223,7 @@ export async function commitIngestedProposal(opts: {
       .single()
     if (waErr) throw new Error(`Couldn't create work area "${wa.name}": ${waErr.message}`)
     const waId = waRow.id as string
-    const lines = wa.line_items.map((l, j) => {
-      const cat = l.category as string
-      const emitted = Number(l.markup_pct ?? 0)
-      // Jamie already priced this as a cost basis (BCA pool-sub rule,
-      // markup_pct 10) — leave it exactly as he built it.
-      const preMarked = emitted > 0
-      const m = preMarked ? emitted : markupForCategory(cat)
-      const cost =
-        preMarked || m <= 0
-          ? Number(l.unit_cost)
-          : // Unwind: the emitted unit_cost is a BILLED amount.
-            Number(l.unit_cost) / (1 + m / 100)
-      return {
-        work_area_id: waId,
-        category: cat,
-        label: l.label,
-        unit: l.unit || '',
-        quantity: l.qty,
-        // Cents on the cost basis; any drift is absorbed by the GC
-        // balancer below, which is recomputed AFTER this unwind.
-        unit_cost: Math.round(cost * 100) / 100,
-        price_override: null as number | null,
-        // Pinned, not left to live settings: the stated total is the
-        // contractor's real price and must not drift if they retune
-        // their markups later (RI's sacrosanct-total rule).
-        markup_override: m,
-        sort_order: j,
-      }
-    })
-    // The stated total is Ian's real price — sacrosanct. Never trust the
-    // model's arithmetic to hit it: RECOMPUTE the "General Conditions &
-    // Rounding" balancer so billed sum == stated_total to the penny,
-    // regardless of any slip in Jamie's line math.
-    //
-    // Runs AFTER the cost unwind above, so it also absorbs the sub-cent
-    // drift that rounding a divided cost basis introduces (billed 100 at
-    // 50% → cost 66.67 → billed 100.005). The balancer itself stays at 0%
-    // markup: it is a rounding plug, not scope you earn margin on, and
-    // marking it up would reintroduce the very rounding error it exists
-    // to absorb.
-    const billed = (l: (typeof lines)[number]) =>
-      Number(l.quantity) * Number(l.unit_cost) * (1 + Number(l.markup_override) / 100)
-    let gc = lines.find((l) => /general conditions/i.test(l.label))
-    if (!gc) {
-      gc = {
-        work_area_id: waId, category: 'other', label: 'General Conditions & Rounding',
-        unit: 'EA', quantity: 1, unit_cost: 0, price_override: null, markup_override: 0,
-        sort_order: lines.length,
-      }
-      lines.push(gc)
-    }
-    gc.quantity = 1
-    gc.markup_override = 0
-    gc.unit_cost = 0
-    const othersBilled = lines.filter((l) => l !== gc).reduce((a, l) => a + billed(l), 0)
-    gc.unit_cost = Math.round((wa.stated_total - othersBilled) * 100) / 100
+    const lines = importedLines(wa, waId, markupForCategory)
     if (lines.length) {
       const { error: lErr } = await client.from('work_area_lines').insert(lines)
       if (lErr) throw new Error(`Couldn't add lines to "${wa.name}": ${lErr.message}`)
@@ -304,4 +273,66 @@ export async function commitIngestedProposal(opts: {
     lineCount,
     optionCount: options.length,
   }
+}
+
+export function importedLines(wa: IngestWorkArea, waId: string, markupForCategory: (category: string) => number) {
+  const lines = wa.line_items.map((l, j) => {
+      const cat = l.category as string
+      const emitted = Number(l.markup_pct ?? 0)
+      // Jamie already priced this as a cost basis (BCA pool-sub rule,
+      // markup_pct 10) — leave it exactly as he built it.
+      const preMarked = l.cost_basis === true || emitted > 0
+      const m = preMarked ? emitted : markupForCategory(cat)
+      const cost =
+        preMarked || m <= 0
+          ? Number(l.unit_cost)
+          : // Unwind: the emitted unit_cost is a BILLED amount.
+            Number(l.unit_cost) / (1 + m / 100)
+      return {
+        work_area_id: waId,
+        category: cat,
+        label: l.label,
+        unit: l.unit || '',
+        quantity: l.qty,
+        // Cents on the cost basis; any drift is absorbed by the GC
+        // balancer below, which is recomputed AFTER this unwind.
+        unit_cost: Math.round(cost * 100) / 100,
+        price_override: l.selling_total ?? null as number | null,
+        // Pinned, not left to live settings: the stated total is the
+        // contractor's real price and must not drift if they retune
+        // their markups later (RI's sacrosanct-total rule).
+        markup_override: m,
+        sort_order: j,
+      }
+    })
+    // The stated total is Ian's real price — sacrosanct. Never trust the
+    // model's arithmetic to hit it: RECOMPUTE the "General Conditions &
+    // Rounding" balancer so billed sum == stated_total to the penny,
+    // regardless of any slip in Jamie's line math.
+    //
+    // Runs AFTER the cost unwind above, so it also absorbs the sub-cent
+    // drift that rounding a divided cost basis introduces (billed 100 at
+    // 50% → cost 66.67 → billed 100.005). The balancer itself stays at 0%
+    // markup: it is a rounding plug, not scope you earn margin on, and
+    // marking it up would reintroduce the very rounding error it exists
+    // to absorb.
+    const billed = (l: (typeof lines)[number]) =>
+      l.price_override ?? (Number(l.quantity) * Number(l.unit_cost) * (1 + Number(l.markup_override) / 100))
+    let gc = lines.find((l) => /general conditions/i.test(l.label))
+    if (!gc) {
+      gc = {
+        work_area_id: waId, category: 'other', label: 'General Conditions & Rounding',
+        unit: 'EA', quantity: 1, unit_cost: 0, price_override: null, markup_override: 0,
+        sort_order: lines.length,
+      }
+      lines.push(gc)
+    }
+    gc.quantity = 1
+    gc.markup_override = 0
+    gc.unit_cost = 0
+    const othersBilled = lines.filter((l) => l !== gc).reduce((a, l) => a + billed(l), 0)
+    gc.unit_cost = Math.round((wa.stated_total - othersBilled) * 100) / 100
+
+  if (lines.some(l => !Number.isFinite(l.quantity) || !Number.isFinite(l.unit_cost) || l.quantity < 0 || l.unit_cost < 0)) throw new Error(`The breakdown for "${wa.name}" exceeds its stated price or has invalid amounts. Go Back and ask Jamie to revise the breakdown, or preserve it as a subcontractor lump sum.`)
+  return lines
 }

@@ -11,9 +11,10 @@ interface NewLeadModalProps {
   onClose: () => void
   /** Called after a successful create with the new lead row. */
   onCreated?: (lead: Lead) => void
+  onImport?: (lead: Lead) => void
 }
 
-export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
+export function NewLeadModal({ open, onClose, onCreated, onImport }: NewLeadModalProps) {
   const { user, workspaceOwnerId } = useAuth()
 
   const [projectName, setProjectName] = useState('')
@@ -46,7 +47,7 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
     setSubmitting(false)
   }, [open])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, importAfter = false) => {
     e.preventDefault()
     if (!user) return
     const trimmedProject = projectName.trim()
@@ -85,6 +86,7 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
       })
       toast.success('Lead added.')
       onCreated?.(lead)
+      if (importAfter) onImport?.(lead)
       onClose()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not create lead.')
@@ -101,7 +103,7 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
       description="The front door — every job starts here and moves through the pipeline."
       size="lg"
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         <FormField label="Project name" required>
           <input
             type="text"
@@ -224,7 +226,8 @@ export function NewLeadModal({ open, onClose, onCreated }: NewLeadModalProps) {
           </FormField>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
+          {onImport && <button type="button" disabled={submitting || (!name.trim() && !projectName.trim())} onClick={(e) => void handleSubmit(e, true)} className="rounded-md bg-brand-gold px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save lead & upload proposal</button>}
           <button
             type="button"
             onClick={onClose}

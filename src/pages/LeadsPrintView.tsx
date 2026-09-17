@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -67,8 +67,16 @@ const PAPER_META: Record<Paper, { label: string; blurb: string; css: string; wid
 
 const FORMAT_META: Record<Format, { label: string; blurb: string }> = {
   board: { label: 'Board', blurb: 'Pipeline snapshot — one column per stage' },
-  detail: { label: 'Detail', blurb: 'Every lead as a row, with subtotals' },
+  detail: { label: 'Meeting sheet', blurb: 'Jobs listed by stage and location, like the Leads Bids workbook' },
   summary: { label: 'Summary', blurb: 'One sheet — stage × location rollup' },
+}
+
+const REPORT_FIELDS = ['Project Name','Address','Description','Created','Location','Source','Contact','Phone / Email','Follow-up','Proposals','Proposal sent','Stage','Value'] as const
+type ReportField = typeof REPORT_FIELDS[number]
+const DEFAULT_FIELDS: ReportField[] = ['Project Name','Address','Description','Created','Location','Source','Value']
+function readSelection<T extends string>(key: string, valid: readonly T[], fallback: T[]): T[] {
+  try { const saved: unknown = JSON.parse(localStorage.getItem(key) || 'null'); if (Array.isArray(saved)) { const selected = valid.filter(v => saved.includes(v)); if (selected.length) return [...selected] } } catch { /* unavailable storage */ }
+  return fallback
 }
 
 export default function LeadsPrintView() {
@@ -84,11 +92,19 @@ export default function LeadsPrintView() {
   // was on screen, then freely changeable here.
   const [paper, setPaper] = useState<Paper>('tabloid-landscape')
   const [format, setFormat] = useState<Format>(() =>
-    params.get('view') === 'list' ? 'detail' : 'board'
+    'detail'
   )
   const [groupByLocation, setGroupByLocation] = useState(
-    () => params.get('byLocation') === '1'
+    () => params.get('byLocation') !== '0'
   )
+
+  const [stages, setStages] = useState<LeadStage[]>(() => {
+    const requested = params.get('stage') as LeadStage
+    return LEAD_STAGE_ORDER.includes(requested) ? [requested] : readSelection('leads:print:stages',LEAD_STAGE_ORDER,LEAD_STAGE_ORDER.filter(s => s !== 'completed' && s !== 'lost'))
+  })
+  const [fields, setFields] = useState<ReportField[]>(() => readSelection('leads:print:fields',REPORT_FIELDS,DEFAULT_FIELDS))
+  const [fullDescription, setFullDescription] = useState(false)
+  useEffect(() => { try { localStorage.setItem('leads:print:stages',JSON.stringify(stages)); localStorage.setItem('leads:print:fields',JSON.stringify(fields)) } catch { /* unavailable storage */ } },[stages,fields])
 
   /* ---------- filters carried over from the Leads page ---------- */
 
@@ -96,7 +112,7 @@ export default function LeadsPrintView() {
   const search = params.get('q')?.trim().toLowerCase() ?? ''
   const townFilter = params.get('town') ?? 'all'
   const regionFilter = params.get('region') ?? 'all'
-  const stageFilter = params.get('stage') ?? 'all'
+  const stageFilter = 'all'
   const dateField = (params.get('dateField') ?? 'none') as DateField
   const dateFrom = params.get('from') ?? ''
   const dateTo = params.get('to') ?? ''
@@ -168,13 +184,7 @@ export default function LeadsPrintView() {
     })
   }, [rows, showArchived, search, townFilter, regionFilter, dateField, dateFrom, dateTo])
 
-  // The stage filter applies to the row-based formats only — the board
-  // always shows every column, same rule as the app.
-  const reportRows = useMemo(() => {
-    if (!filtered) return null
-    if (format === 'board' || stageFilter === 'all') return filtered
-    return filtered.filter((r) => r.stage === stageFilter)
-  }, [filtered, format, stageFilter])
+  const reportRows = useMemo(() => filtered?.filter(r => stages.includes(r.stage)) ?? null,[filtered,stages])
 
   /**
    * There is no way to hand a browser a finished PDF from client-side
@@ -186,19 +196,7 @@ export default function LeadsPrintView() {
    */
   const handleDownload = useCallback(() => window.print(), [])
 
-  // ?auto=1 — the Leads page's Download PDF button lands here and wants
-  // the dialog straight away. Fires once, after the sheet has painted,
-  // and only when there's something to show.
-  // A ref, not state — firing the dialog is a side effect on an external
-  // system, and nothing renders differently once it has happened.
-  const autoFired = useRef(false)
-  useEffect(() => {
-    if (autoFired.current || params.get('auto') !== '1') return
-    if (!rows || !settings) return
-    autoFired.current = true
-    const t = window.setTimeout(() => window.print(), 350)
-    return () => window.clearTimeout(t)
-  }, [params, rows, settings])
+  // Always show the preview first so Download PDF cannot bypass report choices.
 
   /* ---------- guards ---------- */
 
@@ -287,10 +285,20 @@ export default function LeadsPrintView() {
               </button>
             </div>
           </div>
+          <div className="mx-auto mt-3 max-w-[1560px] space-y-2 text-sm">
+            <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded border p-2"><legend className="px-1 font-semibold">Stage columns to include</legend>
+              {LEAD_STAGE_ORDER.map(stage => <label key={stage} className="flex items-center gap-1"><input type="checkbox" checked={stages.includes(stage)} disabled={stages.length === 1 && stages.includes(stage)} onChange={e => setStages(prev => LEAD_STAGE_ORDER.filter(v => v === stage ? e.target.checked : prev.includes(v)))} />{LEAD_STAGE_CONFIG[stage].label}</label>)}
+              <button className="text-blue-700 underline" onClick={() => setStages(LEAD_STAGE_ORDER.filter(s => s !== 'completed' && s !== 'lost'))}>Active stages</button><button className="text-blue-700 underline" onClick={() => setStages([...LEAD_STAGE_ORDER])}>All stages</button>
+            </fieldset>
+            {format !== 'summary' && <details><summary className="cursor-pointer font-semibold">Fields to print ({fields.length})</summary>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">{REPORT_FIELDS.map(field => <label key={field} className="flex items-center gap-1"><input type="checkbox" checked={fields.includes(field)} disabled={field === 'Project Name'} onChange={e => setFields(prev => REPORT_FIELDS.filter(v => v === field ? e.target.checked : prev.includes(v)))} />{field}</label>)}<button className="text-blue-700 underline" onClick={() => setFields([...REPORT_FIELDS])}>All fields</button><button className="text-blue-700 underline" onClick={() => setFields(DEFAULT_FIELDS)}>Meeting fields</button></div>
+              <label className="mt-2 flex items-center gap-1"><input type="checkbox" checked={fullDescription} onChange={e => setFullDescription(e.target.checked)} />Print full descriptions (may add pages)</label>
+            </details>}
+          </div>
           <p className="mx-auto mt-2 max-w-[1560px] text-xs text-gray-500">
             {FORMAT_META[format].blurb} · {PAPER_META[paper].blurb}. In the dialog
             choose Destination: <strong>Save as PDF</strong>, Paper:{' '}
-            <strong>Tabloid / 11×17</strong>, Margins: Default, Background
+            <strong>{PAPER_META[paper].label}</strong>, Margins: Default, Background
             graphics: <strong>on</strong> (needed for the stage headers and the
             pool shading).
           </p>
@@ -307,6 +315,8 @@ export default function LeadsPrintView() {
             accent={accent}
             rows={reportRows}
             allRows={filtered ?? []}
+            stages={stages}
+            fullDescription={fullDescription}
             filterSummary={describeFilters({
               search,
               townFilter,
@@ -316,7 +326,7 @@ export default function LeadsPrintView() {
               dateFrom,
               dateTo,
               format,
-            })}
+            }) + " · Stages: " + stages.map(s => LEAD_STAGE_CONFIG[s].label).join(", ")}
           />
 
           {reportRows.length === 0 ? (
@@ -324,11 +334,11 @@ export default function LeadsPrintView() {
               No leads match these filters.
             </p>
           ) : format === 'board' ? (
-            <BoardSheet rows={reportRows} accent={accent} groupByLocation={groupByLocation} />
+            <BoardSheet rows={reportRows} accent={accent} groupByLocation={groupByLocation} stages={stages} fields={fields} fullDescription={fullDescription} />
           ) : format === 'detail' ? (
-            <DetailSheet rows={reportRows} accent={accent} groupByLocation={groupByLocation} />
+            <DetailSheet rows={reportRows} accent={accent} groupByLocation={groupByLocation} stages={stages} fields={fields} fullDescription={fullDescription} />
           ) : (
-            <SummarySheet rows={reportRows} accent={accent} />
+            <SummarySheet rows={reportRows} accent={accent} stages={stages} />
           )}
 
           <footer className="lpv-footer mt-6 border-t border-gray-300 pt-2 text-[9pt] text-gray-500">
@@ -352,6 +362,8 @@ function ReportHeader({
   rows,
   allRows,
   filterSummary,
+  stages,
+  fullDescription,
 }: {
   settings: CompanySettings
   logoUrl: string | null
@@ -359,6 +371,8 @@ function ReportHeader({
   rows: LeadListRow[]
   allRows: LeadListRow[]
   filterSummary: string
+  stages: LeadStage[]
+  fullDescription: boolean
 }) {
   // Headline number excludes Lost on purpose — a pipeline total that
   // counts dead jobs is the number nobody trusts. Lost still shows in
@@ -400,12 +414,12 @@ function ReportHeader({
       </div>
 
       <div className="mt-3 grid grid-cols-4 gap-3">
-        {LEAD_STAGE_ORDER.map(stage => {
+        {stages.map(stage => {
           const stageRows = rows.filter(r => r.stage === stage)
           return <Kpi key={stage} label={`${LEAD_STAGE_CONFIG[stage].label} (${stageRows.length})`} value={formatMoney(sumValue(stageRows))} accent={accent} />
         })}
       </div>
-      <p className="mt-2 text-[8.5pt] text-gray-600">Total excluding Lost: <strong>{formatMoney(sumValue(live))}</strong> · Follow-ups overdue: {overdue.length}. Each total matches its named column. Descriptions are shortened for printing; full notes remain in BidClaw.</p>
+      <p className="mt-2 text-[8.5pt] text-gray-600">Selected stages total excluding Lost: <strong>{formatMoney(sumValue(live))}</strong> · Follow-ups overdue: {overdue.length}. Each total matches its named column. {fullDescription ? 'Full descriptions printed.' : 'Descriptions shortened for printing; full notes remain in BidClaw.'}</p>
 
       {/* Only shown when there's actually something shaded — a legend for
           a colour that never appears is just noise on the sheet. */}
@@ -453,14 +467,18 @@ function BoardSheet({
   rows,
   accent,
   groupByLocation,
+  stages, fields, fullDescription,
 }: {
+  stages: LeadStage[]
+  fields: ReportField[]
+  fullDescription: boolean
   rows: LeadListRow[]
   accent: string
   groupByLocation: boolean
 }) {
   return (
-    <div className="lpv-board mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${LEAD_STAGE_ORDER.length}, minmax(0, 1fr))` }}>
-      {LEAD_STAGE_ORDER.map((stage) => {
+    <div className="lpv-board mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }}>
+      {stages.map((stage) => {
         const cards = rows.filter((r) => r.stage === stage)
         const groups = groupByLocation ? locationBuckets(cards) : null
         return (
@@ -496,11 +514,11 @@ function BoardSheet({
                         <span>{formatMoney(g.total)}</span>
                       </div>
                       {g.cards.map((lead) => (
-                        <BoardCard key={lead.id} lead={lead} />
+                        <BoardCard key={lead.id} lead={lead} fields={fields} fullDescription={fullDescription} />
                       ))}
                     </div>
                   ))
-                : cards.map((lead) => <BoardCard key={lead.id} lead={lead} />)}
+                : cards.map((lead) => <BoardCard key={lead.id} lead={lead} fields={fields} fullDescription={fullDescription} />)}
             </div>
           </section>
         )
@@ -509,188 +527,54 @@ function BoardSheet({
   )
 }
 
-function BoardCard({ lead }: { lead: LeadListRow }) {
-  const overdue = isOverdue(lead.follow_up_date)
-  const value = Number(lead.est_value) || 0
-  const where = [lead.job_address, lead.town].filter(Boolean).join(', ')
-  const pool = isPoolWork(lead)
-  return (
-    <div
-      className={`lpv-card rounded border px-1.5 py-1 text-[8pt] leading-snug ${
-        pool ? POOL_CARD_CLASSES : 'border-gray-300'
-      }`}
-    >
-      <div className="font-bold text-gray-900">{leadTitle(lead)}</div>
-      {where && <div className="text-gray-600">{where}</div>}
-      {lead.description && <div className="lpv-description text-gray-600" title={lead.description}>{clipDescription(lead.description, 150)}</div>}
-      <div className="mt-0.5 flex flex-wrap items-baseline justify-between gap-x-1">
-        <span className="text-[7.5pt] uppercase tracking-wide text-gray-500">
-          {lead.region ? (LEAD_REGION_CONFIG[lead.region]?.label ?? lead.region) : '—'}
-        </span>
-        {value > 0 && (
-          <span className="whitespace-nowrap font-bold text-gray-900">{formatMoney(value)}</span>
-        )}
-      </div>
-      {lead.follow_up_date && (
-        <div className={overdue ? 'font-bold text-rose-700' : 'text-gray-600'}>
-          {overdue ? 'OVERDUE ' : 'Follow up '}
-          {formatShortDate(lead.follow_up_date)}
-        </div>
-      )}
-    </div>
-  )
+function reportValue(lead: LeadListRow, field: ReportField, full: boolean): string {
+  switch(field) {
+    case 'Project Name': return leadTitle(lead)
+    case 'Address': return [lead.job_address,lead.town].filter(Boolean).join(', ')
+    case 'Description': return lead.description ? (full ? lead.description : clipDescription(lead.description,150)) : ''
+    case 'Created': return formatShortDate(lead.created_at)
+    case 'Location': return lead.region ? (LEAD_REGION_CONFIG[lead.region]?.label ?? lead.region) : ''
+    case 'Source': return lead.source ?? ''
+    case 'Contact': return lead.name ?? ''
+    case 'Phone / Email': return [lead.phone,lead.email].filter(Boolean).join(' · ')
+    case 'Follow-up': return lead.follow_up_date ? `${isOverdue(lead.follow_up_date) ? 'OVERDUE ' : ''}${formatShortDate(lead.follow_up_date)}` : ''
+    case 'Proposals': return String(lead.proposal_count || 0)
+    case 'Proposal sent': return lead.last_presented_at ? formatShortDate(lead.last_presented_at) : ''
+    case 'Stage': return LEAD_STAGE_CONFIG[lead.stage].label
+    case 'Value': return formatMoney(Number(lead.est_value)||0)
+  }
+}
+function BoardCard({lead,fields,fullDescription}:{lead:LeadListRow;fields:ReportField[];fullDescription:boolean}) {
+  return <div className={`lpv-card break-words rounded border px-1.5 py-1 text-[8pt] leading-snug ${isPoolWork(lead) ? POOL_CARD_CLASSES : 'border-gray-300'}`}>
+    {fields.map(field => {const value = reportValue(lead,field,fullDescription); return value ? <div key={field} className={field === 'Project Name' || field === 'Value' ? 'font-bold text-gray-900' : 'text-gray-600'}>{field !== 'Project Name' && <span className="font-medium">{field}: </span>}{value}</div> : null})}
+  </div>
 }
 
 /* ============================================================
  * Detail format — every lead as a row
  * ============================================================ */
 
-const DETAIL_COLS = [
-  'Project Name',
-  'Address',
-  'Description',
-  'Created',
-  'Location',
-  'Source',
-  'Contact',
-  'Phone / Email',
-  'Follow-up',
-  'Proposals',
-  'Value',
-] as const
-
-function DetailSheet({
-  rows,
-  accent,
-  groupByLocation,
-}: {
-  rows: LeadListRow[]
-  accent: string
-  groupByLocation: boolean
-}) {
-  // Group by location when asked, otherwise by stage — a printed sheet
-  // wants explicit section bands, not a colour-coded badge column.
-  const sections = groupByLocation
-    ? locationBuckets(rows)
-    : LEAD_STAGE_ORDER.map((stage) => {
-        const cards = rows.filter((r) => r.stage === stage)
-        return {
-          key: stage,
-          label: LEAD_STAGE_CONFIG[stage].label,
-          cards,
-          total: sumValue(cards),
-        }
-      }).filter((s) => s.cards.length > 0)
-
-  return (
-    <table className="lpv-table mt-4 w-full border-collapse text-[8pt]">
-      <thead>
-        <tr style={{ backgroundColor: accent }} className="text-white">
-          {DETAIL_COLS.map((c) => (
-            <th
-              key={c}
-              className={`border border-gray-400 px-1.5 py-1 text-left font-bold uppercase tracking-wide ${
-                c === 'Value' ? 'text-right' : ''
-              }`}
-            >
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {sections.map((section) => (
-          <SectionRows key={section.key} section={section} />
-        ))}
-        <tr className="lpv-grand">
-          <td
-            colSpan={DETAIL_COLS.length - 1}
-            className="border border-gray-400 px-1.5 py-1 text-right text-[9pt] font-extrabold uppercase tracking-wide"
-          >
-            Total — {rows.length} lead{rows.length === 1 ? '' : 's'}
-          </td>
-          <td className="border border-gray-400 px-1.5 py-1 text-right text-[9pt] font-extrabold">
-            {formatMoney(sumValue(rows))}
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  )
+function fieldWidth(field: ReportField) { return field === 'Project Name' ? 22 : field === 'Description' ? 26 : field === 'Address' || field === 'Phone / Email' ? 18 : field === 'Source' || field === 'Contact' ? 14 : 10 }
+function DetailSheet({rows,accent,groupByLocation,stages,fields,fullDescription}:{rows:LeadListRow[];accent:string;groupByLocation:boolean;stages:LeadStage[];fields:ReportField[];fullDescription:boolean}) {
+  const sections = stages.flatMap(stage => { const cards = rows.filter(r => r.stage === stage); return groupByLocation ? locationBuckets(cards).map(g => ({...g,key:stage+g.key,label:LEAD_STAGE_CONFIG[stage].label+' — '+g.label})) : [{key:stage,label:LEAD_STAGE_CONFIG[stage].label,cards,total:sumValue(cards)}] }).filter(s => s.cards.length)
+  return <table className="lpv-table mt-4 w-full table-fixed border-collapse text-[8pt]">
+    <colgroup>{fields.map(f => <col key={f} style={{width:`${fieldWidth(f)/fields.reduce((n,x)=>n+fieldWidth(x),0)*100}%`}} />)}</colgroup>
+    <thead><tr style={{backgroundColor:accent}} className="text-white">{fields.map(field => <th key={field} className="border border-gray-400 px-1.5 py-1 text-left font-bold">{field}</th>)}</tr></thead>
+    <tbody>{sections.map(section => <SectionRows key={section.key} section={section} fields={fields} fullDescription={fullDescription} />)}
+      <tr className="lpv-grand"><td colSpan={fields.length} className="border border-gray-400 p-2 text-right font-extrabold">Total — {rows.length} leads · {formatMoney(sumValue(rows))}</td></tr>
+    </tbody>
+  </table>
 }
-
-function SectionRows({
-  section,
-}: {
-  section: { key: string; label: string; cards: LeadListRow[]; total: number }
-}) {
-  return (
-    <>
-      <tr className="lpv-band">
-        <td
-          colSpan={DETAIL_COLS.length - 1}
-          className="border border-gray-400 bg-gray-100 px-1.5 py-1 text-[8.5pt] font-extrabold uppercase tracking-wide text-gray-800"
-        >
-          {section.label} — {section.cards.length}
-        </td>
-        <td className="border border-gray-400 bg-gray-100 px-1.5 py-1 text-right text-[8.5pt] font-extrabold text-gray-900">
-          {formatMoney(section.total)}
-        </td>
-      </tr>
-      {section.cards.map((lead) => {
-        const overdue = isOverdue(lead.follow_up_date)
-        const value = Number(lead.est_value) || 0
-        const pool = isPoolWork(lead)
-        return (
-          <tr key={lead.id} className={`lpv-row align-top ${pool ? POOL_ROW_CLASSES : ''}`}>
-            <td className="border border-gray-300 px-1.5 py-1 font-semibold text-gray-900">
-              {leadTitle(lead)}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-gray-700">
-              {[lead.job_address, lead.town].filter(Boolean).join(', ') || '—'}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-gray-700">
-              {lead.description ? clipDescription(lead.description) : '—'}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 whitespace-nowrap text-gray-700">
-              {formatShortDate(lead.created_at)}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-gray-700">
-              {lead.region ? (LEAD_REGION_CONFIG[lead.region]?.label ?? lead.region) : '—'}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-gray-700">
-              {lead.source ?? '—'}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-gray-700">
-              {lead.name ?? '—'}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-gray-700">
-              {[lead.phone, lead.email].filter(Boolean).join(' · ') || '—'}
-            </td>
-            <td
-              className={`border border-gray-300 px-1.5 py-1 whitespace-nowrap ${
-                overdue ? 'font-bold text-rose-700' : 'text-gray-700'
-              }`}
-            >
-              {lead.follow_up_date ? formatShortDate(lead.follow_up_date) : '—'}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-center text-gray-700">
-              {lead.proposal_count || '—'}
-            </td>
-            <td className="border border-gray-300 px-1.5 py-1 text-right font-semibold text-gray-900">
-              {value > 0 ? formatMoney(value) : '—'}
-            </td>
-          </tr>
-        )
-      })}
-    </>
-  )
+function SectionRows({section,fields,fullDescription}:{section:{key:string;label:string;cards:LeadListRow[];total:number};fields:ReportField[];fullDescription:boolean}) {
+  return <><tr className="lpv-band"><td colSpan={fields.length} className="border border-gray-400 bg-gray-100 p-2 font-bold">{section.label} — {section.cards.length} leads · {formatMoney(section.total)}</td></tr>
+    {section.cards.map(lead => <tr key={lead.id} className={`lpv-row align-top ${isPoolWork(lead) ? POOL_ROW_CLASSES : ''}`}>{fields.map(field => <td key={field} className="border border-gray-300 px-1.5 py-1" style={{overflowWrap:'anywhere'}}>{reportValue(lead,field,fullDescription)||'—'}</td>)}</tr>)}</>
 }
 
 /* ============================================================
  * Summary format — stage × location matrix, no rows
  * ============================================================ */
 
-function SummarySheet({ rows, accent }: { rows: LeadListRow[]; accent: string }) {
+function SummarySheet({ rows, accent, stages }: { rows: LeadListRow[]; accent: string; stages: LeadStage[] }) {
   // Canonical territories first, then any custom ones actually present,
   // then a "No location" column if anything is missing a region.
   const canonical: string[] = [...LEAD_REGION_ORDER]
@@ -727,7 +611,7 @@ function SummarySheet({ rows, accent }: { rows: LeadListRow[]; accent: string })
         </tr>
       </thead>
       <tbody>
-        {LEAD_STAGE_ORDER.map((stage) => {
+        {stages.map((stage) => {
           const stageRows = rows.filter((r) => r.stage === stage)
           return (
             <tr key={stage}>
@@ -931,6 +815,7 @@ function formatShortDate(iso: string): string {
 
 function printCss(pageSize: string): string {
   return `
+.lpv-card { overflow-wrap: anywhere; }
 .lpv-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; line-height: 1.375; max-height: 4.125em; overflow: hidden; overflow-wrap: anywhere; }
 @media print {
   @page {

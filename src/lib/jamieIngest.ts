@@ -5,11 +5,13 @@
 // server-side — this is a thin pipe.
 
 import { supabase } from '@/lib/supabase'
+import type { RebuildOptions } from './proposalImport'
 import type { IngestReconstruction } from '@/lib/ingest'
 
 export async function runIngestion(
   proposalText: string,
-  onProgress?: (accumulated: string) => void
+  onProgress?: (accumulated: string) => void,
+  options?: RebuildOptions
 ): Promise<IngestReconstruction> {
   const {
     data: { session },
@@ -25,7 +27,7 @@ export async function runIngestion(
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ proposal_text: proposalText }),
+      body: JSON.stringify({ proposal_text: proposalText, rebuild_options: options }),
     }
   )
 

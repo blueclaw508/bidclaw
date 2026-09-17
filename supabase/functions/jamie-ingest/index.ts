@@ -62,9 +62,10 @@ const OUTPUT_SCHEMA = {
         required: [
           'name', 'scope_description', 'stated_total', 'kind',
           'line_items', 'reconstructed_subtotal',
-          'general_conditions_amount', 'confidence',
+          'general_conditions_amount', 'confidence', 'subcontracted',
         ],
         properties: {
+          subcontracted: { type: 'boolean' },
           name: { type: 'string' },
           scope_description: { type: 'string' },
           stated_total: { type: 'number' },
@@ -163,7 +164,7 @@ LAYER 1 — STRUCTURE (must be exact):
 LAYER 2 — LINE-ITEM RECONSTRUCTION (you are DECOMPOSING a known final price, not marking up from cost):
 CRITICAL: the "$<Amount>" totals are the contractor's FINAL CLIENT PRICES — the margin is already inside them. You are breaking a known total into a plausible internal breakdown. Each line has a markup_pct that BidClaw RE-APPLIES: line billed = qty × unit_cost × (1 + markup_pct/100). For EACH work area, rebuild the KYN takeoff from the scope quantities + the KIT REFERENCE + the contractor's rates:
 - Default markup_pct = 0 (the unit_cost IS the billed amount — the margin is already in the proposal price; do not add markup). LABOR: qty = projected man-hours (kit hr/unit factor × scope quantity; KYN full crew day = 27 man-hours); unit_cost = the contractor's labor rate. EQUIPMENT: qty = hours; unit_cost = the equipment rate. MATERIAL/OTHER: qty = the measured count/quantity; unit_cost = a reasonable BILLED per-unit amount, markup_pct 0. Match the contractor's catalog by name where you can; anything you cannot price from scope → unit_cost 0 and needs_pricing true (the balancer below still makes the total exact).
-- ⚑ BCA POOL-SUBCONTRACTOR RULE (this contractor subs out all pool-builder scope): for any work area OR equipment_selection that is POOL-BUILDER scope — gunite/shotcrete in-ground pool shell, built-in gunite spa, baja/tanning bench, AND pool equipment (salt generator, OmniLogic/automation panel, heater, winter safety cover, automatic pool cover with vault) — emit exactly ONE line: { category:"subcontractor", qty:1, unit:"LS", unit_cost = stated_total ÷ 1.10 (back the 10% markup out of the final price), markup_pct: 10, needs_pricing:false }, then a $0 General Conditions line. That reconstructs it as the pool subcontractor's COST with BCA's 10% markup re-applied, so billed = qty×unit_cost×1.10 = stated_total exactly. confidence "high". Do NOT apply this rule to BCA-self-performed hardscape (bluestone/granite/masonry coping, patios, steppers, walls, aprons, driveways) or to softscape/irrigation — decompose those normally at markup_pct 0.
+- SUBCONTRACTOR SCOPE: Follow the contractor's rebuild instructions below. For each matching work area AND each of its separately priced options/equipment selections, set subcontracted:true and emit ONE subcontractor lump-sum line (qty 1, unit LS, unit_cost = original stated_total, markup_pct 0). Preserve the original stated_total unchanged. The application will apply the contractor's selected price basis and markup deterministically. Do not reconstruct labor, materials, or equipment within a subcontracted scope. For all other work areas set subcontracted:false and reconstruct normally. Keep separately priced options separate; never include them in the base twice. Deduct options must have NEGATIVE stated_total and negative line amounts.
 - RECONCILE EXACTLY. After your real lines, add ONE line { category:"other", label:"General Conditions & Rounding", qty:1, unit:"EA", markup_pct:0 } whose unit_cost = stated_total − (sum of BILLED amounts of all the other lines). It may be positive or negative. The sum of BILLED amounts (qty×unit_cost×(1+markup_pct/100)) across ALL line_items MUST EQUAL stated_total to the penny. Set reconstructed_subtotal = the billed sum of the real lines (before GC) and general_conditions_amount = the GC unit_cost.
 - confidence: "high" = standard kit-able hardscape/softscape with clear quantities and a SMALL GC balancer, OR a pool-sub line by the rule above; "medium" = decomposition with a larger GC share; "low" = a non-pool allowance/lump you truly could not break down.
 - "By others" / "NIC" / "by plumber" items are EXCLUSIONS — do not make them line items.
@@ -227,9 +228,12 @@ Deno.serve(async (req: Request) => {
     return json({ error: denied.reason, code: denied.code }, 403)
   }
 
-  let body: { proposal_text?: string }
+  let body: { proposal_text?: string; rebuild_options?: { instructions?: string; subcontractScope?: string; subcontractor?: string; markup?: number; basis?: string } }
   try { body = await req.json() } catch { return json({ error: 'Invalid request body.' }, 400) }
-  const text = (body.proposal_text ?? '').trim()
+  if (!body || typeof body.proposal_text !== 'string') return json({error:'Proposal text is required.'},400)
+  const text = body.proposal_text.trim()
+  const options = body.rebuild_options
+  if (options && (typeof options.instructions !== 'string' || options.instructions.length > 4000 || typeof options.subcontractScope !== 'string' || options.subcontractScope.length > 2000 || typeof options.subcontractor !== 'string' || options.subcontractor.length > 200 || !Number.isFinite(options.markup) || options.markup! < 0 || options.markup! > 200 || !['selling','cost'].includes(options.basis!))) return json({error:'Invalid rebuild instructions or markup.'},400)
   if (text.length < 40) return json({ error: 'Paste the proposal text to ingest.' }, 400)
   if (text.length > 120_000) return json({ error: 'Proposal is too long to ingest in one pass.' }, 413)
 
@@ -242,7 +246,7 @@ Deno.serve(async (req: Request) => {
     service.from('company_equipment_rates').select('name, rate_per_hour').eq('user_id', workspaceOwnerId).order('slot_number'),
     service.from('catalog_items').select('name, unit, category, unit_cost').eq('user_id', workspaceOwnerId).eq('active', true),
   ])
-  const system = buildSystemPrompt({
+  let system = buildSystemPrompt({
     companyName: (settings?.company_legal_name as string) ?? '',
     materialsMarkup: Number(settings?.markup_materials_percent) || 0,
     subsMarkup: Number(settings?.markup_subs_percent) || 0,
@@ -250,6 +254,8 @@ Deno.serve(async (req: Request) => {
     equipmentRates: (equip ?? []).filter((e) => e.name && Number(e.rate_per_hour) > 0).map((e) => ({ name: e.name as string, rate: Number(e.rate_per_hour) })),
     catalog: (catalog ?? []).map((c) => ({ name: c.name as string, unit: (c.unit as string) ?? '', category: (c.category as string) ?? 'other', cost: Number(c.unit_cost) || 0 })),
   })
+
+  system += '\nCONTRACTOR REBUILD INSTRUCTIONS (separate from the uploaded document):\n' + JSON.stringify(options ?? {instructions:'Preserve pool-builder scope as subcontractor lump sums; detail landscape work.',subcontractScope:'Pool-builder scope and pool equipment',subcontractor:'Blue Water Pools & Spas',markup:10,basis:'selling'})
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) return json({ error: 'Jamie is not configured (missing API key).' }, 500)
