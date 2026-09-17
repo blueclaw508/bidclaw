@@ -26,6 +26,7 @@
 // insert runs under the caller's RLS.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { categoryBearsMarkup, estimateLineTotal, roundMoney } from './money'
 
 export type IngestCategory =
   | 'labor' | 'material' | 'equipment' | 'subcontractor' | 'other'
@@ -277,18 +278,18 @@ export async function commitIngestedProposal(opts: {
 
 export function importedLines(wa: IngestWorkArea, waId: string, markupForCategory: (category: string) => number) {
   const lines = wa.line_items.map((l, j) => {
-      const cat = l.category as string
+      const cat = l.category
       const emitted = Number(l.markup_pct ?? 0)
       // Jamie already priced this as a cost basis (BCA pool-sub rule,
       // markup_pct 10) — leave it exactly as he built it.
       const preMarked = l.cost_basis === true || emitted > 0
-      const m = preMarked ? emitted : markupForCategory(cat)
+      const m = categoryBearsMarkup(cat) ? (preMarked ? emitted : markupForCategory(cat)) : 0
       const cost =
         preMarked || m <= 0
           ? Number(l.unit_cost)
           : // Unwind: the emitted unit_cost is a BILLED amount.
             Number(l.unit_cost) / (1 + m / 100)
-      return {
+      const line = {
         work_area_id: waId,
         category: cat,
         label: l.label,
@@ -296,7 +297,7 @@ export function importedLines(wa: IngestWorkArea, waId: string, markupForCategor
         quantity: l.qty,
         // Cents on the cost basis; any drift is absorbed by the GC
         // balancer below, which is recomputed AFTER this unwind.
-        unit_cost: Math.round(cost * 100) / 100,
+        unit_cost: roundMoney(cost),
         price_override: l.selling_total ?? null as number | null,
         // Pinned, not left to live settings: the stated total is the
         // contractor's real price and must not drift if they retune
@@ -304,6 +305,12 @@ export function importedLines(wa: IngestWorkArea, waId: string, markupForCategor
         markup_override: m,
         sort_order: j,
       }
+      // Recovering a rounded cost must not move the original billed amount.
+      if (!preMarked && m > 0 && line.price_override === null) {
+        const originalPrice = roundMoney(Number(l.qty) * Number(l.unit_cost))
+        if (estimateLineTotal(line, {markup_materials_percent:0,markup_subs_percent:0}) !== originalPrice) line.price_override = originalPrice
+      }
+      return line
     })
     // The stated total is Ian's real price — sacrosanct. Never trust the
     // model's arithmetic to hit it: RECOMPUTE the "General Conditions &
@@ -317,7 +324,7 @@ export function importedLines(wa: IngestWorkArea, waId: string, markupForCategor
     // marking it up would reintroduce the very rounding error it exists
     // to absorb.
     const billed = (l: (typeof lines)[number]) =>
-      l.price_override ?? (Number(l.quantity) * Number(l.unit_cost) * (1 + Number(l.markup_override) / 100))
+      estimateLineTotal(l, {markup_materials_percent:0,markup_subs_percent:0})
     let gc = lines.find((l) => /general conditions/i.test(l.label))
     if (!gc) {
       gc = {
@@ -330,8 +337,9 @@ export function importedLines(wa: IngestWorkArea, waId: string, markupForCategor
     gc.quantity = 1
     gc.markup_override = 0
     gc.unit_cost = 0
+    gc.price_override = null
     const othersBilled = lines.filter((l) => l !== gc).reduce((a, l) => a + billed(l), 0)
-    gc.unit_cost = Math.round((wa.stated_total - othersBilled) * 100) / 100
+    gc.unit_cost = roundMoney(wa.stated_total - othersBilled)
 
   if (lines.some(l => !Number.isFinite(l.quantity) || !Number.isFinite(l.unit_cost) || l.quantity < 0 || l.unit_cost < 0)) throw new Error(`The breakdown for "${wa.name}" exceeds its stated price or has invalid amounts. Go Back and ask Jamie to revise the breakdown, or preserve it as a subcontractor lump sum.`)
   return lines
