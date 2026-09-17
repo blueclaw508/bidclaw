@@ -1,4 +1,5 @@
 import type { IngestReconstruction, IngestWorkArea } from './ingest'
+import { roundMoney, sumMoney } from './money'
 
 export interface SubcontractRule { name: string; markup: number; basis: 'selling' | 'cost' }
 export interface RebuildOptions { instructions: string; subcontractScope: string; subcontractor: string; markup: number; basis: 'selling' | 'cost' }
@@ -7,8 +8,8 @@ export function subcontractArea(area: IngestWorkArea, rule: SubcontractRule): In
   const amount = Number(area.stated_total)
   if (!Number.isFinite(amount)) throw new Error('The proposal amount is missing.')
   const cost = rule.basis === 'selling' ? amount / (1 + rule.markup / 100) : amount
-  const price = Math.round((rule.basis === 'selling' ? amount : amount * (1 + rule.markup / 100)) * 100) / 100
-  return { ...area, stated_total: price, confidence: 'high', general_conditions_amount: 0, line_items: [{ category: 'subcontractor', label: `${rule.name.trim()} — ${area.name}`, qty: 1, unit: 'LS', unit_cost: Math.round(cost * 100) / 100, markup_pct: rule.markup, cost_basis: true, selling_total: price, reasoning: 'Preserved subcontract scope and price; no labor or material reconstruction.', needs_pricing: false }] }
+  const price = roundMoney(rule.basis === 'selling' ? amount : amount * (1 + rule.markup / 100))
+  return { ...area, stated_total: price, confidence: 'high', general_conditions_amount: 0, line_items: [{ category: 'subcontractor', label: `${rule.name.trim()} — ${area.name}`, qty: 1, unit: 'LS', unit_cost: roundMoney(cost), markup_pct: rule.markup, cost_basis: true, selling_total: price, reasoning: 'Preserved subcontract scope and price; no labor or material reconstruction.', needs_pricing: false }] }
 }
 export function prepareRebuild(raw: IngestReconstruction, rules: Record<number, SubcontractRule>, selectedOptions: number[]): IngestReconstruction {
   if (selectedOptions.some(i => !raw.work_areas[i] || raw.work_areas[i].kind === 'deduct_option')) throw new Error('Deduct options are kept in notes. Apply the selected substitution in the estimate editor.')
@@ -16,7 +17,7 @@ export function prepareRebuild(raw: IngestReconstruction, rules: Record<number, 
     const next = rules[i] ? subcontractArea(area, rules[i]) : area
     return selectedOptions.includes(i) ? { ...next, kind: 'base' as const } : next
   })
-  return { ...raw, work_areas, base_total: Math.round(work_areas.filter(a => a.kind === 'base').reduce((n, a) => n + a.stated_total, 0) * 100) / 100 }
+  return { ...raw, work_areas, base_total: sumMoney(work_areas.filter(a => a.kind === 'base').map(a => a.stated_total)) }
 }
 
 export async function extractProposalText(file: File): Promise<string> {
