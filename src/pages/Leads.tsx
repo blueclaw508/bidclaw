@@ -496,7 +496,7 @@ function LeadBoard({
 }) {
   return (
     <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
-      <div className="flex min-w-max gap-3">
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${LEAD_STAGE_ORDER.length}, minmax(11rem, 1fr))` }}>
         {LEAD_STAGE_ORDER.map((stage) => (
           <BoardColumn
             key={stage}
@@ -545,7 +545,7 @@ function BoardColumn({
       ref={setNodeRef}
       data-stage={stage}
       className={cn(
-        'flex w-64 shrink-0 flex-col rounded-xl border bg-brand-surface transition-colors',
+        'flex min-w-0 flex-col rounded-xl border bg-brand-surface transition-colors',
         isOver ? 'border-brand-navy ring-2 ring-brand-navy/30' : 'border-brand-border'
       )}
     >

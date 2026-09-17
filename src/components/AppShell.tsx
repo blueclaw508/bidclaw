@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import './workflow-sidebar.css'
 import { useAuth } from '@/contexts/AuthContext'
@@ -25,6 +25,8 @@ const navGroups = [
 export function AppShell() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const isPipeline = pathname.replace(/\/$/, '') === '/app/leads'
   const [menuOpen, setMenuOpen] = useState(false)
 
   // Wizard control hoisted to SetupContext (Phase 4) so useSetupGate
@@ -79,7 +81,7 @@ export function AppShell() {
         <a className="workflow-crew" href="https://crewclaw.netlify.app/" target="_blank" rel="noopener noreferrer">CrewClaw ↗</a>
         <div className="workflow-account"><span>{user?.email}</span><button onClick={handleSignOut}>Sign out</button></div>
       </aside>
-      <div className="workflow-content"><SetupBanner/><main><div className="mx-auto w-full max-w-screen-2xl px-4 py-8 sm:px-6"><Outlet/></div></main><MarketingBar/></div>
+      <div className="workflow-content"><SetupBanner/><main><div className={`mx-auto w-full ${isPipeline ? 'max-w-none' : 'max-w-screen-2xl'} px-4 py-8 sm:px-6`}><Outlet/></div></main><MarketingBar/></div>
       {wizardOpen && <Suspense fallback={null}><WizardModal open={wizardOpen} onClose={handleWizardClose}/></Suspense>}
     </div>
   )
