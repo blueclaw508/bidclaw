@@ -1,5 +1,12 @@
 import type {ProjectStatus,ProposalStatus} from './types'
 export type ProposalProgress={status:ProposalStatus;created_at:string}
+export function matchesProjectStatusFilter(status: ProjectStatus, proposals: ProposalProgress[], filter: 'active' | 'all' | ProjectStatus): boolean {
+  if (filter === 'all') return true
+  const milestone = projectMilestone(status, proposals)
+  const displayedStatus = milestone.kind === 'project' ? milestone.status : status
+  if (filter === 'active') return !['complete', 'lost', 'archived'].includes(displayedStatus)
+  return displayedStatus === filter
+}
 export function projectMilestone(status:ProjectStatus,proposals:ProposalProgress[]) {
   const project=(stage:ProjectStatus)=>({kind:'project' as const,status:stage,label:null})
   // Derive a consistent project milestone without changing saved records.

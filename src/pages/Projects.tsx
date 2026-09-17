@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
 import { ProjectProgress, type ProposalProgress } from '@/components/ProjectProgress'
+import { matchesProjectStatusFilter } from '@/lib/projectProgress'
 import { NewProjectModal } from '@/components/NewProjectModal'
 import { canInvokeJamie } from '@/lib/jamieLoop'
 import { PROJECT_STATUS_CONFIG, PROJECT_STATUS_ORDER } from '@/lib/statusConfig'
@@ -15,7 +16,7 @@ const ImportProposalModal = lazy(() => import('@/components/ingest/ImportProposa
 
 type ProjectRow = Project & { customers: { name: string } | null; proposals: ProposalProgress[] }
 
-// "Active" excludes archived; the default daily view.
+// Active excludes closed projects using the same milestone as the progress badge.
 type StatusFilter = 'active' | 'all' | ProjectStatus
 type SortKey = 'created_desc' | 'created_asc' | 'name_asc' | 'updated_desc'
 
@@ -65,8 +66,7 @@ export default function ProjectsPage() {
     if (!rows) return null
     const q = search.trim().toLowerCase()
     let r = rows
-    if (statusFilter === 'active') r = r.filter((p) => p.status !== 'archived')
-    else if (statusFilter !== 'all') r = r.filter((p) => p.status === statusFilter)
+    r = r.filter((p) => matchesProjectStatusFilter(p.status, p.proposals ?? [], statusFilter))
     if (q) r = r.filter((p) => p.name.toLowerCase().includes(q))
     const sorted = [...r]
     sorted.sort((a, b) => {
