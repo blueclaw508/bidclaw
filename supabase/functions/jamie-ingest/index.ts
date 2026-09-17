@@ -256,6 +256,8 @@ Deno.serve(async (req: Request) => {
   })
 
   system += '\nCONTRACTOR REBUILD INSTRUCTIONS (separate from the uploaded document):\n' + JSON.stringify(options ?? {instructions:'Preserve pool-builder scope as subcontractor lump sums; detail landscape work.',subcontractScope:'Pool-builder scope and pool equipment',subcontractor:'Blue Water Pools & Spas',markup:10,basis:'selling'})
+  // Older open tabs do not apply the new deterministic subcontract rule.
+  if (!options) system += '\nLEGACY CLIENT PRICING: For subcontracted pool scope and its equipment/options, emit unit_cost = stated_total / 1.10 and markup_pct = 10, plus a zero General Conditions line. Keep stated_total unchanged. This overrides the earlier instruction to emit the whole stated_total at zero markup.'
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) return json({ error: 'Jamie is not configured (missing API key).' }, 500)
