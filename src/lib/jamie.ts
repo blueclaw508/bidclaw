@@ -1,3 +1,4 @@
+import {readJamieEstimateStream} from './jamieEstimateStream'
 import type {JamieClarification} from '../../supabase/functions/_shared/jamieQuestions.ts'
 // Client data layer for Jamie (AI estimating agent, Phase 1).
 //
@@ -68,7 +69,7 @@ export async function askJamie(input: {
   image?: { media_type: string; data: string } | null
 }): Promise<JamieResult> {
   const { data, error } = await supabase.functions.invoke('jamie-estimate', {
-    body: input,
+    body: {...input,stream:true},
   })
 
   if (error) {
@@ -91,7 +92,7 @@ export async function askJamie(input: {
     throw new Error(message)
   }
 
-  const result = data as JamieResult
+  const result = (data instanceof Response ? await readJamieEstimateStream(data) : data) as JamieResult
   return prepareSingleAreaResult(result)
 }
 

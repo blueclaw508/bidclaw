@@ -183,6 +183,7 @@ Deno.serve(async (req: Request) => {
 
   // 2. Parse input.
   let body: {
+    stream?: boolean
     mode?: string
     reviewed?: boolean
     workAreaId?: string
@@ -278,6 +279,7 @@ Deno.serve(async (req: Request) => {
   //    output (the text block is guaranteed valid JSON matching OUTPUT_SCHEMA).
   //    Clarification uses its own compact schema without takeoff reasoning.
   //    Reject incomplete structured output before parsing or applying it.
+  const runEstimate = async (): Promise<Response> => {
   const startedAt = new Date().toISOString() // J1c metering
   try {
     // deno-lint-ignore no-explicit-any
@@ -375,4 +377,24 @@ Deno.serve(async (req: Request) => {
     })
     return json({ error: `Jamie hit a snag — ${msg}. Try again or adjust your scope.` }, 502)
   }
+  }
+  if (!body.stream) return runEstimate()
+  const encoder = new TextEncoder()
+  let disconnected=false
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send=(event:unknown)=>{if(!disconnected) {try {controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))} catch {disconnected=true}}}
+      send({type:'progress',message:'Jamie is pricing the confirmed scope.'})
+      const heartbeat=setInterval(()=>send({type:'progress',message:'Jamie is still working. Keep this window open.'}),10000)
+      try {
+        const response=await runEstimate()
+        const payload=await response.json()
+        send(response.ok ? {type:'result',result:payload} : {type:'error',error:payload.error})
+      } catch {send({type:'error',error:'The connection was interrupted. Reopen Jamie to recover the saved result.'})}
+      finally {clearInterval(heartbeat);if(!disconnected)controller.close()}
+    },
+    cancel(){disconnected=true},
+  })
+  return new Response(stream,{headers:{...cors,'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'}})
+
 })
