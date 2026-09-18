@@ -84,6 +84,21 @@ export function AskJamieModal({
   const [filesLoading,setFilesLoading]=useState(true)
   const [filesError,setFilesError]=useState('')
   const [projectId,setProjectId]=useState('')
+  const [recovered,setRecovered]=useState<{result:JamieResult;scope_input:string}|null>(null)
+  useEffect(()=>{
+    if(!open)return
+    let active=true
+    setRecovered(null)
+    void (async()=>{
+      const [{data:runs},{count}]=await Promise.all([
+        supabase.from('jamie_runs').select('result,scope_input').eq('work_area_id',workAreaId).eq('status','ok').order('created_at',{ascending:false}).limit(1),
+        supabase.from('work_area_lines').select('id',{count:'exact',head:true}).eq('work_area_id',workAreaId),
+      ])
+      const saved=runs?.[0]
+      if(active && count===0 && saved?.result?.line_items?.length>0)setRecovered(saved as {result:JamieResult;scope_input:string})
+    })()
+    return ()=>{active=false}
+  },[open,workAreaId])
   useEffect(()=>{
     if(!open) return
     let active=true
@@ -259,6 +274,7 @@ export function AskJamieModal({
       {/* ── INPUT ── */}
       {phase === 'input' && (
         <div className="space-y-4">
+          {recovered && <section className="rounded border border-blue-200 bg-blue-50 p-3"><p>Jamie finished a previous pricing request. Recover it without pricing again, then review before adding.</p><button type="button" className="mt-2 rounded bg-brand-navy px-4 py-2 text-white" onClick={()=>{setResult(recovered.result);setScope(recovered.scope_input);setRecovered(null);setPhase('review')}}>Review recovered estimate</button></section>}
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
               Scope of work
