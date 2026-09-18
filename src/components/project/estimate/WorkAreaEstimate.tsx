@@ -303,6 +303,7 @@ export function WorkAreaEstimate({
           : line.catalog_item_id ? 'Linked to a catalog item. Saved estimate rate shown; supplier verification is not recorded here.'
           : 'Saved estimate rate. Original price source is not recorded here.',
       }))} />
+      <p className="px-4 py-2 text-xs text-gray-500">Cost per excludes purchase tax. New materials default to 6.25%; use 0 when exempt or tax is already included. Existing items retain their saved tax rate. Tax is included before markup.</p>
       {/* Only-populated categories (QC model — no empty subsections) */}
       {PROPOSAL_LINE_CATEGORY_ORDER.map((cat) => {
         const catLines = byCategory[cat]
@@ -313,7 +314,7 @@ export function WorkAreaEstimate({
           catLines.map((l) => estimateLineTotal(l, settings))
         )
         return (
-          <div key={cat} className="border-b border-blue-100/70 last:border-b-0">
+          <div key={cat} className="min-w-[850px] border-b border-blue-100/70 last:border-b-0">
             <div className={`flex items-center gap-2 px-3 py-1.5 sm:px-4 ${CATEGORY_TINTS[cat]}`}>
               {CATEGORY_ICONS[cat]}
               <h4 className="text-[11px] font-bold uppercase tracking-wide">
@@ -332,8 +333,10 @@ export function WorkAreaEstimate({
             <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 sm:gap-3 sm:px-4">
               <div className="w-4 shrink-0" />
               <div className="min-w-[140px] flex-[2]">Item</div>
+              <div className="w-16 shrink-0 text-right">UOM</div>
               <div className="w-16 text-right sm:w-20">Qty</div>
-              <div className="w-20 text-right sm:w-24">Cost</div>
+              <div className="w-20 text-right sm:w-24">Cost per</div>
+              <div className="w-20 shrink-0 text-right">Tax %</div>
               <div className="w-16 text-right sm:w-20">Markup</div>
               <div className="w-24 text-right sm:w-28">Price</div>
               <div className="w-5 shrink-0" />

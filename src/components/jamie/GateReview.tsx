@@ -21,6 +21,7 @@ import type {
   WorkAreaDecision,
 } from '@/lib/jamieLoop'
 import {
+  estimateLineTotal,
   categoryBearsMarkup,
   formatUSD,
   liveMarkupPercent,
@@ -353,7 +354,7 @@ export function LineGate({
     const q = num(cells.qty)
     const c = num(cells.cost)
     if (q === null || c === null) return 0
-    return q * c * (1 + markupFor(category, cells.markup) / 100)
+    return estimateLineTotal({category, quantity:q, unit_cost:c, price_override:null, markup_override:markupFor(category,cells.markup), sales_tax_percent:category === "material" ? 6.25 : 0},markups)
   }
   const markupFor = (category: JamieLineCategory, typed: string) => {
     if (!categoryBearsMarkup(category)) return 0
@@ -446,7 +447,7 @@ export function LineGate({
             <div className="space-y-1">
               {g.lines.map((l) => {
                 const s = state[l.id] ?? { approved: true, qty: '', cost: '', markup: '', price: '' }
-                const base = (num(s.qty) ?? 0) * (num(s.cost) ?? 0)
+                const base = (num(s.qty) ?? 0) * (num(s.cost) ?? 0) * (l.category === "material" ? 1.0625 : 1)
                 const bears = categoryBearsMarkup(l.category)
                 // KYN: material/sub/other carry the contractor's markup;
                 // labor and equipment are already fully burdened at their
@@ -578,7 +579,7 @@ export function LineGate({
                     <p className="pl-5.5 text-[11px] leading-snug text-gray-400">
                       {mk > 0 && !priceOverridden && (
                         <span>
-                          {formatUSD(base)} cost + {mk}%{num(s.markup) !== null ? ' (custom)' : ''} ={' '}
+                          {formatUSD(base)} cost {l.category === "material" && "(includes 6.25% purchase tax)"} + {mk}%{num(s.markup) !== null ? ' (custom)' : ''} ={' '}
                           {formatUSD(total)}.{' '}
                         </span>
                       )}

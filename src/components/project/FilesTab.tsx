@@ -1,3 +1,4 @@
+import { FileThumbnail } from './FileThumbnail'
 import {Modal} from '@/components/Modal'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -12,7 +13,7 @@ import {
 
   Download,
 
-  FileText,
+
 
   FolderUp,
 
@@ -532,7 +533,7 @@ export default function FilesTab({ projectId, onChange }: FilesTabProps) {
 
                     >
 
-                      <FileText className="h-4 w-4 shrink-0 text-gray-400" />
+                      <FileThumbnail file={file} onOpen={() => void handleOpen(file)} />
 
                       <div className="min-w-0 flex-1">
 

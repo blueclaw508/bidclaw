@@ -202,6 +202,7 @@ export function liveMarkupPercent(
 
 /** Minimal shape of a live estimate line (structural — accepts WorkAreaLine). */
 export interface EstimateMoneyLine {
+  sales_tax_percent?: number | string
   category: ProposalLineCategory
   quantity: number | string
   unit_cost: number | string
@@ -211,9 +212,13 @@ export interface EstimateMoneyLine {
 }
 
 /** Pre-markup amount for a live line: quantity × unit_cost. */
+export function estimateUnitCostWithTax(line: Pick<EstimateMoneyLine, "unit_cost" | "sales_tax_percent">): number {
+  return Number(line.unit_cost) * (1 + Number(line.sales_tax_percent ?? 0) / 100)
+}
+
 export function estimateLineBase(line: EstimateMoneyLine): number {
   const q = Number(line.quantity)
-  const c = Number(line.unit_cost)
+  const c = estimateUnitCostWithTax(line)
   if (!Number.isFinite(q) || !Number.isFinite(c)) return 0
   return roundMoney(q * c)
 }
@@ -256,6 +261,6 @@ export function estimateLineTotal(
 export function frozenEstimatePriceOverride(line: EstimateMoneyLine, settings: LiveMarkupSettings): number | null {
   const reviewed = estimateLineTotal(line, settings)
   if (line.price_override !== null && line.price_override !== undefined && Number.isFinite(Number(line.price_override))) return reviewed
-  const computed = lineTotal({quantity:line.quantity,frozen_unit_cost:line.unit_cost,frozen_markup_percent:effectiveMarkupPercent(line,settings)})
+  const computed = lineTotal({quantity:line.quantity,frozen_unit_cost:estimateUnitCostWithTax(line),frozen_markup_percent:effectiveMarkupPercent(line,settings)})
   return computed === reviewed ? null : reviewed
 }

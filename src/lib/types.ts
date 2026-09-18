@@ -128,6 +128,7 @@ export interface WorkArea {
  * Freezing into proposal_lines happens at proposal GENERATION (R4).
  */
 export interface WorkAreaLine {
+  sales_tax_percent?: number
   id: string
   work_area_id: string
   category: ProposalLineCategory

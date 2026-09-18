@@ -198,11 +198,13 @@ export function AskJamieModal({
         category: jamieCategoryToDb(li.category),
         quantity: li.qty,
         unit_cost: li.unit_cost,
+        sales_tax_percent: jamieCategoryToDb(li.category) === "material" ? 6.25 : 0,
         price_override: null,
       },
       settings
     )
 
+  // New material prices include purchase tax before markup.
   const grandTotal = result?.line_items.reduce((s, li) => s + previewPrice(li), 0) ?? 0
 
   /*
@@ -468,7 +470,7 @@ export function AskJamieModal({
                       Estimated total
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-brand-navy">
-                      {formatUSD(grandTotal)}
+                      {formatUSD(grandTotal)}<span className="block text-xs font-normal">Includes 6.25% purchase tax on materials before markup.</span>
                     </td>
                   </tr>
                 </tbody>

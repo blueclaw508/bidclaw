@@ -30,6 +30,7 @@ export async function addWorkAreaLine(input: {
   label: string
   unit: string
   quantity: number
+  salesTaxPercent?: number
   unitCost: number
   sortOrder: number
   catalogItemId?: string | null
@@ -45,6 +46,7 @@ export async function addWorkAreaLine(input: {
       unit: input.unit,
       quantity: input.quantity,
       unit_cost: input.unitCost,
+      sales_tax_percent: input.salesTaxPercent ?? (input.category === "material" ? 6.25 : 0),
       price_override: input.priceOverride ?? null,
       catalog_item_id: input.catalogItemId ?? null,
       source_kit_id: input.sourceKitId ?? null,
@@ -73,6 +75,7 @@ export async function updateWorkAreaLine(
       | 'unit'
       | 'quantity'
       | 'unit_cost'
+      | 'sales_tax_percent'
       | 'price_override'
       | 'markup_override'
       | 'sort_order'
@@ -111,7 +114,8 @@ export async function addWorkAreaLinesBulk(
     label: string
     unit: string
     quantity: number
-    unitCost: number
+    salesTaxPercent?: number
+  unitCost: number
     sortOrder: number
     catalogItemId?: string | null
     sourceKitId?: string | null
@@ -128,6 +132,7 @@ export async function addWorkAreaLinesBulk(
         unit: r.unit,
         quantity: r.quantity,
         unit_cost: r.unitCost,
+        sales_tax_percent: r.salesTaxPercent ?? (r.category === "material" ? 6.25 : 0),
         price_override: null,
         catalog_item_id: r.catalogItemId ?? null,
         source_kit_id: r.sourceKitId ?? null,

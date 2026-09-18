@@ -81,6 +81,9 @@ export function WorkAreaLineRow({
           />
         </div>
 
+        <div className="w-16 shrink-0" title="Unit of measure: TN, CY, EA, LS, or your own unit">
+          <BlurSaveInput value={line.unit} onSave={(v) => onPatch({unit: v.trim().slice(0,40)})} placeholder="UOM" className={numInputClasses} />
+        </div>
         {/* Qty */}
         <div className="w-16 shrink-0 sm:w-20">
           <DecimalInput
@@ -106,6 +109,9 @@ export function WorkAreaLineRow({
           />
         </div>
 
+        <div className="w-20 shrink-0" title="Purchase sales tax percent, added to cost before markup. Use 0 if exempt or tax is already included.">
+          <DecimalInput value={line.sales_tax_percent ?? 0} onCommit={(n) => onPatch({sales_tax_percent: Math.max(0, Math.min(100, n ?? 0))})} ariaLabel="Purchase sales tax percent" className={numInputClasses} />
+        </div>
         {/* Markup — editable per line; blank/× returns to your live markup */}
         <div className="w-16 shrink-0 sm:w-20">
           {bearsMarkup ? (
@@ -208,7 +214,7 @@ export function WorkAreaLineRow({
       {/* QC-style breakdown subtitle for markup-bearing lines */}
       {bearsMarkup && Number(line.quantity) > 0 && Number(line.unit_cost) > 0 && (
         <div className="ml-1 mt-1 text-xs text-gray-400">
-          {Number(line.quantity)} × {formatUSD(Number(line.unit_cost))} cost +{' '}
+          {Number(line.quantity)} × {formatUSD(Number(line.unit_cost))} cost + {Number(line.sales_tax_percent ?? 0)}% purchase tax +{' '}
           {markupPct.toFixed(2)}%{markupOverridden && ' (custom)'} ={' '}
           {formatUSD(base * (1 + markupPct / 100))}
           {overridden && (

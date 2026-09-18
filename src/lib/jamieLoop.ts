@@ -981,6 +981,7 @@ export async function commitLineGate(
         unit: (row.unit as string) ?? '',
         quantity: d?.quantity ?? (row.quantity as number) ?? 0,
         unit_cost: cost,
+        sales_tax_percent: category === "material" ? 6.25 : 0,
         price_override: priceOverride,
         markup_override: markupOverride,
         catalog_item_id: catalogItemId,
