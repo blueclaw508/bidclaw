@@ -126,6 +126,7 @@ export function AskJamieModal({
       return
     }
     const nextScope = answerText ? `${scope.trim()}\n\n${answerText}` : scope.trim()
+    setScope(nextScope) // Keep confirmed answers even if the request fails.
     asking.current = true
     setPhase('loading')
     try {
