@@ -29,7 +29,11 @@ export function canApplySingleAreaResult(result: { gap_questions: string[]; line
 }
 
 /** Shared by both estimating entry points so their labor assumptions agree. */
-export const LABOR_BASIS_RULES = `LABOR BASIS:
+export const LABOR_BASIS_RULES = `MATERIAL UNITS AND PURCHASE TAX:
+Use CY (cubic yards) for loose aggregates and fines, including gravel, crushed stone, sand, stone dust and screenings. Calculate measured volume in cubic feet / 27; state waste and compaction separately. Never change a ton quantity or $/ton price to CY merely by changing the unit label. When a supplier quotes TN, use only a supplier- or contractor-confirmed tons-per-CY density: CY = TN / density and $/CY = $/TN * density. Show the source, density and both conversions in reasoning. Densities vary by material and moisture; do not invent a universal density. If the density is missing, ask once or leave the CY unit cost at 0 for contractor review; retain the known ton quote in reasoning. Do not re-ask already supplied dimensions. Catalog supplier-quote validation may require confirmation of a converted CY price.
+All material unit_cost values are BEFORE purchase sales tax. The app adds 6.25% purchase tax to new material lines before markup. Never embed that tax in unit_cost or charge it twice. If a source price includes tax, explicitly back it out and explain the calculation.
+
+LABOR BASIS:
 Estimate person-hours by task and labor role. Show measured quantity x person-hours per unit = person-hours, or the contractor's explicit worker count x hours per worker. State whether each production factor comes from this job's instructions, a matching company kit, or an unverified estimating assumption.
 Never assume a fixed crew size or shift length. Never round labor up to a half-day or full-day minimum unless the contractor explicitly supplies that minimum for this job. Do not apply a minimum separately to every work area when it is a shared crew shift.
 Person-hours are not elapsed hours. Describe elapsed duration only when worker counts and scheduling are known; one mason for 6 hours plus one helper for 6 hours is 12 person-hours, not a 12-hour shift.

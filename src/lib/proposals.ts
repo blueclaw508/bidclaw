@@ -31,6 +31,7 @@ import {
   categoryBearsMarkup,
   effectiveMarkupPercent,
   frozenEstimatePriceOverride,
+  estimateUnitCostWithTax,
   resolveMarkups,
   type LiveMarkupSettings,
   lineBase,
@@ -598,7 +599,7 @@ export async function generateProposalFromEstimates(input: {
           label: l.label.trim(),
           unit: l.unit,
           quantity: Number(l.quantity),
-          frozen_unit_cost: Number(l.unit_cost),
+          frozen_unit_cost: estimateUnitCostWithTax(l),
           frozen_labor_rate: null,
           frozen_equipment_rate: null,
           // Freeze the line's EFFECTIVE markup (per-line override wins over the

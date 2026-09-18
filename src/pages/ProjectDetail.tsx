@@ -166,7 +166,7 @@ export default function ProjectDetailPage() {
         supabase
           .from('work_areas')
           .select(
-            'id, work_area_lines(category, quantity, unit_cost, price_override, markup_override)'
+            'id, work_area_lines(category, quantity, unit_cost, sales_tax_percent, price_override, markup_override)'
           )
           .eq('project_id', projectId),
         loadCompanySettings().catch(() => null),
