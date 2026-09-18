@@ -1,3 +1,4 @@
+import {CLARIFICATION_SCHEMA,SINGLE_AREA_CLARIFY_PROMPT,SINGLE_AREA_MEASUREMENT_RULES,parseSingleAreaResponse} from '../_shared/singleAreaResponse.ts'
 import {SCOPE_FORMAT_RULES,bulletScope} from '../_shared/scopeFormat.ts'
 import {syncProjectFiles,fileBlocks,FILES_BETA} from '../_shared/projectFiles.ts'
 import {MEDIA_EVIDENCE_RULES} from '../_shared/mediaPolicy.ts'
@@ -275,31 +276,34 @@ Deno.serve(async (req: Request) => {
 
   // 6. Call Claude. Adaptive thinking (estimating IS reasoning) + structured
   //    output (the text block is guaranteed valid JSON matching OUTPUT_SCHEMA).
-  //    Non-streaming: a single work area's estimate is small and max_tokens
-  //    (12k) is under the streaming threshold, so no HTTP-timeout risk.
+  //    Clarification uses its own compact schema without takeoff reasoning.
+  //    Reject incomplete structured output before parsing or applying it.
   const startedAt = new Date().toISOString() // J1c metering
   try {
     // deno-lint-ignore no-explicit-any
     const params: any = {
       model: MODEL,
-      max_tokens: 12000,
-      thinking: { type: 'adaptive' },
+      max_tokens: priceMode ? 16000 : 4000,
+      thinking: priceMode ? { type: 'adaptive' } : { type: 'disabled' },
       output_config: {
         effort: priceMode ? 'high' : 'medium',
-        format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
+        format: { type: 'json_schema', schema: priceMode ? OUTPUT_SCHEMA : CLARIFICATION_SCHEMA },
       },
-      system: cachedSystemPrompt(system+'\n'+SCOPE_FORMAT_RULES+'\n'+MEDIA_EVIDENCE_RULES+'\n'+QUESTION_RULES+'\n'+(priceMode?'The contractor has reviewed the clarification summary. Price only the confirmed scope.':'CLARIFICATION ONLY: return line_items: [] and new_catalog_items: []. Ask missing details or return a measurement_summary ready for review. Do not price yet.')),
+      system: cachedSystemPrompt((priceMode ? system+'\n'+SCOPE_FORMAT_RULES+'\n'+QUESTION_RULES+'\n'+SINGLE_AREA_MEASUREMENT_RULES+'\nPrice only the confirmed scope. Keep each line reasoning under 45 words. Do not repeat the full scope in each line.' : SINGLE_AREA_CLARIFY_PROMPT)+'\n'+MEDIA_EVIDENCE_RULES),
       messages: [{ role: 'user', content: userContent }],
     }
     const modelStarted = performance.now()
     const message = await anthropic.beta.messages.create({...params,betas:[FILES_BETA]})
     console.info('jamie_timing', { action: 'single_area', phase: 'model', duration_ms: Math.round(performance.now() - modelStarted), cached_input_tokens: message.usage?.cache_read_input_tokens ?? 0 })
 
-    const textBlock = message.content.find((b) => b.type === 'text')
-    if (!textBlock || textBlock.type !== 'text') {
-      throw new Error('Jamie returned no estimate.')
+    const raw = parseSingleAreaResponse(message)
+    if(!priceMode) {
+      raw.measurement_summary=raw.summary
+      raw.scope_description=''
+      raw.client_scope_description=''
+      raw.line_items=[]
+      raw.new_catalog_items=[]
     }
-    const raw = JSON.parse(textBlock.text)
     raw.scope_description=bulletScope(raw.scope_description)
     raw.client_scope_description=bulletScope(raw.client_scope_description)
     const clarification = normalizeClarification(raw)
